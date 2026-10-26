@@ -1208,7 +1208,9 @@ const Sim = (() => {
           const put = e.type === 'goal' && Array.isArray(e.put) && inBounds(e.put[0], e.put[1]) && Number.isFinite(floorAt(L, e.put[0], e.put[1]))
             ? { x: e.put[0], z: e.put[1], facing: (r => Math.atan2(Math.sin(r), -Math.cos(r)))((e.put[2] ?? 180) * Math.PI / 180) } : null;
           L.entities.push({ type: e.type, x: e.x, z: e.z, y: f, radius: e.radius ?? 1.5, speed: e.speed ?? 1.2, skin: skinOf(e),
-            kind: MON_KINDS.has(e.kind) ? e.kind : 'rings', chase: e.chase ? 1 : 0, orbit: e.orbit > 0 ? e.orbit : 0, orbitY: e.orbitY ?? 0.6, put });
+            kind: MON_KINDS.has(e.kind) ? e.kind : 'rings', chase: e.chase ? 1 : 0, orbit: e.orbit > 0 ? e.orbit : 0, orbitY: e.orbitY ?? 0.6, put,
+            // an enemy may walk to and fro along x or z between two values instead of round its spot
+            patrol: e.patrol && (e.patrol.axis === 'x' || e.patrol.axis === 'z') && Array.isArray(e.patrol.range) && e.patrol.range.length === 2 && e.patrol.range.every(Number.isFinite) && e.patrol.range[1] > e.patrol.range[0] ? { axis: e.patrol.axis, range: e.patrol.range } : null });
           break;
         }
         // a spiked crawler (Rusty Ruin): rolls along "axis" ('x' or 'z') between the two values of "range" at height "y"
@@ -1317,6 +1319,33 @@ const Sim = (() => {
         // Diamond Dust: ice turns on entering an `on` cell and off entering an `off` cell (the original's $0ACA: its slippery
         // table, see P.orig); ice spikes hurt until broken by a grounded roll; a low roof (`top` m) stops jumps in its cells
         // and walls them off from a player in the air outside
+        // Volcano Valley: lava cells (hurt a grounded player without the fire shield), rocks ([x, z, top]: raised until a
+        // player lands on one in a ball, which breaks it and bounces them), vents (stood on still: drawn in, then thrown
+        // out of the other one at `vel`), jet lifts (a box rising while stood on, sinking back when not) and fire spots
+        case 'lava': case 'rocks': {
+          if (!Array.isArray(e.cells) || !e.cells.every(c => Array.isArray(c) && inBounds(c[0], c[1]) && (e.type === 'lava' || Number.isFinite(c[2])))) {
+            errs.push(`"${e.type}" needs "cells" inside the map${e.type === 'rocks' ? ', each [x, z, top]' : ''}.`); break;
+          }
+          L.entities.push({ type: e.type, cells: e.cells.map(c => e.type === 'rocks' ? [Math.floor(c[0]), Math.floor(c[1]), c[2]] : [Math.floor(c[0]), Math.floor(c[1])]) });
+          break;
+        }
+        case 'vent': {
+          const three = v => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite);
+          if (!inBounds(e.x, e.z) || !three(e.to) || !inBounds(e.to[0], e.to[2]) || !three(e.vel)) { errs.push(`A vent at (${e.x}, ${e.z}) needs "to" [x, y, z] on the map and a "vel" [vx, vy, vz].`); break; }
+          L.entities.push({ type: 'vent', x: e.x, z: e.z, to: e.to, vel: e.vel });
+          break;
+        }
+        case 'jetLift': {
+          const box = [e.x0, e.x1, e.z0, e.z1, e.y0, e.y1];
+          if (!box.every(Number.isFinite) || !(e.x1 > e.x0 && e.z1 > e.z0 && e.y1 >= e.y0) || !inBounds(e.x0, e.z0)) { errs.push('A jet lift needs a box "x0" < "x1", "z0" < "z1" and heights "y0" <= "y1".'); break; }
+          L.entities.push({ type: 'jetLift', x0: e.x0, x1: e.x1, z0: e.z0, z1: e.z1, y0: e.y0, y1: e.y1, skin: skinOf(e) });
+          break;
+        }
+        case 'fireSpot': {
+          if (!inBounds(e.x, e.z) || !Number.isFinite(e.y)) { errs.push(`A fire spot at (${e.x}, ${e.z}) needs a place and a height "y".`); break; }
+          L.entities.push({ type: 'fireSpot', x: e.x, y: e.y, z: e.z, r: e.r > 0 ? e.r : 0.4 });
+          break;
+        }
         case 'ice': case 'iceSpikes': case 'lowRoof': {
           const okCells = a => Array.isArray(a) && a.every(c => Array.isArray(c) && inBounds(c[0], c[1]));
           if (e.type === 'ice' ? !(okCells(e.on) && okCells(e.off)) : !okCells(e.cells) || (e.type === 'lowRoof' && !Number.isFinite(e.top))) {
@@ -1566,6 +1595,9 @@ const Sim = (() => {
       iceSpikes: new Map(L.entities.filter(e => e.type === 'iceSpikes').flatMap(e => e.cells.map(([cx, cz]) => [cz * L.width + cx, true]))),
       roofs: new Map(L.entities.filter(e => e.type === 'lowRoof').flatMap(e => e.cells.map(([cx, cz]) => [cz * L.width + cx, e.top]))),
       ice: false, iceCell: -1,
+      lava: new Set(L.entities.filter(e => e.type === 'lava').flatMap(e => e.cells.map(([cx, cz]) => cz * L.width + cx))),
+      rockList: L.entities.filter(e => e.type === 'rocks').flatMap(e => e.cells.map(([cx, cz, top]) => [cz * L.width + cx, top])),
+      vents: L.entities.filter(e => e.type === 'vent'), fireSpots: L.entities.filter(e => e.type === 'fireSpot'),
       spearCells: new Set(L.entities.filter(e => e.type === 'spears').flatMap(e => e.cells.map(([cx, cz]) => cz * L.width + cx))),
       spikeWall: new Map(L.entities.filter(e => e.type === 'spikeWall').flatMap(e => e.cells.map(([cx, cz]) => [cz * L.width + cx, e.top]))),
       p: null,
@@ -1579,7 +1611,7 @@ const Sim = (() => {
     w.ringCount = 0; w.loose.length = 0; w.cleared = false; w.section = 0; w.spawn = null; w.inGoal = false; w.warpedAt = -9; w.padOff = null;
     w.flickies = []; w.delivered = 0; w.saved = 0; w.trail = []; w.seed = 12345;
     for (const g of w.rings) g.got = false;
-    w.enemies = L.entities.filter(e => e.type === 'enemy').map((e, i) => ({ x0: e.x, z0: e.z, x: e.x, z: e.z, y: e.y, radius: e.radius, speed: e.speed, chase: e.chase, ang: i * 1.7, alive: true, diedAt: -9, skin: e.skin,
+    w.enemies = L.entities.filter(e => e.type === 'enemy').map((e, i) => ({ x0: e.x, z0: e.z, x: e.x, z: e.z, y: e.y, radius: e.radius, speed: e.speed, chase: e.chase, ang: i * 1.7, alive: true, diedAt: -9, skin: e.skin, patrol: e.patrol, pdir: 1,
       orbit: e.orbit || 0, orbitY: e.orbitY || 0, phase: i * 1.7, ball: e.orbit ? { x: e.x, y: e.y, z: e.z } : null }));
     w.monitors = L.entities.filter(e => e.type === 'monitor').map(e => ({ x: e.x, z: e.z, y: e.y, broken: false, skin: e.skin, kind: e.kind || 'rings' }));
     w.mines = L.entities.filter(e => e.type === 'mine').map(e => ({ x: e.x, z: e.z, y: e.y, alive: true, diedAt: -9, skin: e.skin }));
@@ -1593,6 +1625,8 @@ const Sim = (() => {
     for (const c of w.cracks) for (const [cx, cz, top] of c.cells) L.up.set(cz * L.width + cx, top);
     w.lifts = L.entities.filter(e => e.type === 'lift').map(e => ({ ...e, cell: Math.floor(e.z) * L.width + Math.floor(e.x), top: e.y, t: -1 }));
     for (const f of w.lifts) L.up.set(f.cell, f.top);
+    w.rocks = new Map(w.rockList); for (const [t, top] of w.rocks) L.up.set(t, top);
+    w.jets = L.entities.filter(e => e.type === 'jetLift').map(e => ({ ...e, top: e.y0 }));
     initBoss(w);
     w.maces = L.entities.filter(e => e.type === 'mace').map((e, i) => ({ ...e, phase: i * 1.3 }));
     w.flames = L.entities.filter(e => e.type === 'flame').map(e => ({ ...e, cool: 0 })); w.puffs = [];
@@ -1692,6 +1726,7 @@ const Sim = (() => {
   // is on it or above it (no stepping up onto one)
   function platFloor(w, p, f, up) {
     for (const q of w.plats) if (p.x >= q.x0 && p.x <= q.x1 && p.z >= q.z0 && p.z <= q.z1 && q.top <= p.y + up && !(q.top <= f)) f = q.top;
+    for (const q of w.jets) if (p.x >= q.x0 && p.x <= q.x1 && p.z >= q.z0 && p.z <= q.z1 && q.top <= p.y + up && !(q.top <= f)) f = q.top;
     return f;
   }
   // Spring Stadium 3 (see s3d.js BOSSES): RunLevel_SSz3's moves in its units a frame; angles of 2048 a turn, 0 along
@@ -1922,7 +1957,7 @@ const Sim = (() => {
     w.p = { x: s.x, y: floorAt(w.L, s.x, s.z), z: s.z, vx: 0, vy: 0, vz: 0, grounded: true, coyote: 0,
       rolling: false, ball: false, sprung: false, charge: 0, facing: s.facing, jumping: false, prevJump: false, prevDash: false, invuln: 0,
       shield: null, inv: 0, fast: 0, boost: null, goldUsed: false, dashHeld: 0, cannon: null, flyT: 0, whirl: false, whirlHold: 0,
-      ride: null, auto: null, pad: null, slideT: 0, slideDir: null, lock: 0, force: null, bumpCell: -1, chute: null, sled: null, frozen: 0, dashCell: -1 };
+      ride: null, auto: null, pad: null, slideT: 0, slideDir: null, lock: 0, force: null, bumpCell: -1, chute: null, sled: null, frozen: 0, dashCell: -1, vent: null };
     if (s.auto) w.p.auto = autoWalk(w);
     if (w.boss) initBoss(w);
     // starting again on a pad (a ring stands over one) does not set it off until the player steps off it
@@ -2038,6 +2073,19 @@ const Sim = (() => {
     }
 
     // a supercharger holds the player on it, revving in a ball, then fires them along its direction
+    if (p.vent) {   // drawn in 30 frames, sinking 16, held at the other vent 20 (the original waits for its camera), thrown out
+      const V = p.vent, v = V.v, vs = L.rom ? L.rom.vscale : 1;
+      V.t++; p.vx = p.vz = p.vy = 0; p.ball = true; p.charge = 0; p.grounded = true;
+      if (V.t <= 30) { const cx = Math.floor(v.x) + 0.5, cz = Math.floor(v.z) + 0.5; p.x += (cx - p.x) * 0.2; p.z += (cz - p.z) * 0.2; }
+      else if (V.t <= 46) { p.y -= 2 * vs / 32; p.grounded = false; }
+      else if (V.t === 47) { [p.x, p.y, p.z] = v.to; w.events.push('warp'); }
+      else if (V.t >= 67) {
+        [p.vx, p.vy, p.vz] = v.vel; p.grounded = false; p.jumping = false; p.vent = null; p.lock = 8 / 60;
+        if (Math.hypot(v.vel[0], v.vel[2]) > 0.1) p.facing = Math.atan2(v.vel[0], v.vel[2]);
+        w.events.push('ventOut');
+      }
+      return w;
+    }
     if (p.boost) {
       const b = p.boost;
       b.t += dt; p.x = b.pad.x; p.z = b.pad.z; p.y = b.pad.y; p.vx = p.vz = p.vy = 0; p.ball = true; p.charge = 0;
@@ -2219,7 +2267,7 @@ const Sim = (() => {
         if (dot < 0) { p.vx -= nrm[0] * dot * kb; p.vz -= nrm[1] * dot * kb; }
       }
       let f = floorAt(L, p.x, p.z);
-      if (w.plats.length) f = platFloor(w, p, f, p.grounded ? L.phys.stepUp : 0.02);
+      if (w.plats.length || w.jets.length) f = platFloor(w, p, f, p.grounded ? L.phys.stepUp : 0.02);
       if (p.grounded) {
         if (!Number.isFinite(f) || p.y - f > L.phys.snapDown) { p.grounded = false; p.coyote = P.coyote; p.vy = 0; }
         else p.y = f;
@@ -2227,8 +2275,15 @@ const Sim = (() => {
         p.y += p.vy * sdt;
         if (L.rom && Number.isFinite(f) && p.y < f && f - p.y <= L.phys.stepUp) p.y = f;
         if (p.vy <= 0 && Number.isFinite(f) && p.y <= f) {
+          const wasBall = p.ball;
           p.y = f; p.vy = 0; p.grounded = true; p.jumping = false; p.coyote = 0; p.ball = p.rolling; p.sprung = false; p.goldUsed = false;
           w.events.push('land');
+          // a rock landed on in a ball breaks and bounces the player 4.5 units a frame up (helper 0xBBC0)
+          const rt = Math.floor(p.z) * L.width + Math.floor(p.x);
+          if (wasBall && w.rocks.has(rt) && Math.abs(p.y - w.rocks.get(rt)) < 0.05) {
+            w.rocks.delete(rt); L.up.delete(rt); p.vy = 4.5 * 60 / 32 * (L.rom ? L.rom.vscale : 1); p.grounded = false; p.ball = true; p.jumping = false;
+            w.events.push('rockBreak');
+          }
         }
       }
     }
@@ -2303,6 +2358,25 @@ const Sim = (() => {
     }
     // ice (Diamond Dust, helper 0x10E78): listed cells turn the slippery table on or off
     if (cell !== w.iceCell) { w.iceCell = cell; if (w.iceOn.has(cell)) w.ice = true; else if (w.iceOff.has(cell)) w.ice = false; }
+    // lava (helper 0xB5C8: low byte 0x55) hurts a grounded player without the fire shield
+    if (w.lava.size && p.grounded && w.lava.has(cell) && !w.rocks.has(cell) && p.shield !== 'fire' && p.inv <= 0 && p.invuln <= 0) {
+      w.events.push('lava'); hurt(w, -p.vx, -p.vz); if (w.events.includes('respawn')) return w;
+    }
+    // fire spots (object 120) and the like burn without the fire shield
+    for (const q of w.fireSpots) {
+      if (p.shield === 'fire' || p.inv > 0 || p.invuln > 0) break;
+      if (Math.hypot(p.x - q.x, p.z - q.z) < q.r + P.r * 0.5 && p.y < q.y + 0.6 && p.y + 0.9 > q.y) { hurt(w, p.x - q.x, p.z - q.z); if (w.events.includes('respawn')) return w; }
+    }
+    // jet lifts (object 12C): rise a unit a frame while stood on, sink back when not
+    for (const q of w.jets) {
+      const on = p.grounded && p.x >= q.x0 && p.x <= q.x1 && p.z >= q.z0 && p.z <= q.z1 && Math.abs(p.y - q.top) < 0.05, V = (L.rom ? L.rom.vscale : 1) / 32;
+      const was = q.top; q.top = on ? Math.min(q.y1, q.top + V) : Math.max(q.y0, q.top - V);
+      if (on) p.y += q.top - was;
+    }
+    // vents (helper 0xB764): stood on slowly (2 units a frame or less), the player is drawn in for 30 frames, sinks, comes
+    // up at the other vent and is thrown out (the routine's own speed); the pad is the routine's meanwhile
+    if (!p.vent && w.vents.length && p.grounded && speed <= 2 * 60 / 32 + 1e-6 && !p.ride && !p.frozen)
+      for (const v of w.vents) if (Math.floor(v.x) + Math.floor(v.z) * L.width === cell) { p.vent = { v, t: 0 }; p.rolling = false; p.charge = 0; w.events.push('ventIn'); break; }
     // ice spikes (helpers 0x10EA6, 0x10CC4): a grounded roll breaks one; otherwise standing in one hurts
     if (w.iceSpikes.size && p.grounded && w.iceSpikes.get(cell)) {
       if (p.rolling) { w.iceSpikes.set(cell, false); w.events.push('iceBreak'); }
@@ -2422,6 +2496,11 @@ const Sim = (() => {
       if (near) {
         const d = Math.hypot(ex, ez) || 1, st = Math.min(d, P.chaseSpeed * dt);
         nx = en.x + ex / d * st; nz = en.z + ez / d * st;
+      } else if (en.patrol) {
+        const [lo, hi] = en.patrol.range, ax = en.patrol.axis, v = (ax === 'x' ? en.x : en.z) + en.pdir * en.speed * dt;
+        if (v >= hi) en.pdir = -1; else if (v <= lo) en.pdir = 1;
+        const c = Math.max(lo, Math.min(hi, v));
+        nx = ax === 'x' ? c : en.x; nz = ax === 'z' ? c : en.z;
       } else {
         en.ang += (en.speed / Math.max(0.3, en.radius)) * dt;
         const tx = en.x0 + Math.cos(en.ang) * en.radius, tz = en.z0 + Math.sin(en.ang) * en.radius;
@@ -2457,7 +2536,7 @@ const Sim = (() => {
       if (dx * dx + dz * dz < er2 && Math.abs(pcy - (mo.y + 0.4)) < 0.8 && attacking) {
         mo.broken = true; w.events.push('monitor'); w.power = mo.kind;
         if (mo.kind === 'rings') w.ringCount += 10;
-        else if (mo.kind === 'shield' || mo.kind === 'gold' || mo.kind === 'fire') p.shield = mo.kind === 'fire' ? 'shield' : mo.kind;
+        else if (mo.kind === 'shield' || mo.kind === 'gold' || mo.kind === 'fire') p.shield = mo.kind;   // fire: lava and flames spare you
         else if (mo.kind === 'invincible') p.inv = P.powerTime;
         else if (mo.kind === 'speed') p.fast = P.powerTime;
         else if (mo.kind === 'oneup') w.lives++;
@@ -3277,6 +3356,13 @@ const S3D = (() => {
     // records, cell at +10: map lowered 3 steps and marked 0xFF at the start, so at floor height) broken by a grounded
     // roll; low roofs [cell, cell, top] (no rising above the top in them, walls to a player in the air outside); 0x55 cells
     // are bumpers (grounded, entering: 5 units a frame out across the nearest edge, sound 0xAA)
+    // Volcano Valley 1 (RunLevel 0xA620, labelled VVz2; helpers 0xB5C8 roofs and lava, 0xBBC0 rocks, 0xB764 vents): pads
+    // 110 (tables 0xA826..: record 2 <-> 4 after ring 1, 15 <-> 28 after ring 2); lava = low byte 0x55; rocks: 12-byte
+    // records [screen x, y, x, y, z, cell] (top 16 units over the cell); cracked walls at (59, 55) and (65, 63) broken by
+    // a roll west at 4 units a frame or more; vents: 30-byte records [cell, x.l, y.l, z.l, ...] in pairs, thrown out at
+    // (-2, 8.5 up, -2) units a frame
+    13: { pads: [[0, 1, 1], [2, 3, 2]], lava: 0x55, rocks: [0xAB42, 42], roofs: 0xAA4A, vents: [0xA8F6, 6],
+      cracks: [[[[59, 55]], 680, [-1, 0]], [[[65, 63]], 584, [-1, 0]]] },
     10: { pads: [[0, 1, 1], [2, 3, 2]], rides: [[78, 95, 0, 0x803E, null, null, null, undefined, [400, null]]],
       dashes: [[50, 45, 608, [7.5, 0], 10, 0, 0]], currents: [[96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5]],
       hops: [[[109, 80], [103, 82], [111, 72]], 40], flames: [0xFD5E, 7], freeze: 1,
@@ -3349,7 +3435,12 @@ const S3D = (() => {
   const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
     0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
-    0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring' };   // 0DC: Diamond Dust's snowdrift springs
+    0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',   // 0DC: Diamond Dust's snowdrift springs
+    0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot' };
+  // Volcano Valley: enemies 100 and 108 walk to and fro along x or z between words +0x24 and +0x26 (along x if that holds
+  // x; seen at 1 unit a frame); jet lifts (12C, handler 0x177F6): a box 32 x 48 units from the record (48 x 32 with bit 3
+  // of byte +0x16) rising a unit a frame from +0x24 to +0x26 while stood on; fire (120): burns unless the fire shield
+  const PATROL = new Set([0x100, 0x108]);
   // Spring Stadium's balloons (150, handler 0x164B0): bob 8 units about word +0x26 (phase +0x24, 16 a frame of 2048);
   // touched, they pop and throw Sonic about 43 units up (measured), and are back about 70 frames later
   // Rusty Ruin's spiked crawler (0AC), watched in the emulator: it rolls 1 unit a frame along the foot of a wall between
@@ -3525,7 +3616,7 @@ const S3D = (() => {
       if (!code) continue;
       const x = s16(ob, o + 6), z = s16(ob, o + 0xE);
       // holes (Green Grove): mode 1 = open from the start, 4 = opened by the next big ring; the second record of a pair is 0
-      if (t === 0x1C || t === 0x90 || t === 0xCC) { const mode = u16(ob, o + 0x24); if (mode) holes.push([x, z, mode]); continue; }
+      if (t === 0x1C || t === 0x90 || t === 0xCC || t === 0x110) { const mode = u16(ob, o + 0x24); if (mode) holes.push([x, z, mode]); continue; }
       const kind = KINDS[t];
       if (kind === 'goal' && tableRings) continue;
       if (!kind || !floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) continue;
@@ -3551,6 +3642,17 @@ const S3D = (() => {
       if (kind === 'spring') e.power = springPower(vscale);
       if (t === 0x8C) { e.power = launchFor(vscale, 94); e.absY = r3(s16(ob, o + 0xA) / CELL * vscale); }
       if (kind === 'lift') { e.y = r3(s16(ob, o + 0xA) / CELL * vscale); e.drop = r3(84 / CELL * vscale); }
+      if (kind === 'enemy' && PATROL.has(t)) {
+        const a = s16(ob, o + 0x24), b = s16(ob, o + 0x26), alongX = a <= x && x <= b;
+        if (b > a) { e.patrol = { axis: alongX ? 'x' : 'z', range: alongX ? [r3(a / CELL - x0), r3(b / CELL - x0)] : [r3(a / CELL - z0), r3(b / CELL - z0)] }; e.speed = r3(60 / CELL); }
+      }
+      if (kind === 'jetLift') {
+        const flip = (ob[o + 0x16] >> 3) & 1, sx = flip ? 48 : 32, sz = flip ? 32 : 48;
+        delete e.x; delete e.z;
+        Object.assign(e, { x0: r3((x - 1) / CELL - x0), x1: r3((x - 1 + sx) / CELL - x0), z0: r3((z - 1) / CELL - z0), z1: r3((z - 1 + sz) / CELL - z0),
+          y0: r3((s16(ob, o + 0x24) + 8) / CELL * vscale), y1: r3((s16(ob, o + 0x26) + 8) / CELL * vscale) });
+      }
+      if (kind === 'fireSpot') e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
       if (kind === 'crawler') {
         const a = s16(ob, o + 0x24), b = s16(ob, o + 0x26), alongX = a <= x && x <= b;
         e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); e.axis = alongX ? 'x' : 'z';
@@ -3683,6 +3785,23 @@ const S3D = (() => {
     if (gm.roofs) for (let o = gm.roofs; s16(d, o) >= 0; o += 6) {
       const cells = [u16(d, o) >> 1, u16(d, o + 2) >> 1].filter(c => floorCell(c % 128, c >> 7)).map(c => [c % 128 - x0, (c >> 7) - z0]);
       if (cells.length) ents.push({ type: 'lowRoof', cells, top: r3((u16(d, o + 4) + 8) / CELL * vscale) });
+    }
+    if (gm.lava !== undefined) { const cells = cellsOf(gm.lava); if (cells.length) ents.push({ type: 'lava', cells }); }
+    if (gm.rocks) {
+      const cells = [];
+      for (let k = 0; k < gm.rocks[1]; k++) {
+        const c = u16(d, gm.rocks[0] + 12 * k + 10) >> 1, cx = c % 128, cz = c >> 7, v = map[c];
+        if (!floorCell(cx, cz) || cells.some(q => q[0] === cx - x0 && q[1] === cz - z0)) continue;
+        const top = (v >> 8) * STEP + Math.max((v >> 6) & 3, (v >> 4) & 3, (v >> 2) & 3, v & 3) * STEP + 16;
+        cells.push([cx - x0, cz - z0, r3(top / CELL * vscale)]);
+      }
+      if (cells.length) ents.push({ type: 'rocks', cells });
+    }
+    if (gm.vents) for (let k = 0; k < gm.vents[1]; k++) {
+      const o = gm.vents[0] + 30 * k, c = u16(d, o) >> 1, cx = c % 128, cz = c >> 7, tx = s16(d, o + 2), ty = s16(d, o + 6), tz = s16(d, o + 10);
+      if (!floorCell(cx, cz) || !floorCell(Math.floor(tx / CELL), Math.floor(tz / CELL))) continue;
+      ents.push({ type: 'vent', x: cx + 0.5 - x0, z: cz + 0.5 - z0, to: [r3(tx / CELL - x0), r3((ty + 8) / CELL * vscale), r3(tz / CELL - z0)],
+        vel: [r3(-2 * mps), r3(8.5 * mps * vscale), r3(-2 * mps)] });
     }
     if (gm.tris) ents.push({ type: 'triBumpers', list: gm.tris.map(([band, b, sd, flip, vx, vz, along]) => ({ band,
       b: r3(b / CELL - (band === 'x' ? x0 : z0)), s: r3(sd / CELL - (band === 'x' ? z0 : x0)), flip: !!flip, v: [r3(vx * mps), r3(vz * mps)], along: !!along })) });
@@ -3936,6 +4055,7 @@ const S3D = (() => {
       bossSlam: [0x5F], bossCap: [0x9E] /* RR3's routine */,
       bumper: [0xB7], balloon: [0x77], spikesUp: [0x52], spear: [0x8C] /* Spring Stadium's routines */,
       ddDrop: [0x7E], snowman: [0x51], snowPuff: [0xC8] /* DD3's routine */,
+      rockBreak: [0x59], ventOut: [0xB6] /* Volcano Valley's helpers */,
       iceBreak: [0x59] /* Diamond Dust's ice spikes */, freeze: [0x80], frozenHop: [0x94], thaw: [0x80] /* routines 0x1B9CA, 0x3050 */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
@@ -4999,6 +5119,17 @@ const Art = (() => {
     return romArt.objs.get(key);
   }
   // a boss's own frames (object art by type) in the level's sprite palette (line 3)
+  // an object type's own frames from the ROM's art table (enemies without a recipe): materials on the usual 96 px canvas
+  // with the object anchor, frames until one does not decode (at most 16)
+  function romTypeFrames(type, line = 3) {
+    const key = 'frames' + type + '/' + line + (L.palettes || []).join(',');
+    if (!romArt.objs.has(key)) {
+      const out = [];
+      for (let f = 0; f < 16; f++) { try { out.push(romBossMat(type, f, ROM_CANVAS, 80, line)); } catch (e) { break; } }
+      romArt.objs.set(key, out);
+    }
+    return romArt.objs.get(key);
+  }
   function romBossMat(type, frame, size, oy, line = 3) {
     const key = 'boss' + type + '/' + frame + '/' + line + (L.palettes || []).join(',');
     if (!romArt.objs.has(key)) {
@@ -5126,7 +5257,7 @@ const Art = (() => {
     const r = g.createRadialGradient(16, 16, 2, 16, 16, 14); r.addColorStop(0, '#fff6c0'); r.addColorStop(0.5, '#ff9a2a'); r.addColorStop(1, 'rgba(255,80,0,0)');
     g.fillStyle = r; g.fillRect(0, 0, 32, 32);
   });
-  const shieldMats = Object.fromEntries([['shield', '120,180,255'], ['gold', '255,205,60']].map(([k, rgb]) => {
+  const shieldMats = Object.fromEntries([['shield', '120,180,255'], ['gold', '255,205,60'], ['fire', '255,110,40']].map(([k, rgb]) => {
     const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
     const r = g.createRadialGradient(32, 32, 18, 32, 32, 31); r.addColorStop(0, `rgba(${rgb},0.05)`); r.addColorStop(0.8, `rgba(${rgb},0.35)`); r.addColorStop(1, `rgba(${rgb},0)`);
     g.fillStyle = r; g.fillRect(0, 0, 64, 64);
@@ -5188,6 +5319,10 @@ const Art = (() => {
       balloon: () => { noise(0.15, 0.9, 3000); tone('sine', 300, 700, 0.15, 0.2); },
       spikesUp: () => tone('sawtooth', 180, 420, 0.25, 0.15),
       iceBreak: () => { noise(0.35, 0.8, 5000); tone('triangle', 1800, 600, 0.25, 0.2); },
+      rockBreak: () => { noise(0.4, 0.9, 900); tone('square', 160, 70, 0.25, 0.25); },
+      lava: () => { noise(0.3, 0.7, 1200); tone('sawtooth', 300, 120, 0.3, 0.2); },
+      ventIn: () => tone('triangle', 600, 150, 0.45, 0.2),
+      ventOut: () => { noise(0.4, 0.8, 1500); tone('square', 200, 900, 0.3, 0.25); },
       freeze: () => { noise(0.3, 0.5, 6000); tone('sine', 1400, 2200, 0.3, 0.15); },
       frozenHop: () => tone('triangle', 900, 700, 0.08, 0.12),
       thaw: () => { noise(0.4, 0.8, 5000); tone('triangle', 2000, 500, 0.3, 0.2); },
@@ -5575,7 +5710,7 @@ const Art = (() => {
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
-  let iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
+  let rockObjs = [], jetObjs = [], fireObjs = [], iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
   let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
   // spiked ball on a chain, and a burst of fireballs when beaten
@@ -5832,7 +5967,12 @@ const Art = (() => {
     };
     // each object sprite remembers its size and, when drawn from the ROM, its materials (native and mirrored)
     const objSprite = (kind, o, crudeMat, crudeSize, crudeFoot) => {
-      const rm = rom ? romObjMat(kind, o.skin, false) : null;
+      let rm = rom ? romObjMat(kind, o.skin, false) : null;
+      // an enemy with no recipe: its own frames from the art table, mirrored by scale when it faces left
+      const tf = !rm && rom && kind === 'enemy' && o.skin && S3D.typeArt(romArt.d, parseInt(o.skin, 16)) ? romTypeFrames(parseInt(o.skin, 16)) : null;
+      if (tf && tf.length) {
+        const s = bottomSprite(tf[0], o.x, o.y, o.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); s.userData.size = ROM_SIZE; s.userData.frames = tf; return s;
+      }
       const s = rm ? bottomSprite(rm, o.x, o.y, o.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT) : bottomSprite(crudeMat, o.x, o.y, o.z, crudeSize, crudeSize, crudeFoot);
       s.userData.size = rm ? ROM_SIZE : crudeSize;
       if (rm) s.userData.rom = [rm, kind === 'enemy' ? romObjMat(kind, o.skin, true) : rm];
@@ -5940,6 +6080,25 @@ const Art = (() => {
       const tip = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.4, 6), mat); tip.position.y = -0.2; g.add(tip);
       g.visible = false; levelGroup.add(g); spearObj = g;
     }
+    // Volcano Valley: rocks as cobbled blocks of our own (the original's are iso sprites), jet lifts as blue slabs with a
+    // glowing underside, fire spots with the original's flame frames (type 120, line 3) or our own fireball glow
+    const rockMat = new THREE.MeshLambertMaterial({ color: 0xd8c0a0, map: stoneTex() }), rockGeo = new THREE.BoxGeometry(0.96, 1, 0.96);
+    rockObjs = [...world.rocks.entries()].map(([t, top]) => {
+      const cx = t % L.width, cz = (t - cx) / L.width, f = Sim.floorAt(L, cx + 0.5, cz + 0.5), h = Math.max(0.2, top - f);
+      const m = new THREE.Mesh(rockGeo, rockMat); m.scale.y = h; m.position.set(cx + 0.5, f + h / 2, cz + 0.5); m.userData.cell = t; levelGroup.add(m); return m;
+    });
+    const jetMat = new THREE.MeshLambertMaterial({ color: 0x3a64c8 }), jetGlow = new THREE.MeshBasicMaterial({ color: 0xffa040 });
+    jetObjs = world.jets.map(q => {
+      const g = new THREE.Group(), w = q.x1 - q.x0, d = q.z1 - q.z0;
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(w, 0.22, d), jetMat); slab.position.y = -0.11; g.add(slab);
+      const glow = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, 0.06, d * 0.6), jetGlow); glow.position.y = -0.25; g.add(glow);
+      g.position.set((q.x0 + q.x1) / 2, q.top, (q.z0 + q.z1) / 2); levelGroup.add(g); return g;
+    });
+    const fireFrames = rom ? romTypeFrames(0x120, 3) : [];
+    fireObjs = world.fireSpots.map(q => {
+      const sp = fireFrames.length ? bottomSprite(fireFrames[0], q.x, q.y, q.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT) : (() => { const s = new THREE.Sprite(puffMat); s.scale.set(0.7, 0.7, 1); s.position.set(q.x, q.y + 0.35, q.z); levelGroup.add(s); return s; })();
+      sp.userData.frames = fireFrames; return sp;
+    });
     // Diamond Dust's ice spikes: the original's object art (type 0E8, palette line 0) on each cell, or pale cones of our own;
     // gone when a roll breaks them
     const iceConeGeo = new THREE.ConeGeometry(0.1, 0.55, 6), iceConeMat = new THREE.MeshLambertMaterial({ color: 0xc8dcff, emissive: 0x203050 });
@@ -6883,7 +7042,8 @@ const Art = (() => {
       const dx = still ? world.p.x - en.x : en.x - s.position.x, dz = still ? world.p.z - en.z : en.z - s.position.z, sx = dx * rx + dz * rz;
       s.position.set(en.x, en.y, en.z);
       if (Math.abs(sx) > 1e-4) s.userData.left = sx < 0;
-      s.material = s.userData.rom ? s.userData.rom[s.userData.left ? 0 : 1] : enemyMat(Math.floor(t * 6) % 2, (Math.floor(t * 8) + q) % 3, !!s.userData.left);
+      if (s.userData.frames) { const fr = s.userData.frames; s.material = fr[(Math.floor(t * 8) + q) % fr.length]; if (!s.userData.left) s.scale.x = -s.userData.size; }
+      else s.material = s.userData.rom ? s.userData.rom[s.userData.left ? 0 : 1] : enemyMat(Math.floor(t * 6) % 2, (Math.floor(t * 8) + q) % 3, !!s.userData.left);
     }
     for (let q = 0; q < crackMeshes.length; q++) {
       const g = crackMeshes[q], broken = world.cracks[q].broken;
@@ -6917,6 +7077,9 @@ const Art = (() => {
       if (spearObj.visible) spearObj.position.set(sp.x, sp.tip, sp.z);
     }
     for (const o of iceSpikeObjs) o.visible = !!world.iceSpikes.get(o.userData.cell);
+    for (const o of rockObjs) o.visible = world.rocks.has(o.userData.cell);
+    for (let q = 0; q < jetObjs.length; q++) { const j = world.jets[q]; jetObjs[q].position.y = j.top; }
+    for (let q = 0; q < fireObjs.length; q++) { const o = fireObjs[q], fr = o.userData.frames; if (fr && fr.length) o.material = fr[(Math.floor(t * 12) + q * 3) % fr.length]; else o.scale.setScalar(0.6 + 0.1 * Math.sin(t * 9 + q)); }
     for (let q = 0; q < crawlerSprites.length; q++) {
       const s = crawlerSprites[q], c = world.crawlers[q];
       s.position.set(c.x, c.y, c.z);

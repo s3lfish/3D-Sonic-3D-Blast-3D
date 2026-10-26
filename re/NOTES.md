@@ -400,3 +400,21 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   animation frame 0x2A: over 8 frames 8 snowballs (table 0x16A58: 1 unit a frame out in 8 ways, about 4 up), then it
   breaks (sound 0x59). Seen: a woken snowman hurt Sonic about 40 frames after landing.
 
+## Volcano Valley 1 (2026-10-27; vva620_dis, vvhelp*, objshots.py, iceblock.py, mapdiff.py)
+- Labels: RunLevel_VVz2 (0xA620) runs act 1 (level 13; its cell checks match that map), RunLevel_VVz1 (0xAE20) act 2,
+  0x9EBA act 3. Each InitLevel sits just before its RunLevel.
+- 0xA620 calls: 0xBBC0 rocks (0xAB42, 42), 0xB764 vents (0xA8F6, 6), 0xB9C2 lava spouts (0xA9AA, 10), 0xBA68
+  (0xAB26, 2), 0xB900 fire bursts (0xAA5E, 5), pads (0xC9FC with 0xA826/0xA84A/0xA86E/0xA892), 0xB5C8 roofs (0xAA4A),
+  0xBCEC (lava tile animation). Cracked walls: in (60, 55) or (66, 63), rolling, forward 0x4000 or more, facing
+  0x100..0x300: the wall cell west of it drops 0x20 steps (map raised at the start), record 1 or 25 cleared, sound 0x59.
+- 0xB5C8: roofs as Diamond Dust; then (with the fire shield, $0AC2 & 0x7FFF = 0x6C0, nothing) grounded on a 0x55 cell:
+  hurt. 0xBBC0: 12-byte records; their cells start 16 units higher (xx00 -> (xx-1)FF, xx55 -> (xx+1)AA); grounded in
+  one with $56 = 1 (just landed in a ball): it drops back (+0x0001 or -0x0155), Sonic thrown 4.5 up, sound 0x59.
+- 0xB764: 30-byte records [cell, x.l, y.l, z.l, $38.l, word, partner cell, camera words]: grounded, not frozen,
+  forward 0x2000 or less: drawn to the middle for 30 frames ($56 = 1, pad 0xFF), then airborne; landing: placed at
+  the record's place; once the camera is there, thrown (-2, -8.5, -2) (sound 0xB6), pad back at $14 = 0xD0.
+- Objects: 110 pads, 11C cracked wall pieces, 124 rock pieces, 12C jet lift (handler 0x177F6: rises 1 a frame toward
+  +0x26 while Sonic stands on it, else sinks to +0x24; box 0x1F x 0x2F from the record, swapped with bit 3 of +0x16),
+  120 fire (box 0x1818, none with the fire shield), 114 fireballs (move 1 or 2 a frame along x or z until their
+  animation ends), enemies 100 (to and fro along x), 104, 108 scorpion (along z), 10C.
+

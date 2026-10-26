@@ -19,7 +19,9 @@ RING_TABLE, RING_HOVER = 0x1936, 18
 KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
          0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
          0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
-         0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring'}
+         0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',
+         0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot'}
+PATROL = {0x100, 0x108}
 MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']
 
 
@@ -70,6 +72,8 @@ GIMMICKS = {
         'currents': [(110, 113, 55, 89, [0, 1], 0.375, 2, 2.5), (50, 53, 83, 99, [0, 1], 0.375, 3, 4)],
         'hops': ([(94, 39), (90, 39), (80, 39)], 40), 'flames': (0x10976, 7), 'freeze': 1,
         'spikes': 0xFF, 'ice': (0x10B24, 21, 0x10B4E, 25, [(89, 50)], [(86, 74)]), 'iceSpikes': (0x10B80, 27), 'roofs': 0x10AF2, 'bumpers': (0x55, 0, 0)},
+    13: {'pads': [(0, 1, 1), (2, 3, 2)], 'lava': 0x55, 'rocks': (0xAB42, 42), 'roofs': 0xAA4A, 'vents': (0xA8F6, 6),
+         'cracks': [([(59, 55)], 680, [-1, 0]), ([(65, 63)], 584, [-1, 0])]},
     10: {'pads': [(0, 1, 1), (2, 3, 2)], 'rides': [(78, 95, 0, 0x803E, None, None, None, None, (400, None))],
          'dashes': [(50, 45, 608, (7.5, 0), 10, 0, 0)], 'currents': [(96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5)],
          'hops': ([(109, 80), (103, 82), (111, 72)], 40), 'flames': (0xFD5E, 7), 'freeze': 1,
@@ -155,7 +159,7 @@ def convert(rom, level_id, vscale=1.0):
         if not (hnd < 0x400000 and t < 0x400): break
         if not hnd: continue
         x, z = struct.unpack('>h', r[6:8])[0], struct.unpack('>h', r[0xE:0x10])[0]
-        if t in (0x1C, 0x90, 0xCC):
+        if t in (0x1C, 0x90, 0xCC, 0x110):
             mode = struct.unpack('>H', r[0x24:0x26])[0]
             if mode: holes.append((x, z, mode))
             continue
@@ -183,6 +187,18 @@ def convert(rom, level_id, vscale=1.0):
         y_obj = struct.unpack('>h', r[0xA:0xC])[0]
         if t == 0x8C: e["power"] = launch_for(vscale, 94); e["absY"] = jround(y_obj / CELL * vscale, 3)
         if kind == 'lift': e["y"] = jround(y_obj / CELL * vscale, 3); e["drop"] = jround(84 / CELL * vscale, 3)
+        if kind == 'enemy' and t in PATROL:   # to and fro between +0x24 and +0x26 (see s3d.js)
+            a, b = struct.unpack('>hh', r[0x24:0x28]); along_x = a <= x <= b
+            if b > a:
+                e["patrol"] = {"axis": 'x' if along_x else 'z', "range": [jround(a / CELL - x0, 3), jround(b / CELL - x0, 3)] if along_x else [jround(a / CELL - z0, 3), jround(b / CELL - z0, 3)]}
+                e["speed"] = jround(60 / CELL, 3)
+        if kind == 'jetLift':
+            flip = (r[0x16] >> 3) & 1; sx, sz = (48, 32) if flip else (32, 48)
+            del e["x"], e["z"]
+            a, b = struct.unpack('>hh', r[0x24:0x28])
+            e.update({"x0": jround((x - 1) / CELL - x0, 3), "x1": jround((x - 1 + sx) / CELL - x0, 3), "z0": jround((z - 1) / CELL - z0, 3), "z1": jround((z - 1 + sz) / CELL - z0, 3),
+                      "y0": jround((a + 8) / CELL * vscale, 3), "y1": jround((b + 8) / CELL * vscale, 3)})
+        if kind == 'fireSpot': e["y"] = jround((y_obj + 8) / CELL * vscale, 3)
         if kind == 'crawler':   # spiked crawler: 1 unit a frame between +0x24 and +0x26, along x if that holds x
             a, b = struct.unpack('>hh', r[0x24:0x28]); along_x = a <= x <= b
             e["y"] = jround((y_obj + 8) / CELL * vscale, 3); e["axis"] = 'x' if along_x else 'z'
@@ -316,6 +332,25 @@ def convert(rom, level_id, vscale=1.0):
             c1, c2, ymax = struct.unpack('>3H', rom[o:o + 6]); o += 6
             cells = [[c % 128 - x0, c // 128 - z0] for c in (c1 >> 1, c2 >> 1) if floor_cell(c % 128, c // 128)]
             if cells: ents.append({"type": "lowRoof", "cells": cells, "top": jround((ymax + 8) / CELL * vscale, 3)})
+    if 'lava' in gm:
+        cells = cells_of(gm['lava'])
+        if cells: ents.append({"type": "lava", "cells": cells})
+    if 'rocks' in gm:
+        o, n = gm['rocks']; cells = []
+        for k in range(n):
+            c = struct.unpack('>H', rom[o + 12 * k + 10:o + 12 * k + 12])[0] >> 1; cx, cz = c % 128, c // 128; v = w[c]
+            if not floor_cell(cx, cz) or any(q[0] == cx - x0 and q[1] == cz - z0 for q in cells): continue
+            top = (v >> 8) * 8 + max((v >> 6) & 3, (v >> 4) & 3, (v >> 2) & 3, v & 3) * 8 + 16
+            cells.append([cx - x0, cz - z0, r3(top / CELL * vscale)])
+        if cells: ents.append({"type": "rocks", "cells": cells})
+    if 'vents' in gm:
+        o0, n = gm['vents']
+        for k in range(n):
+            o = o0 + 30 * k; c = struct.unpack('>H', rom[o:o + 2])[0] >> 1; cx, cz = c % 128, c // 128
+            tx, ty, tz = struct.unpack('>h', rom[o + 2:o + 4])[0], struct.unpack('>h', rom[o + 6:o + 8])[0], struct.unpack('>h', rom[o + 10:o + 12])[0]
+            if not floor_cell(cx, cz) or not floor_cell(tx // CELL, tz // CELL): continue
+            ents.append({"type": "vent", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "to": [r3(tx / CELL - x0), r3((ty + 8) / CELL * vscale), r3(tz / CELL - z0)],
+                         "vel": [r3(-2 * mps), r3(8.5 * mps * vscale), r3(-2 * mps)]})
     if 'tris' in gm:   # triangle bumpers (see s3d.js)
         ents.append({"type": "triBumpers", "list": [{"band": band, "b": r3(b / CELL - (x0 if band == 'x' else z0)), "s": r3(sd / CELL - (z0 if band == 'x' else x0)),
                                                        "flip": bool(flip), "v": [r3(vx * mps), r3(vz * mps)], "along": bool(along)} for band, b, sd, flip, vx, vz, along in gm['tris']]})

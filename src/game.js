@@ -168,6 +168,17 @@
     return romArt.objs.get(key);
   }
   // a boss's own frames (object art by type) in the level's sprite palette (line 3)
+  // an object type's own frames from the ROM's art table (enemies without a recipe): materials on the usual 96 px canvas
+  // with the object anchor, frames until one does not decode (at most 16)
+  function romTypeFrames(type, line = 3) {
+    const key = 'frames' + type + '/' + line + (L.palettes || []).join(',');
+    if (!romArt.objs.has(key)) {
+      const out = [];
+      for (let f = 0; f < 16; f++) { try { out.push(romBossMat(type, f, ROM_CANVAS, 80, line)); } catch (e) { break; } }
+      romArt.objs.set(key, out);
+    }
+    return romArt.objs.get(key);
+  }
   function romBossMat(type, frame, size, oy, line = 3) {
     const key = 'boss' + type + '/' + frame + '/' + line + (L.palettes || []).join(',');
     if (!romArt.objs.has(key)) {
@@ -295,7 +306,7 @@
     const r = g.createRadialGradient(16, 16, 2, 16, 16, 14); r.addColorStop(0, '#fff6c0'); r.addColorStop(0.5, '#ff9a2a'); r.addColorStop(1, 'rgba(255,80,0,0)');
     g.fillStyle = r; g.fillRect(0, 0, 32, 32);
   });
-  const shieldMats = Object.fromEntries([['shield', '120,180,255'], ['gold', '255,205,60']].map(([k, rgb]) => {
+  const shieldMats = Object.fromEntries([['shield', '120,180,255'], ['gold', '255,205,60'], ['fire', '255,110,40']].map(([k, rgb]) => {
     const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
     const r = g.createRadialGradient(32, 32, 18, 32, 32, 31); r.addColorStop(0, `rgba(${rgb},0.05)`); r.addColorStop(0.8, `rgba(${rgb},0.35)`); r.addColorStop(1, `rgba(${rgb},0)`);
     g.fillStyle = r; g.fillRect(0, 0, 64, 64);
@@ -357,6 +368,10 @@
       balloon: () => { noise(0.15, 0.9, 3000); tone('sine', 300, 700, 0.15, 0.2); },
       spikesUp: () => tone('sawtooth', 180, 420, 0.25, 0.15),
       iceBreak: () => { noise(0.35, 0.8, 5000); tone('triangle', 1800, 600, 0.25, 0.2); },
+      rockBreak: () => { noise(0.4, 0.9, 900); tone('square', 160, 70, 0.25, 0.25); },
+      lava: () => { noise(0.3, 0.7, 1200); tone('sawtooth', 300, 120, 0.3, 0.2); },
+      ventIn: () => tone('triangle', 600, 150, 0.45, 0.2),
+      ventOut: () => { noise(0.4, 0.8, 1500); tone('square', 200, 900, 0.3, 0.25); },
       freeze: () => { noise(0.3, 0.5, 6000); tone('sine', 1400, 2200, 0.3, 0.15); },
       frozenHop: () => tone('triangle', 900, 700, 0.08, 0.12),
       thaw: () => { noise(0.4, 0.8, 5000); tone('triangle', 2000, 500, 0.3, 0.2); },
@@ -744,7 +759,7 @@
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
-  let iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
+  let rockObjs = [], jetObjs = [], fireObjs = [], iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
   let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
   // spiked ball on a chain, and a burst of fireballs when beaten
@@ -1001,7 +1016,12 @@
     };
     // each object sprite remembers its size and, when drawn from the ROM, its materials (native and mirrored)
     const objSprite = (kind, o, crudeMat, crudeSize, crudeFoot) => {
-      const rm = rom ? romObjMat(kind, o.skin, false) : null;
+      let rm = rom ? romObjMat(kind, o.skin, false) : null;
+      // an enemy with no recipe: its own frames from the art table, mirrored by scale when it faces left
+      const tf = !rm && rom && kind === 'enemy' && o.skin && S3D.typeArt(romArt.d, parseInt(o.skin, 16)) ? romTypeFrames(parseInt(o.skin, 16)) : null;
+      if (tf && tf.length) {
+        const s = bottomSprite(tf[0], o.x, o.y, o.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); s.userData.size = ROM_SIZE; s.userData.frames = tf; return s;
+      }
       const s = rm ? bottomSprite(rm, o.x, o.y, o.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT) : bottomSprite(crudeMat, o.x, o.y, o.z, crudeSize, crudeSize, crudeFoot);
       s.userData.size = rm ? ROM_SIZE : crudeSize;
       if (rm) s.userData.rom = [rm, kind === 'enemy' ? romObjMat(kind, o.skin, true) : rm];
@@ -1109,6 +1129,25 @@
       const tip = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.4, 6), mat); tip.position.y = -0.2; g.add(tip);
       g.visible = false; levelGroup.add(g); spearObj = g;
     }
+    // Volcano Valley: rocks as cobbled blocks of our own (the original's are iso sprites), jet lifts as blue slabs with a
+    // glowing underside, fire spots with the original's flame frames (type 120, line 3) or our own fireball glow
+    const rockMat = new THREE.MeshLambertMaterial({ color: 0xd8c0a0, map: stoneTex() }), rockGeo = new THREE.BoxGeometry(0.96, 1, 0.96);
+    rockObjs = [...world.rocks.entries()].map(([t, top]) => {
+      const cx = t % L.width, cz = (t - cx) / L.width, f = Sim.floorAt(L, cx + 0.5, cz + 0.5), h = Math.max(0.2, top - f);
+      const m = new THREE.Mesh(rockGeo, rockMat); m.scale.y = h; m.position.set(cx + 0.5, f + h / 2, cz + 0.5); m.userData.cell = t; levelGroup.add(m); return m;
+    });
+    const jetMat = new THREE.MeshLambertMaterial({ color: 0x3a64c8 }), jetGlow = new THREE.MeshBasicMaterial({ color: 0xffa040 });
+    jetObjs = world.jets.map(q => {
+      const g = new THREE.Group(), w = q.x1 - q.x0, d = q.z1 - q.z0;
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(w, 0.22, d), jetMat); slab.position.y = -0.11; g.add(slab);
+      const glow = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, 0.06, d * 0.6), jetGlow); glow.position.y = -0.25; g.add(glow);
+      g.position.set((q.x0 + q.x1) / 2, q.top, (q.z0 + q.z1) / 2); levelGroup.add(g); return g;
+    });
+    const fireFrames = rom ? romTypeFrames(0x120, 3) : [];
+    fireObjs = world.fireSpots.map(q => {
+      const sp = fireFrames.length ? bottomSprite(fireFrames[0], q.x, q.y, q.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT) : (() => { const s = new THREE.Sprite(puffMat); s.scale.set(0.7, 0.7, 1); s.position.set(q.x, q.y + 0.35, q.z); levelGroup.add(s); return s; })();
+      sp.userData.frames = fireFrames; return sp;
+    });
     // Diamond Dust's ice spikes: the original's object art (type 0E8, palette line 0) on each cell, or pale cones of our own;
     // gone when a roll breaks them
     const iceConeGeo = new THREE.ConeGeometry(0.1, 0.55, 6), iceConeMat = new THREE.MeshLambertMaterial({ color: 0xc8dcff, emissive: 0x203050 });
@@ -2052,7 +2091,8 @@
       const dx = still ? world.p.x - en.x : en.x - s.position.x, dz = still ? world.p.z - en.z : en.z - s.position.z, sx = dx * rx + dz * rz;
       s.position.set(en.x, en.y, en.z);
       if (Math.abs(sx) > 1e-4) s.userData.left = sx < 0;
-      s.material = s.userData.rom ? s.userData.rom[s.userData.left ? 0 : 1] : enemyMat(Math.floor(t * 6) % 2, (Math.floor(t * 8) + q) % 3, !!s.userData.left);
+      if (s.userData.frames) { const fr = s.userData.frames; s.material = fr[(Math.floor(t * 8) + q) % fr.length]; if (!s.userData.left) s.scale.x = -s.userData.size; }
+      else s.material = s.userData.rom ? s.userData.rom[s.userData.left ? 0 : 1] : enemyMat(Math.floor(t * 6) % 2, (Math.floor(t * 8) + q) % 3, !!s.userData.left);
     }
     for (let q = 0; q < crackMeshes.length; q++) {
       const g = crackMeshes[q], broken = world.cracks[q].broken;
@@ -2086,6 +2126,9 @@
       if (spearObj.visible) spearObj.position.set(sp.x, sp.tip, sp.z);
     }
     for (const o of iceSpikeObjs) o.visible = !!world.iceSpikes.get(o.userData.cell);
+    for (const o of rockObjs) o.visible = world.rocks.has(o.userData.cell);
+    for (let q = 0; q < jetObjs.length; q++) { const j = world.jets[q]; jetObjs[q].position.y = j.top; }
+    for (let q = 0; q < fireObjs.length; q++) { const o = fireObjs[q], fr = o.userData.frames; if (fr && fr.length) o.material = fr[(Math.floor(t * 12) + q * 3) % fr.length]; else o.scale.setScalar(0.6 + 0.1 * Math.sin(t * 9 + q)); }
     for (let q = 0; q < crawlerSprites.length; q++) {
       const s = crawlerSprites[q], c = world.crawlers[q];
       s.position.set(c.x, c.y, c.z);

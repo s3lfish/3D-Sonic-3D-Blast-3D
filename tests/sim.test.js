@@ -811,5 +811,27 @@ test('Diamond Dust: ice spikes hurt until a roll breaks them; a low roof stops a
   assert.ok(top < 1.1, `kept down (${top})`);
 });
 
+test('Volcano Valley: lava hurts unless the fire shield, a rock breaks under a ball and bounces, a vent throws, a jet lift rises', () => {
+  let w = FLAT([{ type: 'lava', cells: [[5, 2]] }]); w.ringCount = 5; place(w, 3.5, 2.5);
+  let burnt = false; run(w, 60, (f, ww) => { if (ww.events.includes('lava')) burnt = true; return { mx: 1 }; });
+  assert.ok(burnt, 'lava burns');
+  w = FLAT([{ type: 'lava', cells: [[5, 2]] }]); w.ringCount = 5; w.p.shield = 'fire'; place(w, 3.5, 2.5); burnt = false;
+  run(w, 60, (f, ww) => { if (ww.events.includes('lava') || ww.events.includes('hurt')) burnt = true; return { mx: 1 }; });
+  assert.ok(!burnt && w.p.shield === 'fire', 'the fire shield spares');
+  w = FLAT([{ type: 'rocks', cells: [[4, 2, 1.5]] }]); place(w, 4.5, 2.5); Object.assign(w.p, { y: 2.5, grounded: false, ball: true, jumping: true, vy: -1 });
+  let broke = false; run(w, 30, (f, ww) => { if (ww.events.includes('rockBreak')) broke = true; return {}; });
+  assert.ok(broke && !w.rocks.has(2 * w.L.width + 4), 'rock broken');
+  w = FLAT([{ type: 'vent', x: 4.5, z: 2.5, to: [9.5, 1, 2.5], vel: [-3.75, 15.9, 0] }]); place(w, 4.5, 2.5);
+  let out = -1, at = null; run(w, 80, (f, ww) => { if (out < 0 && ww.events.includes('ventOut')) { out = f; at = [ww.p.x, ww.p.vy]; } return {}; });
+  assert.ok(out > 60 && at[1] > 15 && Math.abs(at[0] - 9.5) < 0.1, `thrown from the other vent at frame ${out} (${at})`);
+  w = FLAT([{ type: 'jetLift', x0: 5, x1: 6, z0: 2, z1: 3.5, y0: 1, y1: 2 }]); place(w, 5.5, 2.5);
+  run(w, 20, {}); near(w.jets[0].top, 1 + 20 / 32, 0.05, 'rising a unit a frame'); near(w.p.y, w.jets[0].top, 0.05, 'carried');
+  place(w, 2.5, 2.5); run(w, 40, {}); near(w.jets[0].top, 1, 1e-6, 'back down');
+});
+test('a patrolling enemy walks to and fro between its two values', () => {
+  const w = FLAT([{ type: 'enemy', x: 6.5, z: 2.5, patrol: { axis: 'x', range: [5, 8] }, speed: 1.875 }]); place(w, 1.5, 2.5);
+  let lo = 9, hi = 0; run(w, 300, (f, ww) => { lo = Math.min(lo, ww.enemies[0].x); hi = Math.max(hi, ww.enemies[0].x); return {}; });
+  near(lo, 5, 0.05, 'west end'); near(hi, 8, 0.05, 'east end'); near(w.enemies[0].z, 2.5, 1e-9, 'on its line');
+});
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

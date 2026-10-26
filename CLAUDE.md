@@ -144,6 +144,15 @@ serves index.html from main.
   (0E0: fall 4 a frame from `dropY`, wake within 48 units, 40 frames later 8 snowballs and break; attack breaks them).
   Drawn with ROM art (blowers 0F8 line 3, 17 frames + mirror by angle against the camera; 0E0, 0FC line 0) or our own.
   Checked against the emulator (dd3watch.py, ddprobe.js): pod track and timings match until the player moves.
+- Volcano Valley 1 (`GIMMICKS[13]`, RunLevel 0xA620 labelled VVz2 — VV2 is 0xAE20 labelled VVz1, VV3 0x9EBA): pads 110;
+  `lava` (low byte 0x55, helper 0xB5C8: grounded, hurts unless `p.shield === 'fire'`; the red monitor now gives the
+  fire shield, drawn orange); `rocks` [x, z, top] (0xBBC0: raised 16 units via `L.up`; landing in a ball breaks one,
+  bounce 4.5 units a frame, `rockBreak`); `vent` {x, z, to, vel} (0xB764: stood on at 2 units a frame or less: drawn in
+  30 frames, sinks, out of the partner and thrown (-2, 8.5, -2); `p.vent`); `jetLift` (object 12C: box from the record
+  32 x 48 units, rises a unit a frame from +0x24 to +0x26 while stood on; `w.jets`, read by `platFloor`); `fireSpot`
+  (120: burns unless fire shield); cracked walls (11C) at (59, 55), (65, 63); enemies 104/108 (108 and 100 `patrol`
+  {axis, range} from +0x24/+0x26). Recipe-less enemies draw their own frames (`romTypeFrames`, line 3, mirrored by
+  scale). Not yet: lava spouts (0xB9C2), fire bursts (0xB900, object 114), 0xBA68's fire bars.
 - Original movement (`physics.orig` = 1 on converted levels, `P.orig`, routine 0x3330): velocity split along
   `p.facing` (which is the heading there, turned 0x40/0x800 a frame toward the stick); tables [A, F, G] walk, ball,
   ice, roll; top 5 units a frame; spin dash steps by held frames 14/29/44/59. Measured in GG2 (speedprobe.py): sim
@@ -212,6 +221,7 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
+- 2026-10-27: Volcano Valley 1 gimmicks (lava, rocks, vents, jet lifts, fire, pads, cracked walls, patrols); 95 sim tests.
 - 2026-10-27: DD3 boss; freezing as the original's hops; 93 sim tests.
 - 2026-10-27: the original's movement tables on converted levels (run up, stop, turn, ice, jump ball, roll, spin dash
   steps, all measured); Diamond Dust 2 gimmicks; ice, ice spikes, low roofs, spikes and bumpers in both DD acts;

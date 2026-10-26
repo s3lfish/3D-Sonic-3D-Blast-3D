@@ -82,6 +82,13 @@ const S3D = (() => {
     // records, cell at +10: map lowered 3 steps and marked 0xFF at the start, so at floor height) broken by a grounded
     // roll; low roofs [cell, cell, top] (no rising above the top in them, walls to a player in the air outside); 0x55 cells
     // are bumpers (grounded, entering: 5 units a frame out across the nearest edge, sound 0xAA)
+    // Volcano Valley 1 (RunLevel 0xA620, labelled VVz2; helpers 0xB5C8 roofs and lava, 0xBBC0 rocks, 0xB764 vents): pads
+    // 110 (tables 0xA826..: record 2 <-> 4 after ring 1, 15 <-> 28 after ring 2); lava = low byte 0x55; rocks: 12-byte
+    // records [screen x, y, x, y, z, cell] (top 16 units over the cell); cracked walls at (59, 55) and (65, 63) broken by
+    // a roll west at 4 units a frame or more; vents: 30-byte records [cell, x.l, y.l, z.l, ...] in pairs, thrown out at
+    // (-2, 8.5 up, -2) units a frame
+    13: { pads: [[0, 1, 1], [2, 3, 2]], lava: 0x55, rocks: [0xAB42, 42], roofs: 0xAA4A, vents: [0xA8F6, 6],
+      cracks: [[[[59, 55]], 680, [-1, 0]], [[[65, 63]], 584, [-1, 0]]] },
     10: { pads: [[0, 1, 1], [2, 3, 2]], rides: [[78, 95, 0, 0x803E, null, null, null, undefined, [400, null]]],
       dashes: [[50, 45, 608, [7.5, 0], 10, 0, 0]], currents: [[96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5]],
       hops: [[[109, 80], [103, 82], [111, 72]], 40], flames: [0xFD5E, 7], freeze: 1,
@@ -154,7 +161,12 @@ const S3D = (() => {
   const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
     0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
-    0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring' };   // 0DC: Diamond Dust's snowdrift springs
+    0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',   // 0DC: Diamond Dust's snowdrift springs
+    0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot' };
+  // Volcano Valley: enemies 100 and 108 walk to and fro along x or z between words +0x24 and +0x26 (along x if that holds
+  // x; seen at 1 unit a frame); jet lifts (12C, handler 0x177F6): a box 32 x 48 units from the record (48 x 32 with bit 3
+  // of byte +0x16) rising a unit a frame from +0x24 to +0x26 while stood on; fire (120): burns unless the fire shield
+  const PATROL = new Set([0x100, 0x108]);
   // Spring Stadium's balloons (150, handler 0x164B0): bob 8 units about word +0x26 (phase +0x24, 16 a frame of 2048);
   // touched, they pop and throw Sonic about 43 units up (measured), and are back about 70 frames later
   // Rusty Ruin's spiked crawler (0AC), watched in the emulator: it rolls 1 unit a frame along the foot of a wall between
@@ -330,7 +342,7 @@ const S3D = (() => {
       if (!code) continue;
       const x = s16(ob, o + 6), z = s16(ob, o + 0xE);
       // holes (Green Grove): mode 1 = open from the start, 4 = opened by the next big ring; the second record of a pair is 0
-      if (t === 0x1C || t === 0x90 || t === 0xCC) { const mode = u16(ob, o + 0x24); if (mode) holes.push([x, z, mode]); continue; }
+      if (t === 0x1C || t === 0x90 || t === 0xCC || t === 0x110) { const mode = u16(ob, o + 0x24); if (mode) holes.push([x, z, mode]); continue; }
       const kind = KINDS[t];
       if (kind === 'goal' && tableRings) continue;
       if (!kind || !floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) continue;
@@ -356,6 +368,17 @@ const S3D = (() => {
       if (kind === 'spring') e.power = springPower(vscale);
       if (t === 0x8C) { e.power = launchFor(vscale, 94); e.absY = r3(s16(ob, o + 0xA) / CELL * vscale); }
       if (kind === 'lift') { e.y = r3(s16(ob, o + 0xA) / CELL * vscale); e.drop = r3(84 / CELL * vscale); }
+      if (kind === 'enemy' && PATROL.has(t)) {
+        const a = s16(ob, o + 0x24), b = s16(ob, o + 0x26), alongX = a <= x && x <= b;
+        if (b > a) { e.patrol = { axis: alongX ? 'x' : 'z', range: alongX ? [r3(a / CELL - x0), r3(b / CELL - x0)] : [r3(a / CELL - z0), r3(b / CELL - z0)] }; e.speed = r3(60 / CELL); }
+      }
+      if (kind === 'jetLift') {
+        const flip = (ob[o + 0x16] >> 3) & 1, sx = flip ? 48 : 32, sz = flip ? 32 : 48;
+        delete e.x; delete e.z;
+        Object.assign(e, { x0: r3((x - 1) / CELL - x0), x1: r3((x - 1 + sx) / CELL - x0), z0: r3((z - 1) / CELL - z0), z1: r3((z - 1 + sz) / CELL - z0),
+          y0: r3((s16(ob, o + 0x24) + 8) / CELL * vscale), y1: r3((s16(ob, o + 0x26) + 8) / CELL * vscale) });
+      }
+      if (kind === 'fireSpot') e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
       if (kind === 'crawler') {
         const a = s16(ob, o + 0x24), b = s16(ob, o + 0x26), alongX = a <= x && x <= b;
         e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); e.axis = alongX ? 'x' : 'z';
@@ -488,6 +511,23 @@ const S3D = (() => {
     if (gm.roofs) for (let o = gm.roofs; s16(d, o) >= 0; o += 6) {
       const cells = [u16(d, o) >> 1, u16(d, o + 2) >> 1].filter(c => floorCell(c % 128, c >> 7)).map(c => [c % 128 - x0, (c >> 7) - z0]);
       if (cells.length) ents.push({ type: 'lowRoof', cells, top: r3((u16(d, o + 4) + 8) / CELL * vscale) });
+    }
+    if (gm.lava !== undefined) { const cells = cellsOf(gm.lava); if (cells.length) ents.push({ type: 'lava', cells }); }
+    if (gm.rocks) {
+      const cells = [];
+      for (let k = 0; k < gm.rocks[1]; k++) {
+        const c = u16(d, gm.rocks[0] + 12 * k + 10) >> 1, cx = c % 128, cz = c >> 7, v = map[c];
+        if (!floorCell(cx, cz) || cells.some(q => q[0] === cx - x0 && q[1] === cz - z0)) continue;
+        const top = (v >> 8) * STEP + Math.max((v >> 6) & 3, (v >> 4) & 3, (v >> 2) & 3, v & 3) * STEP + 16;
+        cells.push([cx - x0, cz - z0, r3(top / CELL * vscale)]);
+      }
+      if (cells.length) ents.push({ type: 'rocks', cells });
+    }
+    if (gm.vents) for (let k = 0; k < gm.vents[1]; k++) {
+      const o = gm.vents[0] + 30 * k, c = u16(d, o) >> 1, cx = c % 128, cz = c >> 7, tx = s16(d, o + 2), ty = s16(d, o + 6), tz = s16(d, o + 10);
+      if (!floorCell(cx, cz) || !floorCell(Math.floor(tx / CELL), Math.floor(tz / CELL))) continue;
+      ents.push({ type: 'vent', x: cx + 0.5 - x0, z: cz + 0.5 - z0, to: [r3(tx / CELL - x0), r3((ty + 8) / CELL * vscale), r3(tz / CELL - z0)],
+        vel: [r3(-2 * mps), r3(8.5 * mps * vscale), r3(-2 * mps)] });
     }
     if (gm.tris) ents.push({ type: 'triBumpers', list: gm.tris.map(([band, b, sd, flip, vx, vz, along]) => ({ band,
       b: r3(b / CELL - (band === 'x' ? x0 : z0)), s: r3(sd / CELL - (band === 'x' ? z0 : x0)), flip: !!flip, v: [r3(vx * mps), r3(vz * mps)], along: !!along })) });
@@ -741,6 +781,7 @@ const S3D = (() => {
       bossSlam: [0x5F], bossCap: [0x9E] /* RR3's routine */,
       bumper: [0xB7], balloon: [0x77], spikesUp: [0x52], spear: [0x8C] /* Spring Stadium's routines */,
       ddDrop: [0x7E], snowman: [0x51], snowPuff: [0xC8] /* DD3's routine */,
+      rockBreak: [0x59], ventOut: [0xB6] /* Volcano Valley's helpers */,
       iceBreak: [0x59] /* Diamond Dust's ice spikes */, freeze: [0x80], frozenHop: [0x94], thaw: [0x80] /* routines 0x1B9CA, 0x3050 */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
