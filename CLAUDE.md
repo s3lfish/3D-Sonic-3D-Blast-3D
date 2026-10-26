@@ -56,6 +56,9 @@ serves index.html from main.
   speed, oneup, fire); enemy `chase` (Scouter 58) and radius 0 (Hunter 0C stands still). Player: `shield`, `inv`, `fast`
   timers; shields take a hit without losing rings; gold shield dashes on a second jump press in the air.
 - Spin dash: hold dash to brake and rev (any speed), release to launch; a tap under 0.12 s while running rolls.
+- Monitors in the ROM look: a 0.56 m box (`romMonitorBox`) in the sprite's commonest colour, the ROM icon
+  (`S3D.monitorIcon`) on a dark screen on each side; geometry and materials shared (`userData.shared`, never disposed).
+- Scattered (free) Flickies never step onto a ledge above or off a drop of more than 1 m.
 - Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
   ROM look draws springs as 3D drums coloured from the ROM sprite (`romSpringMats`).
 - Act end: the `goal` event shows `#clearCard`, flashes, and after 5 s converts the next act in `S3D.LEVELS` order.
@@ -116,7 +119,8 @@ serves index.html from main.
 ## Status
 - 2026-10-26: ROM results screen, Saturn screen option, ROM music and effects by emulation (GG1 music checked against
   the reference emulator: same notes at the same tempo, top-note agreement 0.53 vs 0.14 chance). 3D Sonic from Bill's Sonic Jam USA disc (formats from Sonic Retro SCHG),
-  with skid, and Jam palms (GG 16/36/4), springs, big ring and Flickies. 65 sim tests.
+  with skid, and Jam palms (GG 16/36/4), springs, big ring and Flickies; European disc; monitor boxes. 66 sim tests.
+  Open: Hunter spike ball (orbit not measured), cannons and cracked walls, Flicky body is a flat quad (edge-on from the side).
 - 2026-10-26: Springs measured (140 units), monitors with ROM icons and effects, mines, turrets, superchargers, Scouters
   chase, Hunters stand, Flickies coloured in turn, act end moves to the next act, sound effects, spin dash on hold. 64 sim tests.
 - 2026-10-26: Published on GitHub (s3lfish/3D-Sonic-3D-Blast-3D), Pages at https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/.

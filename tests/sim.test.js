@@ -324,6 +324,14 @@ test('a hit scatters the Flickies following the player', () => {
   run(w, 3, { mx: 0, mz: 0 });
   assert.strictEqual(w.flickies[0].state, 'free');
 });
+test('scattered Flickies do not hop off a big drop', () => {
+  // a 4 m shelf (cells 1 to 6) above 1 m ground; Flickies thrown about on the shelf stay on it
+  const w = world(Object.assign(grid(W12('g' + row('g', 6) + row('4', 14) + 'g'), { entities: [{ type: 'start', x: 3.5, z: 2.5 }] }), { flickies: 5 }));
+  for (let k = 0; k < 4; k++) w.flickies.push({ x: 5.5, y: 4, z: 2.5, vx: 3, vy: 5, vz: 0, state: 'free', age: 0, kind: k, dir: k * 1.5 });
+  let low = 9;
+  run(w, 600, (f, ww) => { for (const fl of ww.flickies) if (fl.state === 'free') low = Math.min(low, fl.y); return { mx: 0, mz: 0 }; });
+  assert.ok(low > 3.5, `a Flicky got down to y ${low}`);
+});
 test('a ring with no Flickies left in the level still opens', () => {
   const w = world(Object.assign(arena([{ type: 'goal', x: 6.5, z: 2.5 }]), { flickies: 5 }));
   run(w, 90, { mx: 1, mz: 0 });

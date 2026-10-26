@@ -1634,7 +1634,8 @@ const Sim = (() => {
         f.vx = Math.cos(f.dir) * 1.2; f.vz = Math.sin(f.dir) * 1.2;
       }
       const nx = f.x + f.vx * dt, nz = f.z + f.vz * dt, nf = floorAt(L, nx, nz);
-      if (Number.isFinite(nf) && nf <= Math.max(fl, f.y) + L.phys.stepUp) { f.x = nx; f.z = nz; }
+      // never onto a ledge above, nor off a drop of more than a metre: a scattered Flicky stays where it can be found
+      if (Number.isFinite(nf) && nf <= Math.max(fl, f.y) + L.phys.stepUp && nf >= fl - 1) { f.x = nx; f.z = nz; }
       else { f.dir += Math.PI; f.vx = -f.vx; f.vz = -f.vz; }
       f.y += f.vy * dt;
       if (f.y < L.killY) { f.state = 'gone'; continue; }   // fell into a pit
@@ -2199,6 +2200,12 @@ const S3D = (() => {
     blit(px, size, d.subarray(MONITOR_ICONS + k * 0x80, MONITOR_ICONS + k * 0x80 + 128), 2, 2, ox - 13, oy - 23, false, false, paletteRGB(d, palBytes[2]));
     return px;
   }
+  // the icon alone, 16 x 16 (for a game that draws monitors as boxes)
+  function monitorIcon(d, kind, palBytes) {
+    const k = Math.max(0, MONITOR_KINDS.indexOf(kind)), px = new Uint8ClampedArray(16 * 16 * 4);
+    blit(px, 16, d.subarray(MONITOR_ICONS + k * 0x80, MONITOR_ICONS + k * 0x80 + 128), 2, 2, 0, 0, false, false, paletteRGB(d, palBytes[2]));
+    return px;
+  }
   // The act results screen, drawn as the original lays it out (320 x 224, seen in the emulator): a navy screen,
   // "SONIC GOT THROUGH ACT n" in the big font (sprites, 16 px letters; act digits 16 x 32 after the 26 letters),
   // then lines of the small 8 x 16 font (A to Z, 0 to 9, colon). Both fonts are RNC packed; palettes 26, 27 and 3.
@@ -2718,7 +2725,7 @@ const S3D = (() => {
     return { top, wall, atlas, foliage, palms, rejects, get count() { return slots.length; } };
   }
 
-  return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, levelPalettes, OCTANT, HERO };
+  return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, levelPalettes, OCTANT, HERO };
 })();
 </script>
 
@@ -3213,6 +3220,33 @@ const Art = (() => {
     }
     return romArt.objs.get(key);
   }
+  // monitors in the ROM look: a box in the ROM sprite's own grey, the ROM icon on a dark screen on each side, since the
+  // flat sprite is a picture of a box drawn for the original's fixed view
+  function romMonitorBox(kind) {
+    const pals = L.palettes || romArt.fallbackPals, key = 'monbox' + kind + pals.join(',');
+    if (!romArt.objs.has(key)) {
+      const px = S3D.monitorImage(romArt.d, kind, pals);
+      if (!px) { romArt.objs.set(key, null); return null; }
+      const n = new Map();   // the sprite's commonest colours: the body's light and shade
+      for (let i = 0; i < px.length; i += 4) if (px[i + 3]) { const c = (px[i] << 16) | (px[i + 1] << 8) | px[i + 2]; n.set(c, (n.get(c) || 0) + 1); }
+      const [body] = [...n].sort((a, b) => b[1] - a[1])[0];
+      const hex = c => '#' + c.toString(16).padStart(6, '0');
+      const c = document.createElement('canvas'); c.width = c.height = 32;
+      const g = c.getContext('2d'); g.fillStyle = hex(body); g.fillRect(0, 0, 32, 32);
+      g.fillStyle = '#101018'; g.fillRect(5, 4, 22, 21);
+      const icon = document.createElement('canvas'); icon.width = icon.height = 16;
+      icon.getContext('2d').putImageData(new ImageData(S3D.monitorIcon(romArt.d, kind, pals), 16, 16), 0, 0);
+      g.drawImage(icon, 8, 6);
+      const side = new THREE.MeshLambertMaterial({ map: pixTex(c) }), plain = new THREE.MeshLambertMaterial({ color: body });
+      romArt.objs.set(key, [side, side, plain, plain, side, side]);
+    }
+    const mats = romArt.objs.get(key);
+    if (!mats) return null;
+    if (!romArt.objs.has('monboxgeo')) romArt.objs.set('monboxgeo', new THREE.BoxGeometry(0.56, 0.56, 0.56));
+    const g = new THREE.Group(), m = new THREE.Mesh(romArt.objs.get('monboxgeo'), mats);
+    m.position.y = 0.28; m.userData.shared = true; g.add(m);   // shared geometry and materials: kept when the level is rebuilt
+    return g;
+  }
   function romRingMat() {
     if (!romArt.objs.has('bigring')) romArt.objs.set('bigring', new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.objImage(romArt.d, S3D.BIG_RING_ART, 0, romArt.pal, 96, 48, 72), 96)), alphaTest: 0.5 }));
     return romArt.objs.get('bigring');
@@ -3682,7 +3716,7 @@ const Art = (() => {
     if (levelGroup) {
       scene.remove(levelGroup);
       if (foliage) foliage.tex.dispose();
-      levelGroup.traverse(o => { if (o.isMesh && !o.userData.jam) { o.geometry.dispose(); for (const m of [].concat(o.material)) m.dispose(); } else if (o.isSprite && o.userData.fade !== undefined) o.material.dispose(); });
+      levelGroup.traverse(o => { if (o.isMesh && !o.userData.jam && !o.userData.shared) { o.geometry.dispose(); for (const m of [].concat(o.material)) m.dispose(); } else if (o.isSprite && o.userData.fade !== undefined) o.material.dispose(); });
     }
     levelGroup = new THREE.Group();
     const mesh = buildLevelMesh(L);
@@ -3737,6 +3771,8 @@ const Art = (() => {
     });
     enemySprites = world.enemies.map(en => objSprite('enemy', en, enemyMat(0, 0, false), 1.05, 0.04));
     monitorSprites = world.monitors.map(mo => {
+      const box = rom ? romMonitorBox(mo.kind) : null;
+      if (box) { box.position.set(mo.x, mo.y, mo.z); box.userData.rom = true; levelGroup.add(box); return box; }
       const mm = rom ? romMonitorMat(mo.kind) : null;
       if (!mm) return objSprite('monitor', mo, monitorMats[0], 0.85, 0.04);
       const s = bottomSprite(mm, mo.x, mo.y, mo.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); s.userData.size = ROM_SIZE; s.userData.rom = [mm, mm]; return s;

@@ -331,6 +331,12 @@ const S3D = (() => {
     blit(px, size, d.subarray(MONITOR_ICONS + k * 0x80, MONITOR_ICONS + k * 0x80 + 128), 2, 2, ox - 13, oy - 23, false, false, paletteRGB(d, palBytes[2]));
     return px;
   }
+  // the icon alone, 16 x 16 (for a game that draws monitors as boxes)
+  function monitorIcon(d, kind, palBytes) {
+    const k = Math.max(0, MONITOR_KINDS.indexOf(kind)), px = new Uint8ClampedArray(16 * 16 * 4);
+    blit(px, 16, d.subarray(MONITOR_ICONS + k * 0x80, MONITOR_ICONS + k * 0x80 + 128), 2, 2, 0, 0, false, false, paletteRGB(d, palBytes[2]));
+    return px;
+  }
   // The act results screen, drawn as the original lays it out (320 x 224, seen in the emulator): a navy screen,
   // "SONIC GOT THROUGH ACT n" in the big font (sprites, 16 px letters; act digits 16 x 32 after the 26 letters),
   // then lines of the small 8 x 16 font (A to Z, 0 to 9, colon). Both fonts are RNC packed; palettes 26, 27 and 3.
@@ -850,5 +856,5 @@ const S3D = (() => {
     return { top, wall, atlas, foliage, palms, rejects, get count() { return slots.length; } };
   }
 
-  return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, levelPalettes, OCTANT, HERO };
+  return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, levelPalettes, OCTANT, HERO };
 })();

@@ -181,6 +181,33 @@
     }
     return romArt.objs.get(key);
   }
+  // monitors in the ROM look: a box in the ROM sprite's own grey, the ROM icon on a dark screen on each side, since the
+  // flat sprite is a picture of a box drawn for the original's fixed view
+  function romMonitorBox(kind) {
+    const pals = L.palettes || romArt.fallbackPals, key = 'monbox' + kind + pals.join(',');
+    if (!romArt.objs.has(key)) {
+      const px = S3D.monitorImage(romArt.d, kind, pals);
+      if (!px) { romArt.objs.set(key, null); return null; }
+      const n = new Map();   // the sprite's commonest colours: the body's light and shade
+      for (let i = 0; i < px.length; i += 4) if (px[i + 3]) { const c = (px[i] << 16) | (px[i + 1] << 8) | px[i + 2]; n.set(c, (n.get(c) || 0) + 1); }
+      const [body] = [...n].sort((a, b) => b[1] - a[1])[0];
+      const hex = c => '#' + c.toString(16).padStart(6, '0');
+      const c = document.createElement('canvas'); c.width = c.height = 32;
+      const g = c.getContext('2d'); g.fillStyle = hex(body); g.fillRect(0, 0, 32, 32);
+      g.fillStyle = '#101018'; g.fillRect(5, 4, 22, 21);
+      const icon = document.createElement('canvas'); icon.width = icon.height = 16;
+      icon.getContext('2d').putImageData(new ImageData(S3D.monitorIcon(romArt.d, kind, pals), 16, 16), 0, 0);
+      g.drawImage(icon, 8, 6);
+      const side = new THREE.MeshLambertMaterial({ map: pixTex(c) }), plain = new THREE.MeshLambertMaterial({ color: body });
+      romArt.objs.set(key, [side, side, plain, plain, side, side]);
+    }
+    const mats = romArt.objs.get(key);
+    if (!mats) return null;
+    if (!romArt.objs.has('monboxgeo')) romArt.objs.set('monboxgeo', new THREE.BoxGeometry(0.56, 0.56, 0.56));
+    const g = new THREE.Group(), m = new THREE.Mesh(romArt.objs.get('monboxgeo'), mats);
+    m.position.y = 0.28; m.userData.shared = true; g.add(m);   // shared geometry and materials: kept when the level is rebuilt
+    return g;
+  }
   function romRingMat() {
     if (!romArt.objs.has('bigring')) romArt.objs.set('bigring', new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.objImage(romArt.d, S3D.BIG_RING_ART, 0, romArt.pal, 96, 48, 72), 96)), alphaTest: 0.5 }));
     return romArt.objs.get('bigring');
@@ -650,7 +677,7 @@
     if (levelGroup) {
       scene.remove(levelGroup);
       if (foliage) foliage.tex.dispose();
-      levelGroup.traverse(o => { if (o.isMesh && !o.userData.jam) { o.geometry.dispose(); for (const m of [].concat(o.material)) m.dispose(); } else if (o.isSprite && o.userData.fade !== undefined) o.material.dispose(); });
+      levelGroup.traverse(o => { if (o.isMesh && !o.userData.jam && !o.userData.shared) { o.geometry.dispose(); for (const m of [].concat(o.material)) m.dispose(); } else if (o.isSprite && o.userData.fade !== undefined) o.material.dispose(); });
     }
     levelGroup = new THREE.Group();
     const mesh = buildLevelMesh(L);
@@ -705,6 +732,8 @@
     });
     enemySprites = world.enemies.map(en => objSprite('enemy', en, enemyMat(0, 0, false), 1.05, 0.04));
     monitorSprites = world.monitors.map(mo => {
+      const box = rom ? romMonitorBox(mo.kind) : null;
+      if (box) { box.position.set(mo.x, mo.y, mo.z); box.userData.rom = true; levelGroup.add(box); return box; }
       const mm = rom ? romMonitorMat(mo.kind) : null;
       if (!mm) return objSprite('monitor', mo, monitorMats[0], 0.85, 0.04);
       const s = bottomSprite(mm, mo.x, mo.y, mo.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); s.userData.size = ROM_SIZE; s.userData.rom = [mm, mm]; return s;
