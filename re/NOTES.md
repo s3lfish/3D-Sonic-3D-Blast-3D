@@ -550,8 +550,12 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   partner vent 0x56A8 stands; at 0x63AC the routine also sets bit 1 of $068A and copies $0A48 to $D97C, record 62's +0x12,
   kept over a death: probably cosmetic), pads 0xB10C/0xB130, roofs 0xB386. Cracked walls: trigger (95, 114)
   facing west -> (94, 114) to 0x1500; (55, 62) facing north (0x300..0x500), z <= 0x7D0 -> (55, 61) to 0x3D00.
-- Objects 118 (spiked balls): with Sonic past x 0xB90 and z 0xD10 the routine sets records 10..14's z to 0xE80 +/-
-  (sine x 112 >> 16), alternate signs, angle +8 a frame. Object 128 (handler 0x176B6): +0x24 = 0: along x (z with bit
+- Objects 118 (spiked balls): with Sonic past x 0xB90 and z 0xD10 (0xAEE0, signed word compares) the routine sets
+  records 10..14's z to 0xE80 +/- (sine x 112 >> 16), alternate signs (0xE80 - d, not a phase of pi: they differ by a
+  unit where the product is not whole), angle $C(a4) used then +8 a frame (& 0x7FE). Touched by the object scan (touch
+  bytes +4/+5). Trace expl_12 (fitted angle 0x348 at its start) exact through a ball hit, a lava hit and a lava death.
+- After a reload the original shows frame 0 (Sonic's $94..$A2 all 0) for 13 frames before its player runs again
+  (not modelled). Object 128 (handler 0x176B6): +0x24 = 0: along x (z with bit
   3 of +0x16) at +0x28 + (sine << 7 >> 16) (63 units), angle +0x26 + 4 a frame; else stood on it shakes 64 frames
   (sound 0xD3) and drops to +0x28 (sound 0x96); no level's records use that kind (checked all 22 and VV2's RAM).
 

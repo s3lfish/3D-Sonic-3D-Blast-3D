@@ -1021,6 +1021,21 @@ test('Volcano Valley 2: a moving platform carries the player; a swinging spiked 
   let hit = false; run(w, 120, (f, ww) => { if (ww.events.includes('hurt')) hit = true; return {}; });
   assert.ok(hit, 'spiked');
 });
+test('Volcano Valley 2 as the original: the balls swing on one angle only past the gate, in whole units, touched as objects', () => {
+  const ball = (z, phase) => ({ type: 'spikeBall', x: 3.5, z, y: 1, axis: 'z', centre: 2.5, amp: 1.75, w: 8 * Math.PI / 1024, phase, gate: [3, 0], touch: [8, 16] });
+  let w = ROMLV(0, 0, [ball(2.5, 0), ball(2.5, Math.PI)]); w.p.inv = 1e9; place(w, 1.5, 4.5);
+  run(w, 30, {}); assert.ok(w.spikeBalls.every(q => q.z === 2.5) && !w.ballA, 'still with the player short of the gate');
+  w = ROMLV(0, 0, [ball(2.5, 0), ball(2.5, Math.PI)]); w.p.inv = 1e9; place(w, 3.5, 4.5);
+  run(w, 40, {});
+  const v = Math.floor(Sim.P.orig.sin[(8 * 39 & 0x7FE) >> 1] * 112 / 65536);
+  assert.strictEqual(w.spikeBalls[0].z * 32, 80 + v, 'first: centre + (sine x 112) >> 16 at the angle before this frame');
+  assert.strictEqual(w.spikeBalls[1].z * 32, 80 - v, 'second: the other way');
+  assert.strictEqual(w.ballA, 8 * 40 & 0x7FE, 'angle 8 a frame');
+  w = ROMLV(0, 0, [ball(2.5, 0)]); w.ringCount = 5; place(w, 3.5, 4.5);
+  // (x - z within 0x2C - 8 of his: 144 - z <= 36; (x + z) / 2 within 0x20 - 8: looser)
+  let at = -1, first = -1; run(w, 120, (f, ww) => { if (ww.events.includes('hurt') && at < 0) at = f; if (first < 0 && ww.spikeBalls[0].z * 32 >= 108) first = f; return {}; });
+  assert.ok(at > 0 && at === first, `hurt as it comes within reach (frames ${at}, ${first})`);
+});
 test('the Volcano Valley boss: comes down into the crater, a ball on it is a hit, the serpent rises and chases; eight', () => {
   const boss = { type: 'boss', kind: 'vv', x: 6, y: 15.5, z: 6, home: [6, 6], cruise: 3, arena: [0, 12, 0, 12], hp: 8, vs: 1,
     low: 3, minY: 3.25, hitBox: [5.5, 7.5, 5.5, 7.5], rise: [7.625, 3.125, 7.5], spikes: [[5, 6]] };

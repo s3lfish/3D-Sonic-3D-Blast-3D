@@ -111,7 +111,7 @@ const S3D = (() => {
     // at (55, 61) (a roll north) and (94, 114) (west); spiked balls 118 swing about z 0xE80; the vent at 0x63AC is off
     // while the rock on its partner (0x56A8) stands (map low byte 0xFF)
     12: { friends: { knuckles: { cell: [86, 99] } } /* 0xB00C */, pads: [[0, 1, 1]], lava: 0x55, rocks: [0xB484, 27], roofs: 0xB386, vents: [0xB394, 8], spouts: [0xB286, 16], fireRuns: [0xB194, 5], fireBars: [0xB25C, 3],
-      cracks: [[[[55, 61]], 744, [0, -1]], [[[94, 114]], 424, [-1, 0]]], balls: [0xE80, 56, 8], ventOff: [[0x63AC, 0x56A8]] },
+      cracks: [[[[55, 61]], 744, [0, -1]], [[[94, 114]], 424, [-1, 0]]], balls: [0xE80, 56, 8, 0xB90, 0xD10], ventOff: [[0x63AC, 0x56A8]] },
     13: { pads: [[0, 1, 1], [2, 3, 2]], lava: 0x55, rocks: [0xAB42, 42], roofs: 0xAA4A, vents: [0xA8F6, 6], spouts: [0xA9AA, 10], fireRuns: [0xAA5E, 5], fireBars: [0xAB26, 2],
       cracks: [[[[59, 55]], 680, [-1, 0]], [[[65, 63]], 584, [-1, 0]]] },
     14: { lava: 0x55 },   // Volcano Valley 3: the crater's lava
@@ -598,7 +598,7 @@ const S3D = (() => {
       }
       // its touch bytes (+4, +5; routine 0x1B8FE): touched when x - z is within 0x2C - b4 of Sonic's, (x + z) / 2 within
       // 0x20 - b4, and y within b5
-      if (kind === 'enemy' && ob[o + 4]) e.touch = [ob[o + 4], ob[o + 5]];
+      if ((kind === 'enemy' || kind === 'spikeBall' && gm.balls) && ob[o + 4]) e.touch = [ob[o + 4], ob[o + 5]];
       if (kind === 'enemy' && (u16(ob, o + 8) || u16(ob, o + 0x10))) e.fr = [u16(ob, o + 8), u16(ob, o + 0x10)];   // (x and z fractions, +8 / +0x10)
       // 0C8 (handler 0x16B46): steps through its animation table (0x16C7E, a word a frame from offset +0x1E; -1 jumps
       // back), which moves it round a square and fires where the frame says (Sim origC8)
@@ -630,8 +630,9 @@ const S3D = (() => {
       }
       if (kind === 'spikeBall') {
         if (!gm.balls) continue;
-        const [mid, amp, step] = gm.balls, T = Math.PI / 1024, k = balls++;
+        const [mid, amp, step, gx, gz] = gm.balls, T = Math.PI / 1024, k = balls++;
         Object.assign(e, { y: r3((s16(ob, o + 0xA) + 8) / CELL * vscale), axis: 'z', centre: r3(mid / CELL - z0), amp: r3(amp / CELL), w: r3(step * T * 1e4) / 1e4, phase: k % 2 ? r3(Math.PI * 1e4) / 1e4 : 0 });
+        e.gate = [r3(gx / CELL - x0), r3(gz / CELL - z0)];   // (they swing only with Sonic at or past x gx and z gz)
       }
       if (kind === 'crawler') {
         const a = s16(ob, o + 0x24), b = s16(ob, o + 0x26), alongX = a <= x && x <= b;

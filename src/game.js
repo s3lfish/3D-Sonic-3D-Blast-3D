@@ -124,7 +124,7 @@
   function stepHeroAnim(p) {
     if (!origLook()) return;
     if (!heroAnim || heroAnimD !== romArt.d) { heroAnim = S3D.heroAnimator(romArt.d); heroAnimD = romArt.d; }
-    heroAnim.step(p.anim || 0, p.fwdWord || 0, () => Math.floor(Math.random() * 65536));
+    heroAnim.step(p.pre ? p.pre.anim : p.anim || 0, p.fwdWord || 0, () => Math.floor(Math.random() * 65536));   // (a hit shows from the next frame)
   }
   function pixCanvas(px, size, flip) {
     const c = document.createElement('canvas'); c.width = c.height = size;
@@ -2789,7 +2789,7 @@
       let idx, flip;
       if (heroAnim && origLook()) {
         // the view: his facing as seen from this camera, put in the original's fixed view (right (1, -1), up (-1, -1))
-        const dx = Math.sin(p.facing || 0), dz = Math.cos(p.facing || 0), sx = dx * rx + dz * rz, sf = dx * fx + dz * fz;
+        const fc = p.pre ? p.pre.facing : p.facing, dx = Math.sin(fc || 0), dz = Math.cos(fc || 0), sx = dx * rx + dz * rz, sf = dx * fx + dz * fz;
         const ix = (sx - sf) * Math.SQRT1_2, iz = (-sx - sf) * Math.SQRT1_2;
         const F = Math.round(-Math.atan2(ix, iz) / (2 * Math.PI) * 0x800) & 0x7FF;
         [idx, flip] = heroAnim.frame(F);

@@ -101,7 +101,7 @@ GIMMICKS = {
         'passOff': [(91, 46), (86, 74, 2)], 'shuts': [([(38, 76)], [(37, 75), (38, 75)], 0x7D)],
         'warps': [(57, 50, 0x770, 0x1E0, 0x910, 0x320), (59, 72, 0x730, 0x340, 0x650, 0x1C0)]},   # Diamond Dust 1 (see s3d.js)
     12: {'friends': {'knuckles': {'cell': (86, 99)}}, 'pads': [(0, 1, 1)], 'lava': 0x55, 'rocks': (0xB484, 27), 'roofs': 0xB386, 'vents': (0xB394, 8), 'spouts': (0xB286, 16), 'fireRuns': (0xB194, 5), 'fireBars': (0xB25C, 3),
-         'cracks': [([(55, 61)], 744, [0, -1]), ([(94, 114)], 424, [-1, 0])], 'balls': (0xE80, 56, 8), 'ventOff': [(0x63AC, 0x56A8)]},
+         'cracks': [([(55, 61)], 744, [0, -1]), ([(94, 114)], 424, [-1, 0])], 'balls': (0xE80, 56, 8, 0xB90, 0xD10), 'ventOff': [(0x63AC, 0x56A8)]},
     13: {'pads': [(0, 1, 1), (2, 3, 2)], 'lava': 0x55, 'rocks': (0xAB42, 42), 'roofs': 0xAA4A, 'vents': (0xA8F6, 6), 'spouts': (0xA9AA, 10), 'fireRuns': (0xAA5E, 5), 'fireBars': (0xAB26, 2),
          'cracks': [([(59, 55)], 680, [-1, 0]), ([(65, 63)], 584, [-1, 0])]},
     14: {'lava': 0x55},
@@ -318,7 +318,7 @@ def convert(rom, level_id, vscale=1.0):
         if kind in ('enemy', 'sprinkler'):   # its screen window: the type's art header (table 0x280E8) and the record's y (see s3d.js)
             art = struct.unpack('>I', rom[0x280E8 + t:0x280EC + t])[0]
             if 0 < art and art + 8 <= len(rom): e["win"] = list(struct.unpack('>HHhh', rom[art:art + 8])) + [y_obj]
-        if kind == 'enemy' and r[4]: e["touch"] = [r[4], r[5]]   # touch bytes (see s3d.js)
+        if (kind == 'enemy' or kind == 'spikeBall' and 'balls' in gm) and r[4]: e["touch"] = [r[4], r[5]]   # touch bytes (see s3d.js)
         if kind == 'enemy':
             fx, fz = struct.unpack('>H', r[8:10])[0], struct.unpack('>H', r[0x10:0x12])[0]
             if fx or fz: e["fr"] = [fx, fz]
@@ -352,9 +352,10 @@ def convert(rom, level_id, vscale=1.0):
                       "amp": jround(63 / CELL, 3), "w": jround(4 * T * 1e4, 3) / 1e4, "phase": jround((struct.unpack('>H', r[0x26:0x28])[0] & 0x7FE) * T * 1e4, 3) / 1e4})
         if kind == 'spikeBall':
             if 'balls' not in gm: continue
-            mid, amp, step = gm['balls']; T = math.pi / 1024; kb = balls[0]; balls[0] += 1
+            mid, amp, step, gx, gz = gm['balls']; T = math.pi / 1024; kb = balls[0]; balls[0] += 1
             e.update({"y": jround((y_obj + 8) / CELL * vscale, 3), "axis": 'z', "centre": jround(mid / CELL - z0, 3), "amp": jround(amp / CELL, 3), "w": jround(step * T * 1e4, 3) / 1e4,
                       "phase": jround(math.pi * 1e4, 3) / 1e4 if kb % 2 else 0})
+            e["gate"] = [jround(gx / CELL - x0, 3), jround(gz / CELL - z0, 3)]
         if kind == 'crawler':   # spiked crawler: 1 unit a frame between +0x24 and +0x26, along x if that holds x
             a, b = struct.unpack('>hh', r[0x24:0x28]); along_x = a <= x <= b
             e["y"] = jround((y_obj + 8) / CELL * vscale, 3); e["axis"] = 'x' if along_x else 'z'

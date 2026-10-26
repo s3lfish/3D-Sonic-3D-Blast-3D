@@ -170,7 +170,9 @@ serves index.html from main.
   gravity) and `fireRun` (0xB900: in its box, fireballs at slot frames 69/79, 70/80, 139/149, 140/150 of a 151 count,
   1.5 units a frame for 42 frames; measured) share `w.fireballs`; the fire shield spares. VV2 (`GIMMICKS[12]`, 0xAE20):
   the same helpers, `movePlat` (128: box swinging 63 units along x/z about +0x28, +4 a frame of 0x800 from +0x26) and
-  `spikeBall` (118: swung by the routine about z 0xE80, 56 units, alternate records opposite). `fireBar` (0xBA68,
+  `spikeBall` (118: swung by the routine about z 0xE80, 56 units, alternate records opposite; ROM levels: one angle
+  `w.ballA` (from 0 at load), 8 a frame, only with Sonic at or past `gate` (0xB90, 0xD10), z = 0xE80 +/- (sine x 112)
+  >> 16 in whole units; touched by its `touch` bytes through `origTouch`). `fireBar` (0xBA68,
   tables 0xAB26 VV1 / 0xB25C VV2: six object-120 fireballs 17 units apart along x, turning 4/8/12/12/8/4 units about the
   line, a turn per 64 frames; `w.barBalls`). VV2's vent at 0x63AC is off while the rock on its partner (84, 86) stands (`offWhileRock`). The sinking 128 kind is in no level's records.
 - Gene Gadget 1 (`GIMMICKS[4]`, RunLevel_GnGdz1 0x11D2A, InitLevel 0x11C78; GnG labels are not swapped): `updraft`
@@ -393,8 +395,11 @@ serves index.html from main.
   scroll (exact over a GG1 trace) wakes objects and drives the iso view; shots and touches as the original's (all
   nine movement traces exact, PP1's sprinkler hit included); 0C8. Sine table entry 0x400 is 0 (the formula gave -1).
   138 sim tests. Private exploration traces (one pad script, all 22 acts): position, animation and scroll exact in
-  GG1, GG2, GnG2, RR2, RR1, DD1, DD2, VV1, PP2, PP1, PP3 (low roofs, DD1 chute and ride, ride snap, enemy fractions).
-  Still off: GnG1 after its reload (51 blank frames, VV1 52: not modelled), VV2 (227), SS1 (466), SS2 (301), bosses.
+  GG1, GG2, GnG2, RR2, RR1, DD1, DD2, VV1, VV2, PP2, PP1, PP3 (low roofs, DD1 chute and ride, ride snap, enemy fractions).
+  VV2 too (its balls' angle at the trace start fitted: 0x348). A hit shows from the next frame (`p.pre` {anim, facing}:
+  the original's player ran before it); the knock-back's eighth is taken from the whole facing; 2 s safe is 120
+  frames (the timer snaps to 0). Still off: GnG1 after its reload (51 blank frames, VV1 52: not modelled), the 13
+  frames after a reload when the original shows frame 0, SS1 (466), SS2 (301), bosses. 139 sim tests.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;
   the Jam Flicky body is a flat quad (edge-on from the side).

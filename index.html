@@ -1557,7 +1557,11 @@ const Sim = (() => {
           // "lin" {a, b, v, wait, dir, t}: to and fro between a and b (m along the axis) at v m/s, resting "wait" s at
           // each end (Gene Gadget's 078), first resting t s and going dir (1 or -1)
           const lin = e.lin && [e.lin.a, e.lin.b, e.lin.v].every(Number.isFinite) ? { a: e.lin.a, b: e.lin.b, v: e.lin.v, wait: e.lin.wait || 0, dir: e.lin.dir < 0 ? -1 : 1, t: e.lin.t || 0 } : null;
-          L.entities.push({ type: e.type, x0: e.x0, x1: e.x1, z0: e.z0, z1: e.z1, x: e.x, z: e.z, y: e.y, axis: e.axis, centre: e.centre, amp: e.amp, w: e.w, phase: e.phase, lin, skin: skinOf(e) });
+          // (a spiked ball from the original: "touch" [b4, b5] its touch bytes; "gate" [x, z]: it swings only with the
+          // player at or past both)
+          const touch = Array.isArray(e.touch) && e.touch.length === 2 && e.touch.every(v => Number.isInteger(v) && v >= 0 && v < 256) ? e.touch.slice() : null;
+          const gate = Array.isArray(e.gate) && e.gate.length === 2 && e.gate.every(Number.isFinite) ? e.gate.slice() : null;
+          L.entities.push({ type: e.type, x0: e.x0, x1: e.x1, z0: e.z0, z1: e.z1, x: e.x, z: e.z, y: e.y, axis: e.axis, centre: e.centre, amp: e.amp, w: e.w, phase: e.phase, lin, skin: skinOf(e), touch, gate });
           break;
         }
         case 'head': {
@@ -3098,7 +3102,7 @@ const Sim = (() => {
   const gZero = (w, n) => (w.tick + (w.gcOff || 0)) % n === n - 1;
   function stepInner(w, inp) {
     const L = w.L, p = w.p, dt = P.dt;
-    w.events.length = 0;
+    w.events.length = 0; p.pre = null;
     w.time += dt;
     // after a ring that puts the player in a pocket, the original walks them to the way out (input is the routine's)
     w.tick++;
@@ -3826,9 +3830,22 @@ const Sim = (() => {
       else q.off = q.amp * (Math.sin(q.phase + q.w * w.tick) - Math.sin(q.phase));   // (the box is given where it starts)
       if (on) { if (q.axis === 'x') p.x += q.off - was; else p.z += q.off - was; }
     }
+    // (the original's, Volcano Valley 2 (RunLevel 0xAE20): one angle word for all, 8 a frame of 0x800, only with Sonic at
+    // or past the gate; z = centre + or - (sine x 2 amp) >> 16, in whole units, by turns; touched as objects are)
+    const ballO = O && L.rom && w.spikeBalls.length && w.spikeBalls[0].gate && w.spikeBalls[0].touch;
+    if (ballO) {
+      const o = L.rom.origin, g = w.spikeBalls[0].gate, q0 = w.spikeBalls[0];
+      if (Math.floor((p.x + o[0]) * 32 + 1e-9) >= Math.round((g[0] + o[0]) * 32) && Math.floor((p.z + o[1]) * 32 + 1e-9) >= Math.round((g[1] + o[1]) * 32)) {
+        const a = w.ballA || 0, v = Math.floor(O.sin[(a & 0x7FE) >> 1] * Math.round(q0.amp * 64) / 65536), c = Math.round((q0.centre + o[1]) * 32);
+        for (const q of w.spikeBalls) q.z = (c + (Math.abs(q.phase) > 1 ? -v : v)) / 32 - o[1];
+        w.ballA = (a + Math.round(q0.w * 1024 / Math.PI)) & 0x7FE;
+      }
+    }
     for (const q of w.spikeBalls) {
-      const v = q.centre + Math.sin(q.phase + q.w * w.tick) * q.amp; if (q.axis === 'x') q.x = v; else q.z = v;
-      if (p.inv <= 0 && p.invuln <= 0 && Math.hypot(p.x - q.x, p.z - q.z) < P.ballR && Math.abs(p.y + 0.4 - q.y - 0.3) < 0.7) { hurt(w, p.x - q.x, p.z - q.z); if (w.events.includes('respawn')) return w; }
+      if (!ballO) { const v = q.centre + Math.sin(q.phase + q.w * w.tick) * q.amp; if (q.axis === 'x') q.x = v; else q.z = v; }
+      const touched = ballO ? origTouch(L, p, { touch: q.touch, win: [0, 0, 0, 0, Math.round(q.y * 32 / L.rom.vscale - 8)], y: q.y, y0: q.y, x: q.x, z: q.z })
+        : Math.hypot(p.x - q.x, p.z - q.z) < P.ballR && Math.abs(p.y + 0.4 - q.y - 0.3) < 0.7;
+      if (p.inv <= 0 && p.invuln <= 0 && touched) { hurt(w, p.x - q.x, p.z - q.z); if (w.events.includes('respawn')) return w; }
     }
     // jet lifts (object 12C): rise a unit a frame while stood on, sink back when not
     for (const q of w.jets) {
@@ -3938,7 +3955,7 @@ const Sim = (() => {
     }
 
     // enemies stand still (radius 0), patrol a small circle, or chase a player who comes close; all follow the floor
-    if (p.invuln > 0) p.invuln -= dt;
+    if (p.invuln > 0) { p.invuln -= dt; if (p.invuln < 1e-9) p.invuln = 0; }   // (whole frames: 2 s is 120 of them, not 121)
     const pcy0 = p.y + 0.45;
     for (const mi of w.mines) {
       if (!mi.alive) continue;
@@ -4725,10 +4742,15 @@ const Sim = (() => {
     en.alive = false; en.diedAt = w.time; w.events.push('burst');
     return true;
   }
+  // A hit comes after the original's animation player has run for the frame: what it showed (`p.pre` {anim, facing},
+  // for the hero's picture this frame; cleared as each step starts)
+  const hitPre = p => { if (!p.pre) p.pre = { anim: p.anim || 0, facing: p.facing }; };
   // The original's knock-back (0x1B74C): facing cut to an eighth, thrown back along it at 0x7800 x 4 (0x54DA a part on
   // diagonals) and 5 up, set each frame till he lands (100 frames at most), then 120 frames safe (step's p.knockT)
   function origKnock(w) {
-    const p = w.p, U = 60 / 32, k = Math.floor(origFace(p) / 0x100) & 7, m = (k & 1 ? 0x54DA : 0x7800) * 4 / 65536;
+    const p = w.p; hitPre(p);
+    const U = 60 / 32, k = Math.floor(Math.round(origFace(p)) / 0x100) & 7,   // (his facing is a whole number: 0x2FF.99 is 0x300)
+      m = (k & 1 ? 0x54DA : 0x7800) * 4 / 65536;
     let a = -k / 8 * 2 * Math.PI; if (a <= -Math.PI) a += 2 * Math.PI;
     p.facing = a;
     p.knock = [[0, 1, 1, 1, 0, -1, -1, -1][k] * m * U, [-1, -1, 0, 1, 1, 1, 0, -1][k] * m * U]; p.knockT = 100; p.anim = 8;
@@ -4752,6 +4774,7 @@ const Sim = (() => {
     else scatterFlickies(w);
     if (w.ringCount <= 0) {
       if (OH) {   // (0x1B6C2: facing 0x700, 8 up, sound 0x35; then the dying count in step)
+        hitPre(p);
         p.dying = 57; p.vx = p.vz = 0; p.vy = 8 * 60 / 32 * w.L.rom.vscale; p.grounded = false; p.jumping = false; p.ball = false; p.rolling = false;
         p.facing = 0x100 / 0x800 * 2 * Math.PI; p.knockT = 0; p.anim = 0x11; w.events.push('dying'); return;
       }
@@ -5562,7 +5585,7 @@ const S3D = (() => {
     // at (55, 61) (a roll north) and (94, 114) (west); spiked balls 118 swing about z 0xE80; the vent at 0x63AC is off
     // while the rock on its partner (0x56A8) stands (map low byte 0xFF)
     12: { friends: { knuckles: { cell: [86, 99] } } /* 0xB00C */, pads: [[0, 1, 1]], lava: 0x55, rocks: [0xB484, 27], roofs: 0xB386, vents: [0xB394, 8], spouts: [0xB286, 16], fireRuns: [0xB194, 5], fireBars: [0xB25C, 3],
-      cracks: [[[[55, 61]], 744, [0, -1]], [[[94, 114]], 424, [-1, 0]]], balls: [0xE80, 56, 8], ventOff: [[0x63AC, 0x56A8]] },
+      cracks: [[[[55, 61]], 744, [0, -1]], [[[94, 114]], 424, [-1, 0]]], balls: [0xE80, 56, 8, 0xB90, 0xD10], ventOff: [[0x63AC, 0x56A8]] },
     13: { pads: [[0, 1, 1], [2, 3, 2]], lava: 0x55, rocks: [0xAB42, 42], roofs: 0xAA4A, vents: [0xA8F6, 6], spouts: [0xA9AA, 10], fireRuns: [0xAA5E, 5], fireBars: [0xAB26, 2],
       cracks: [[[[59, 55]], 680, [-1, 0]], [[[65, 63]], 584, [-1, 0]]] },
     14: { lava: 0x55 },   // Volcano Valley 3: the crater's lava
@@ -6049,7 +6072,7 @@ const S3D = (() => {
       }
       // its touch bytes (+4, +5; routine 0x1B8FE): touched when x - z is within 0x2C - b4 of Sonic's, (x + z) / 2 within
       // 0x20 - b4, and y within b5
-      if (kind === 'enemy' && ob[o + 4]) e.touch = [ob[o + 4], ob[o + 5]];
+      if ((kind === 'enemy' || kind === 'spikeBall' && gm.balls) && ob[o + 4]) e.touch = [ob[o + 4], ob[o + 5]];
       if (kind === 'enemy' && (u16(ob, o + 8) || u16(ob, o + 0x10))) e.fr = [u16(ob, o + 8), u16(ob, o + 0x10)];   // (x and z fractions, +8 / +0x10)
       // 0C8 (handler 0x16B46): steps through its animation table (0x16C7E, a word a frame from offset +0x1E; -1 jumps
       // back), which moves it round a square and fires where the frame says (Sim origC8)
@@ -6081,8 +6104,9 @@ const S3D = (() => {
       }
       if (kind === 'spikeBall') {
         if (!gm.balls) continue;
-        const [mid, amp, step] = gm.balls, T = Math.PI / 1024, k = balls++;
+        const [mid, amp, step, gx, gz] = gm.balls, T = Math.PI / 1024, k = balls++;
         Object.assign(e, { y: r3((s16(ob, o + 0xA) + 8) / CELL * vscale), axis: 'z', centre: r3(mid / CELL - z0), amp: r3(amp / CELL), w: r3(step * T * 1e4) / 1e4, phase: k % 2 ? r3(Math.PI * 1e4) / 1e4 : 0 });
+        e.gate = [r3(gx / CELL - x0), r3(gz / CELL - z0)];   // (they swing only with Sonic at or past x gx and z gz)
       }
       if (kind === 'crawler') {
         const a = s16(ob, o + 0x24), b = s16(ob, o + 0x26), alongX = a <= x && x <= b;
@@ -7795,7 +7819,7 @@ const Art = (() => {
   function stepHeroAnim(p) {
     if (!origLook()) return;
     if (!heroAnim || heroAnimD !== romArt.d) { heroAnim = S3D.heroAnimator(romArt.d); heroAnimD = romArt.d; }
-    heroAnim.step(p.anim || 0, p.fwdWord || 0, () => Math.floor(Math.random() * 65536));
+    heroAnim.step(p.pre ? p.pre.anim : p.anim || 0, p.fwdWord || 0, () => Math.floor(Math.random() * 65536));   // (a hit shows from the next frame)
   }
   function pixCanvas(px, size, flip) {
     const c = document.createElement('canvas'); c.width = c.height = size;
@@ -10460,7 +10484,7 @@ const Art = (() => {
       let idx, flip;
       if (heroAnim && origLook()) {
         // the view: his facing as seen from this camera, put in the original's fixed view (right (1, -1), up (-1, -1))
-        const dx = Math.sin(p.facing || 0), dz = Math.cos(p.facing || 0), sx = dx * rx + dz * rz, sf = dx * fx + dz * fz;
+        const fc = p.pre ? p.pre.facing : p.facing, dx = Math.sin(fc || 0), dz = Math.cos(fc || 0), sx = dx * rx + dz * rz, sf = dx * fx + dz * fz;
         const ix = (sx - sf) * Math.SQRT1_2, iz = (-sx - sf) * Math.SQRT1_2;
         const F = Math.round(-Math.atan2(ix, iz) / (2 * Math.PI) * 0x800) & 0x7FF;
         [idx, flip] = heroAnim.frame(F);
