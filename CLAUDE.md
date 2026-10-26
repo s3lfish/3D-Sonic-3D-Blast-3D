@@ -110,7 +110,7 @@ serves index.html from main.
   50 ball, 4C claw (unused), level palette line 3 (`romBossMat`); otherwise a drone of our own design.
   RR3 (`rr`, RunLevel_RRz3 0x6DE8, `rrStep`): pod 330 to 160 (every other frame), cap 350 to 170; script of [action,
   frames] read from 0x7170 (`script`, `loop`); arms [reach, lift] from `root`, joints by `Sim.rrArm` (routine 0x727C:
-  two links of 64, in its own integer steps; each link carries `u` [z, y] from the root); links hurt (ROM levels: the
+  two links of 64, in its own integer steps; `pit` cells in front of the statue (0x6F64) hit; each link carries `u` [z, y] from the root); links hurt (ROM levels: the
   records' touch bytes 24, 24 through `origTouch`), a slam on the player hurts, the fist's top is a floor (`w.plats`, `platFloor`, box
   x -4..+20, z -2..+36 units) that carries him; any pod touch is a hit (knock-back locks the pad 30 frames, `p.lock`).
   Drawn as a stone statue of our own (`buildRrStatue`; ROM pod sprite). Start faces the boss in boss arenas; the
@@ -273,7 +273,8 @@ serves index.html from main.
   * Dash button (0x31C8): grounded with any speed, rolls; standing, held, crouches (no move, no jump), revs once the
     crouch animation shows (`p.anim` 3 played 9 frames: `p.a98`, `p.aLoad`; 14 frames on levels without `rom`), a step every 15 (jump taps hurry it; 'charge' events), let go: 8/12/14/16 x 0x7800 along the facing's
     high byte as turned that frame (table 0x3312; 0x54DA a part on diagonals), not moving that frame. Lost rings (the
-    original's particles) are caught by the particle touch.
+    original's particles, 0x19E36) first move the frame after they appear, live 240 frames or 60 when made while $0AF4
+    is not 0, and are caught by the particle touch.
   * Scroll (`origCamera`, 0x19A4 → `w.cam` {X, Y, lx, ly}): led by the facing, an eighth of the way a frame, at most 8;
     for 50 frames after a floor spring or spring 018 / 08C (`w.camUp`, $086A) the lead's y target is -156;
     objects with a window (`win` [w, h, x, y, record y] from the type's art header, table 0x280E8; dispatcher 0x1BE72)
@@ -411,13 +412,13 @@ serves index.html from main.
   frames (the timer snaps to 0). SS1 and SS2 too: the jump word $46 (`p.jb`, 0x2E0E: pressed in the air and held,
   he jumps as he lands), floor springs' exact speed, the scroll after springs. A second private script (jumps, rolls,
   spin dashes) and a third (diagonal stick, revs, rolls through fire bars) are exact in all 15 regular acts too (ride's last frame takes the locked pad; low roofs keep a cell's
-  other raise; GnG3's belt reads the whole facing). GnG1, RR3 and SS3 (positions) too: a
+  other raise); bosses RR3, SS3 and GnG3 (belt as 0x11176: pushed up or right, end row always hurts) on all three. GnG1, RR3 and SS3 (positions) too: a
   reload's blank and pad wait per level (`rom.blank` [frames blank counting the death's last frame, frames after
   until the pad acts]; measured GG3 [44, 30], GnG1 [51, 34], RR3 [49, 33], VV2 [55, 34], VV3 [44, 34], SS3 [46, 30],
   else VV1's [52, 34]); SS spike fields count on the original's 4-frame count ($0AF8, `gZero(w, 4)`); the start
   faces the start table's way, bosses too (SS3's is not toward the boss). Still off: GnG1 after its reload (51 blank frames, VV1 52: not modelled), the 13
   frames after a reload when the original shows frame 0 (its player not yet run), RR3's boss scroll targets
-  ($084A/$084C), a fall onto a no-floor cell (the original lands at map
+  ($084A/$084C), GG3, DD3, VV3, PP3 and FF in places (boss state at a trace's start; their models), a fall onto a no-floor cell (the original lands at map
   height 0; the act never lets him there), bosses. 140 sim tests.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;

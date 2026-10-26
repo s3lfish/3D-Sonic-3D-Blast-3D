@@ -1351,6 +1351,7 @@ const Sim = (() => {
               errs.push('A Rusty Ruin boss needs "arms", "root", "reach" and a "script" of [action, frames] pairs.'); break;
             }
             Object.assign(b, { arms: e.arms, root: e.root, reach: e.reach, script: e.script, loop: Math.max(0, Math.min(e.script.length - 1, e.loop || 0)), cap: e.cap ?? e.y });
+            if (e.pit && Array.isArray(e.pit.cells) && [e.pit.z, e.pit.y].every(Number.isFinite)) b.pit = { cells: e.pit.cells.filter(c => Array.isArray(c) && c.length === 2).map(([x, z]) => [x | 0, z | 0]), z: e.pit.z, y: e.pit.y };
           }
           // Diamond Dust 3: low and high heights, a script of [action 0 chase / 1 wait / 2 drop, frames] with [-1, entry]
           // to go back, the entry a hit jumps to, and the octagon [x-z low, high, x+z low, high]
@@ -2269,6 +2270,13 @@ const Sim = (() => {
         case 9: o[0] -= 2; o[1]++; break;
       }
     }
+    // (the routine, 0x6F64: Sonic in the pit cells in front of the statue, no further south than its line and no higher
+    // than its top, is hit)
+    if (b.pit && b.dead < 0 && w.L.rom && w.L.phys.orig) {
+      const o = w.L.rom.origin, ci = Math.floor(p.x), cj = Math.floor(p.z);
+      if (b.pit.cells.some(([cx, cz]) => cx === ci && cz === cj) && Math.floor((p.z + o[1]) * 32 + 1e-9) <= Math.round((b.pit.z + o[1]) * 32)
+        && Math.floor(p.y * 32 / b.vs - 8 + 1e-6) <= Math.round(b.pit.y * 32 / b.vs - 8) && p.inv <= 0 && p.invuln <= 0) { hurt(w, 0, 0); if (w.events.includes('respawn')) return true; }
+    }
     // the arms
     const inside = (q, m = 0) => p.x >= q.x0 - m && p.x <= q.x1 + m && p.z >= q.z0 - m && p.z <= q.z1 + m;
     w.plats.length = 0;
@@ -2670,17 +2678,20 @@ const Sim = (() => {
         if (b.hits >= b.hp) { b.dead = 0; w.events.push('bossDown'); return false; }
       } else if (!(p.ball && p.y >= b.y + 8 * V)) { hurt(w, p.x - b.x, p.z - b.z); return w.events.includes('respawn'); }
     }
-    // the belt
+    // the belt (0x11176): grounded on it, the pad pushed up or right (bits 0 and 3) and facing 0x300..0x500, z speed -0.5;
+    // else +0.25 while no more than 1.5; leaving it, at least 2. The end row (z 0x380 on) hurts a grounded player, the
+    // belt on or not
     if (b.belt0) {
       if (!p.grounded) { if (b.onBelt) { b.onBelt = false; if (p.vz < 2 * 60 * U) p.vz = 2 * 60 * U; } }
       else if (!p.ride) {
         b.onBelt = true;
-        const f = Math.round(((-(p.facing || 0) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) / T) & 0x7FF, pushing = p.lastStick;   // (his facing is a whole number)
+        const f = Math.round(((-(p.facing || 0) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) / T) & 0x7FF;   // (his facing is a whole number)
+        const st = w.stick || [0, 0], pushing = L.rom ? (-st[0] - st[1]) * Math.SQRT1_2 > 0.3 || (st[0] - st[1]) * Math.SQRT1_2 > 0.3 : p.lastStick;
         if (pushing && f >= 0x300 && f <= 0x500) p.vz = -0.5 * 60 * U;
         else if (p.vz <= 1.5 * 60 * U) p.vz += 0.25 * 60 * U;
       }
-      if (p.grounded && p.z >= b.end && !safe) { w.events.push('beltEnd'); hurt(w, 0, -1); return w.events.includes('respawn'); }
     }
+    if (p.grounded && (L.rom ? Math.floor((p.z + L.rom.origin[1]) * 32 + 1e-9) >= Math.round((b.end + L.rom.origin[1]) * 32) : p.z >= b.end) && !safe) { w.events.push('beltEnd'); hurt(w, 0, -1); return w.events.includes('respawn'); }
     b.t++;
     const t = b.t;
     if (t === 0x190) w.events.push('bossHorn');
@@ -3172,7 +3183,7 @@ const Sim = (() => {
     let mx = inp.mx || 0, mz = inp.mz || 0;
     let m = Math.hypot(mx, mz);
     if (m > 1) { mx /= m; mz /= m; m = 1; }
-    p.lastStick = m > 0.3;
+    p.lastStick = m > 0.3; w.stick = [mx, mz];   // (this frame's stick, for routines that read the pad's bits)
     let jumpPress = inp.jump && !p.prevJump, dashPress = inp.dash && !p.prevDash, dashRelease = !inp.dash && p.prevDash;
     p.prevJump = !!inp.jump; p.prevDash = !!inp.dash;
     // (the original's jump word $46, 0x2E0E, at the start of his frame: let go 0; pressed anew or still pending, 1 (a
@@ -3316,7 +3327,7 @@ const Sim = (() => {
       if (R.force && R.force.t > R.path.length / 60 + R.wait) p.force = { t: R.force.t - R.path.length / 60 - R.wait, dir: R.force.dir, top: Math.hypot(p.vx, p.vz), pass: R.force.pass };
       if (R.force && R.force.roll) p.rolling = true;
       if (p.force) {   // (and this frame's pad is the held one already: the original locked it as the move began)
-        const d = p.force.dir; mx = d ? d[0] : 0; mz = d ? d[1] : 0; m = Math.hypot(mx, mz); p.lastStick = m > 0.3;
+        const d = p.force.dir; mx = d ? d[0] : 0; mz = d ? d[1] : 0; m = Math.hypot(mx, mz); p.lastStick = m > 0.3; w.stick = [mx, mz];
         jumpPress = dashPress = dashRelease = groundJump = false; p.prevJump = p.prevDash = false; if (L.rom && L.phys.orig) p.jb = 0;
       }
       p.ride = null; p.ball = false; p.grounded = false; p.jumping = false; w.warpedAt = w.time;
@@ -4382,7 +4393,7 @@ const Sim = (() => {
       w.ringOut--;
       const vs = L.rom.vscale, a = w.ringAng >> 1, s = P.orig.sin, S = 65536;
       const r = { o: 1, X: Math.floor(p.x * 32) * S, Y: Math.floor(p.y * 32 / vs - 8 + 1e-6) * S, Z: Math.floor(p.z * 32) * S,
-        vx: s[a] * 2, vy: -3 * S, vz: s[a + 0x100] * 2, t: 240, age: 0, x: 0, y: 0, z: 0 };
+        vx: s[a] * 2, vy: -3 * S, vz: s[a + 0x100] * 2, t: gZero(w, 2) ? 240 : 60, age: 0, x: 0, y: 0, z: 0, born: true };   // (born: it first moves next frame, watched; life 0xF0, or 60 when $0AF4 is not 0: 0x19E60)
       ringPos(L, r); w.loose.push(r);
       w.ringAng = (w.ringAng + 0x480) & 0x7FF;
     }
@@ -4402,7 +4413,7 @@ const Sim = (() => {
     for (let i = w.loose.length - 1; i >= 0; i--) {
       const r = w.loose[i];
       r.age += dt;
-      if (r.o) { if (!origRing(L, r, w)) { w.loose.splice(i, 1); continue; } }
+      if (r.o) { if (r.born) r.born = false; else if (!origRing(L, r, w)) { w.loose.splice(i, 1); continue; } }
       else {
         if (r.age > P.scatterLife) { w.loose.splice(i, 1); continue; }
         r.vy -= L.phys.gravity * 0.6 * dt; r.x += r.vx * dt; r.z += r.vz * dt; r.y += r.vy * dt;
@@ -5782,7 +5793,8 @@ const S3D = (() => {
   // Any touch on the pod (within 32 units, from 32 below to 64 above it) is a hit, 60 frames apart; five.
   const BOSSES = { 3: { kind: 'gg', at: [1152, 350, 1152], home: [1088, 1088], cruise: 160, arena: [800, 1375, 800, 1375], hp: 5 },
     8: { kind: 'rr', at: [1856, 330, 2080], cruise: 160, cap: 350, arms: [1792, 1920], root: [136, 2080],
-      reach: [2144, 2190], script: 0x7170, home: [1856, 2080], arena: [1760, 1983, 2080, 2271], hp: 5 },
+      reach: [2144, 2190], script: 0x7170, home: [1856, 2080], arena: [1760, 1983, 2080, 2271], hp: 5,
+      pit: [[[57, 65], [58, 65]], 0x830, 0x70] },   // (0x6F64: in those cells, z <= 0x830 and y <= 0x70, he is hit)
     // Spring Stadium 3 (InitLevel 0x87CE, RunLevel_SSz3 0x887A): the pod comes down from 568 to a hover, waits 400
     // frames, then hovers at `hover` (400 frames, arms swinging slowly) and swoops `low` (400 frames, arms pulled in,
     // swinging fast), turning towards Sonic by octant (table 0xDBEE) at (6 - hits left / 2) / 2 units a frame inside
@@ -6027,7 +6039,7 @@ const S3D = (() => {
   }
   // [frames the screen stays blank while an act reloads after a death (the level's unpacking time), frames after that
   // before the pad acts]: measured in the emulator; [52, 34] elsewhere as watched in Volcano Valley 1: `rom.blank`
-  const BLANK = { 3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 32], 14: [44, 34], 17: [46, 30], 20: [51, 34] };
+  const BLANK = { 3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 32], 14: [44, 34], 17: [46, 30], 18: [44, 32], 20: [51, 34] };
   const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };
   const springPower = vscale => launchFor(vscale, 140);   // measured: a spring throws Sonic 140 units up
   function convert(d, id, vscale = 1) {
@@ -6495,6 +6507,7 @@ const S3D = (() => {
         const sc = [];
         for (let o = bs.script; sc.length < 64; o += 4) { const a = s16(d, o), n = s16(d, o + 2); if (a < 0) { e.loop = sc.length - n / 4; break; } sc.push([a / 4, n]); }
         e.script = sc;
+        if (bs.pit) e.pit = { cells: bs.pit[0].map(([cx, cz]) => [cx - x0, cz - z0]), z: Z(bs.pit[1]), y: r3((bs.pit[2] + 8) / CELL * vscale) };
       }
       if (bs.kind === 'vv') {
         const Y = v => r3(v / CELL * vscale);

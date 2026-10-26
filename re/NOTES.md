@@ -159,8 +159,8 @@ original art. The browser code carries reading rules only.
   Then (all but dying) $94 = 8, facing's low byte cleared, 5 up, $3E = -2, $40 = 100, state cleared. Each frame thrown:
   in the air, $40 - 1 (0 ends it), x/z = table 0x1B826 by facing >> 8 (backward: [0, -0x7800], [0x54DA, -0x54DA],
   ...) x 4; grounded: $3E = 120, speed 0; counting down, blinking. Lost rings (0x19E36): one a frame while $0A52,
-  a particle (template 0xD94C, life 0xF0 frames) at Sonic with x/z = sin/cos($0A54) x 2 (16.16) and 3 up, $0A54 +=
-  0x480. Particles: pool $C28C, 30 of 0x38 bytes, updated by 0xD20E. Type 0 ($31; lost rings): x moves, a cell crossed
+  a particle (template 0xD94C, life 0xF0 frames; 0x3C, with bit 3 of $2E set, while $0AF4 is not 0) at Sonic with
+  x/z = sin/cos($0A54) x 2 (16.16) and 3 up, $0A54 += 0x480; it first moves the next frame. Particles: pool $C28C, 30 of 0x38 bytes, updated by 0xD20E. Type 0 ($31; lost rings): x moves, a cell crossed
   whose edge corner (NW for +x and +z, NE for -x, SE for -z) is 9+ over the ring's height or has no floor puts it
   at the edge and turns that part back; then z the same; vy += $22 (0x2000), y -= vy; the floor (triangles, NW-SE
   split always) under it while falling: y = floor, vy = -(vy - vy/4), each horizontal part 0x1000 toward 0, and a
@@ -385,7 +385,8 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - $0AF8 counts 3, 2, 1, 0 each frame in step with the 8/16/32 counts (= the 8-count & 3); SS1's (0x9D44) and SS3's
   (0x8940) spike count moves only when it is 0. SS3 (0x88F6): grounded on a 0xFF cell, +0x200, and with the count at
   0xA00 (before this frame's step) and $3E clear, $3E = -1: he is hit that frame. Off one: -0x200; >= 0xC00 -> 0xA00.
-- Not used: cells 0x4172/0x4174 with z <= 0x830 and y <= 0x70 set Sonic's $3E to -1 (no hits there).
+- 0x6F64: Sonic's cell word 0x4172 or 0x4174 (cells (57, 65), (58, 65): the pit in front of the statue), z <= 0x830
+  and y <= 0x70, $3E clear: $3E = -1, a hit (a death in expl_8 at frame 40 of a third script; boss `pit`).
 
 ## Rusty Ruin crawler 0AC (objtrack.py, crawltest.py)
 - Rolls 1 unit a frame between words +0x24 and +0x26 and back (RR2 (3017, 546, 1135) along x 2969..3062; RR1 two

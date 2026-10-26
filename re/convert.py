@@ -49,7 +49,7 @@ def spring_power(vscale):
     return launch_for(vscale, 140)   # measured: a spring throws Sonic 140 units up
 
 
-BLANK = {3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 32], 14: [44, 34], 17: [46, 30], 20: [51, 34]}   # frames blank while an act reloads (see s3d.js)
+BLANK = {3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 32], 14: [44, 34], 17: [46, 30], 18: [44, 32], 20: [51, 34]}   # frames blank while an act reloads (see s3d.js)
 GIMMICKS = {
     4: {'updrafts': 0x55, 'zapCells': 0xAA, 'roofs': 0x12254, 'pyramids': (0x11EE4, 4),   # Gene Gadget 1 (see s3d.js)
         'dashes': [(65, 101, 0x7FFF, (6, 0), 1, 0, 0), (65, 102, 0x7FFF, (6, 0), 1, 0, 0), (74, 94, 0x7FFF, (0, 6), 1, 0, 0), (75, 94, 0x7FFF, (0, 6), 1, 0, 0)],
@@ -140,7 +140,8 @@ GIMMICKS = {
 DOOR_PUSH = {0: (0, 4), 2: (-4, 0), 4: (0, -4)}
 BOSSES = {3: {'kind': 'gg', 'at': (1152, 350, 1152), 'home': (1088, 1088), 'cruise': 160, 'arena': (800, 1375, 800, 1375), 'hp': 5},
           8: {'kind': 'rr', 'at': (1856, 330, 2080), 'cruise': 160, 'cap': 350, 'arms': (1792, 1920), 'root': (136, 2080),
-              'reach': (2144, 2190), 'script': 0x7170, 'home': (1856, 2080), 'arena': (1760, 1983, 2080, 2271), 'hp': 5},
+              'reach': (2144, 2190), 'script': 0x7170, 'home': (1856, 2080), 'arena': (1760, 1983, 2080, 2271), 'hp': 5,
+              'pit': (((57, 65), (58, 65)), 0x830, 0x70)},
           17: {'kind': 'ss', 'at': (1796, 568, 2304), 'cruise': 168, 'hover': 200, 'low': 120, 'hang': 40, 'fists': ((38, 40), (-46, 40)),
                'corners': ((2237, 1560), (2045, 1752)), 'home': (1796, 2304), 'arena': (1496, 1896, 1981, 2398), 'hp': 8},
           11: {'kind': 'dd', 'at': (2052, 0x240 + 8, 2048), 'cruise': 0xB0 + 8, 'low': 0xB0 + 8, 'high': 0x100 + 8, 'dropY': 0xE0 + 8,
@@ -658,6 +659,7 @@ def convert(rom, level_id, vscale=1.0):
                 if a < 0: e["loop"] = len(sc) - n // 4; break
                 sc.append([a // 4, n])
             e["script"] = sc
+            if 'pit' in bs: e["pit"] = {"cells": [[cx - x0, cz - z0] for cx, cz in bs['pit'][0]], "z": Z(bs['pit'][1]), "y": jround((bs['pit'][2] + 8) / CELL * vscale, 3)}
         if bs['kind'] == 'vv':
             Y = lambda v: jround(v / CELL * vscale, 3)
             e["low"] = Y(bs['low']); e["minY"] = Y(bs['minY'])
