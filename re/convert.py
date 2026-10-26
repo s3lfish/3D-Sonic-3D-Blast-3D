@@ -15,6 +15,7 @@ def jround(v, n):
 
 HEADERS, HSIZE, CELL, STEP = 0x1AB62, 0x2A, 32, 8
 SPLIT = 0x4A08   # per corner byte: the cell is split north-east to south-west (see s3d.js)
+PIECES = [0xD5, 0x75, 0x5D, 0x57]   # diagonal corner pieces: NW, NE, SE, SW corner up (see s3d.js)
 RING_TABLE, RING_HOVER = 0x1936, 18
 # object types identified from in-game photos (springs, monitors, the act-end ring, player start, main enemies)
 KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
@@ -215,7 +216,7 @@ def convert(rom, level_id, vscale=1.0):
             cs = [(v >> 6) & 3, (v >> 4) & 3, (v >> 2) & 3, v & 3]
             spike = gm.get('spikes') is not None and (v & 0xFF) == gm['spikes']
             tile = {"c": [jround((hb + c) * unit, 4) for c in cs], "t": "H" if spike else "F"}
-            s = (1 if rom[SPLIT + (v & 0xFF)] else 0) | (2 if (v & 0x55) == 0x55 else 0)
+            s = (1 if rom[SPLIT + (v & 0xFF)] else 0) | (2 if (v & 0x55) == 0x55 else 0) | ((PIECES.index(v & 0xFF) + 1 if (v & 0xFF) in PIECES else 0) << 2)
             if s: tile["s"] = s
             tiles.append(tile)
     ents = []

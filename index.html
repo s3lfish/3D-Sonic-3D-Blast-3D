@@ -1715,7 +1715,7 @@ const Sim = (() => {
     const rm = raw.rom;
     if (L && rm && Number.isInteger(rm.level) && Array.isArray(rm.origin) && rm.origin.length === 2 && rm.origin.every(Number.isInteger) && rm.vscale > 0 && rm.vscale <= 4)
       L.rom = { level: rm.level, origin: rm.origin.slice(), vscale: rm.vscale };
-    if (L && L.rom) L.diag = findDiagonals(L);
+    if (L && L.rom) L.diag = L.split && L.split.some(s => s >> 2) ? piecesOf(L) : findDiagonals(L);
     if (L && !errs.length) addEntities(L, raw.entities ?? [], errs);
     if (errs.length) throw new LevelError(errs.slice(0, 20));
     return L;
@@ -1725,6 +1725,16 @@ const Sim = (() => {
   // A converted level's corner pieces: a tile with one corner raised two steps (16 units) over three level ones, both
   // its neighbours by that corner without floor, is a diagonal wall: that corner's half of the tile is solid, the rest
   // flat at the low height (watched in Gene Gadget 1: a rolling Sonic turned a right angle on the diagonal)
+  // converted levels carry the original's pieces (`s` bits 2-4: k + 1, k as findDiagonals: 0 NW, 1 NE, 2 SE, 3 SW up)
+  function piecesOf(L) {
+    const out = new Map(), c = L.corners;
+    for (let t = 0; t < L.split.length; t++) {
+      const k = (L.split[t] >> 2) - 1;
+      if (k < 0 || L.coll[t] === 'W' || L.coll[t] === 'P') continue;
+      out.set(t, { k, low: Math.min(c[t * 4], c[t * 4 + 1], c[t * 4 + 2], c[t * 4 + 3]) });
+    }
+    return out;
+  }
   function findDiagonals(L) {
     const out = new Map(), W = L.width, vs = L.rom.vscale, c = L.corners;
     const NB = [[[0, -1], [-1, 0]], [[0, -1], [1, 0]], [[0, 1], [1, 0]], [[0, 1], [-1, 0]]];
@@ -1866,10 +1876,11 @@ const Sim = (() => {
     const air = p.flyT > 0, E = 1 / (32 * 65536), ci = Math.floor(ox), cj = Math.floor(oz);
     // (0x40D6: a wall where the floor there is 9 or more whole units over Sonic's, in the air too; converted levels)
     const lim = L.rom ? origLim(L, p.y) : p.y + L.phys.stepUp;
+    if (L.rom && L.diag && L.diag.size && !air) origDiag(L, p, ci, cj);   // (the original meets its pieces first)
     let i = Math.floor(p.x), j = Math.floor(p.z), nx = 0, nz = 0, hit = false;
     if (i !== ci && tileTopNear(L, i, cj, p.x, oz, air) > lim) { p.x = i > ci ? ci + 1 - E : ci; nx = _ax[0] = i > ci ? -1 : 1; hit = true; i = ci; _ax[2] = 1; }
     if (j !== cj && tileTopNear(L, i, j, p.x, p.z, air) > lim) { p.z = j > cj ? cj + 1 - E : cj; nz = _ax[1] = j > cj ? -1 : 1; hit = true; _ax[2] = 1; }
-    if (L.diag && L.diag.size && !(p.flyT > 0)) {
+    if (!L.rom && L.diag && L.diag.size && !(p.flyT > 0)) {
       const r = P.rDiag, i0 = Math.floor(p.x - r), i1 = Math.floor(p.x + r), j0 = Math.floor(p.z - r), j1 = Math.floor(p.z + r);
       for (let jj = j0; jj <= j1; jj++) for (let ii = i0; ii <= i1; ii++) {
         const dg = L.diag.get(jj * L.width + ii);
@@ -1886,6 +1897,50 @@ const Sim = (() => {
     return _n;
   }
 
+  // The original's diagonal pieces (0x3A1A..0x3B96), in its 16.16 units. Pieces by the corner up: NW (0xD5) and SE (0x5D)
+  // stand on the line x + z = cell + 32 (SE: + 31), NE (0x75) and SW (0x57) on x - z = cell; the corner's half is solid.
+  // Checked in the cell he was in, or the neighbours one walks in from (NW: west, north; SE: east, south; SW: west,
+  // south; NE: east, north) with the line carried on. Past it he is put on it (half the overlap + 1/65536 on each axis);
+  // walking (or in the air) his speed becomes its part along the line (0xB5 / 256 twice), rolling it is mirrored off the
+  // line and his facing turned (0x200 - f, 0x600 - f).
+  function origDiag(L, p, ci, cj) {
+    const W = L.width, S = 65536, at = (i, j) => { const d = i >= 0 && j >= 0 && i < W && j < L.depth && L.diag.get(j * W + i); return d ? d.k : -1; };
+    const X0 = ci * 32, Z0 = cj * 32;
+    let X = Math.round(p.x * 32 * S), Z = Math.round(p.z * 32 * S), line = -1, d = 0;
+    const own = at(ci, cj);
+    if (own === 0 || at(ci - 1, cj) === 0 || at(ci, cj - 1) === 0) {
+      const C = (X0 + Z0 + (own === 0 ? 32 : 0)) * S - (X + Z);
+      if (C > 0) { d = Math.floor(C / 2) + 1; X += d; Z += d; line = 0; }
+      else line = -2;
+    }
+    if (line === -1 && (own === 2 || at(ci + 1, cj) === 2 || at(ci, cj + 1) === 2)) {
+      const C = (X0 + Z0 + (own === 2 ? 31 : 63)) * S - (X + Z);
+      if (C < 0) { d = Math.floor(C / 2) + 1; X += d; Z += d; line = 0; }
+      else line = -2;
+    }
+    if (line === -1 && (own === 3 || at(ci - 1, cj) === 3 || at(ci, cj + 1) === 3)) {
+      const D = (Z - Z0 * S) - (X - (X0 - (own === 3 ? 0 : 32)) * S);
+      if (D > 0) { d = Math.floor(D / 2) + 1; X += d; Z -= d; line = 1; }
+      else line = -2;
+    }
+    if (line === -1 && (own === 1 || at(ci + 1, cj) === 1 || at(ci, cj - 1) === 1)) {
+      const D = (Z - Z0 * S) - (X - (X0 + (own === 1 ? 0 : 32)) * S);
+      if (D < 0) { d = Math.floor(D / 2) + 1; X += d; Z -= d; line = 1; }
+    }
+    if (line < 0) return false;
+    p.x = X / S / 32; p.z = Z / S / 32;
+    const U = 60 / 32 * L.rom.vscale, vx = Math.round(p.vx / U * S), vz = Math.round(p.vz / U * S);
+    const face = origFace(p), setFace = f => { let a = -(((f % 0x800) + 0x800) % 0x800) / 0x800 * 2 * Math.PI; if (a <= -Math.PI) a += 2 * Math.PI; p.facing = a; };
+    if (p.rolling) {   // ($56 = 2)
+      if (line === 0) { p.vx = -vz / S * U; p.vz = -vx / S * U; setFace(0x200 - face); }
+      else { p.vx = vz / S * U; p.vz = vx / S * U; setFace(0x600 - face); }
+      return true;
+    }
+    if (line === 0) { let t = Math.floor(((vz >> 4) * 0xB5 - (vx >> 4) * 0xB5) / 256); t = Math.floor(t * 0xB5 / 16); p.vx = -t / S * U; p.vz = t / S * U; }
+    else { let s = (vx >> 4) * 0xB5 + (vz >> 4) * 0xB5; s = -Math.floor(-s / 256); s = Math.floor(s * 0xB5 / 16); p.vx = p.vz = s / S * U; }
+    return true;
+  }
+
   // The original's facing and velocity (routine 0x3134 and 0x342C, ported to its own fixed point; checked frame by
   // frame against the emulator). Facing in its units: 0x800 a turn, angle up = our p.facing down.
   const origFace = p => { const f = (-(Number.isFinite(p.facing) ? p.facing : 0) / (2 * Math.PI) * 0x800) % 0x800; return f < 0 ? f + 0x800 : f; };
@@ -1899,10 +1954,13 @@ const Sim = (() => {
     if (d < 1e-6 || d > 0x800 - 1e-6) { p.turnFace = p.facing; return; }
     // with the stick let go a turn goes on to the next eighth from its target ($34), then stops
     if (!(m > 0.3) && (r < 1e-6 || r > 0x100 - 1e-6)) { p.turnFace = p.facing; return; }
-    // 0x40 a frame the short way; a half turn goes against the last turn (its $36), down when there was none
-    const s = Math.abs(d - 0x400) < 1e-6 ? (p.lastTurn < 0 ? 1 : -1) : d > 0x400 ? 1 : -1;
+    // 0x40 a frame the short way; a half turn goes up if the facing before the last turn step ($36, `p.face36`; kept
+    // through bounces and the like) is above the facing now, else down
+    const half = Math.abs(d - 0x400) < 1e-6;
+    const s = half ? ((p.face36 === undefined ? face : p.face36) - face > 0 ? 1 : -1) : d > 0x400 ? 1 : -1;
     const room = m > 0.3 ? (s > 0 ? 0x800 - d : d) : s > 0 ? 0x100 - r : r;
-    face += s * Math.min(0x40, room); p.lastTurn = s;
+    if (!half) p.face36 = face;
+    face += s * Math.min(0x40, room);
     let a = -face / 0x800 * 2 * Math.PI; if (a <= -Math.PI) a += 2 * Math.PI;
     p.facing = p.turnFace = a;
   }
@@ -3430,8 +3488,11 @@ const Sim = (() => {
         else p.y = f;
       } else {
         p.y += p.vy * sdt;
-        if (L.rom && Number.isFinite(f) && p.y < f && f <= (O ? origLim(L, p.y) : p.y + L.phys.stepUp)) p.y = f;
-        if (p.vy <= 0 && Number.isFinite(f) && p.y <= f) {
+        // (0x410E: rising under a floor he may go onto puts him on it, still in the air; falling under it lands, below)
+        if (L.rom && Number.isFinite(f) && p.y < f && f <= (O ? origLim(L, p.y) : p.y + L.phys.stepUp) && !(O && p.vy <= 0)) p.y = f;
+        // (converted levels, 0x4102: he lands once his height in whole units is under the floor; on it he still falls)
+        const under = L.rom && O ? Math.floor(p.y * 32 / L.rom.vscale - 8 + 1e-6) < Math.round(f * 32 / L.rom.vscale - 8) : p.y <= f;
+        if (p.vy <= 0 && Number.isFinite(f) && under) {
           const wasBall = p.ball;
           p.y = f; p.vy = 0; p.grounded = true; p.jumping = false; p.coyote = 0; p.ball = p.rolling; p.sprung = false; p.goldUsed = false;
           w.events.push('land');
@@ -4854,7 +4915,7 @@ const S3D = (() => {
   'use strict';
   const HEADERS = 0x1AB62, HSIZE = 0x2A, CELL = 32, STEP = 8, RING_TABLE = 0x1936, RING_HOVER = 18;
   // per corner byte: 1 = the cell is split north-east to south-west for its floor and slope (routines 0x3540, 0x3BB2)
-  const SPLIT = 0x4A08;
+  const SPLIT = 0x4A08, PIECES = [0xD5, 0x75, 0x5D, 0x57];   // (the wall routine's diagonal pieces, 0x3A1A)
   const HUNTER_ORBIT = 23.5, HUNTER_BALL_Y = 20;
   // Green Grove gimmicks that the act's own routine runs (RunLevel_GGz1 0xE59E, RunLevel_GGz2 0xE9C2, cannon 0xF0B0):
   // cannons [cell x, cell z, mouth height, launch up and launch south in units a frame (emulator: the routine asks 9 and
@@ -5324,7 +5385,8 @@ const S3D = (() => {
       const hb = v >> 8, c = [(v >> 6) & 3, (v >> 4) & 3, (v >> 2) & 3, v & 3].map(k => Math.round((hb + k) * unit * 1e4) / 1e4);
       minTop = Math.min(minTop, ...c); sumX += x; sumZ += z; nFloor++;
       // s: bit 0 the cell's split flag; bit 1 all four corners odd, which the slope routine reads as flat (0x3560)
-      const s = (d[SPLIT + (v & 0xFF)] ? 1 : 0) | ((v & 0x55) === 0x55 ? 2 : 0);
+      // bits 2-4: a diagonal corner piece by its byte (0xD5, 0x75, 0x5D, 0x57 = NW, NE, SE, SW corner up), plus one
+      const s = (d[SPLIT + (v & 0xFF)] ? 1 : 0) | ((v & 0x55) === 0x55 ? 2 : 0) | ((PIECES.indexOf(v & 0xFF) + 1) << 2);
       tiles.push(Object.assign({ c, t: gm.spikes !== undefined && (v & 0xFF) === gm.spikes ? 'H' : 'F' }, s ? { s } : {}));
     }
     const floorCell = (cx, cz) => cx >= 0 && cz >= 0 && cx < 128 && cz < 128 && map[cz * 128 + cx] !== 0;

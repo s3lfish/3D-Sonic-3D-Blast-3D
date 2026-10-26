@@ -811,9 +811,9 @@ test('original movement: a wall stops a point at its cell edge and keeps the oth
     run(ww, 60, f => { top = Math.max(top, ww.p.y - y0); return { jump: f < jump }; }); return top * 32; };
   near(peak(40), 60, 3, 'a held jump rises about 60 units');
   assert.ok(peak(2) < 20, `a tapped jump rises ${peak(2).toFixed(1)} units`);
-  const half = last => { const ww = box(); place(ww, 2.5, 2.5); ww.p.facing = -Math.PI / 2; ww.p.lastTurn = last; run(ww, 1, { mx: 1 }); return ww.p.facing + Math.PI / 2; };
+  const half = f36 => { const ww = box(); place(ww, 2.5, 2.5); ww.p.facing = -Math.PI / 2; ww.p.face36 = f36; run(ww, 1, { mx: 1 }); return ww.p.facing + Math.PI / 2; };
   near(half(undefined), Sim.P.orig.turn / 60, 1e-6, 'with no turn before, its angle goes down (ours up)');
-  near(half(-1), -Sim.P.orig.turn / 60, 1e-6, 'after a turn down, a half turn goes up (ours down)');
+  near(half(0x240), -Sim.P.orig.turn / 60, 1e-6, 'after a turn down from 0x240 to 0x200, a half turn goes up (ours down)');
 });
 // a converted-style level (rom set): flat at 1 m with walls round, and a ramp row z 3 (north edge `up` steps higher)
 const ROMLV = (up = 1, split = 0, ents = []) => {

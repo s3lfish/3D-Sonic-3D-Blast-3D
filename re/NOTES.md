@@ -141,6 +141,16 @@ original art. The browser code carries reading rules only.
     it comes back. Not a wall: in the air, under that floor and falling: lands; rising: put on it, still in the air.
     Grounded: a floor more than 2 under him leaves the ground.
   * Jump 0x5A000; letting go while rising: a speed over 3.125 loses 1.5, then halves, and that frame skips gravity.
+  * Landing (0x40F8): in the air, a floor at or under his height: nothing; above it (his whole-unit height under it)
+    and falling: lands (y = floor, $44 = 1, speed down 0); rising: y = floor, still in the air.
+  * Diagonal pieces (0x3A1A): the cell he was in ($8C, from last frame) or a neighbour holding 0xD5 (this, west,
+    north: line x + z = X0 + Z0 + 32, or X0 + Z0 for a neighbour; solid below), 0x5D (this, east, south: + 31 / + 63;
+    solid above), 0x57 (this, west, south: z - Z0 = x - X0, or X0 - 32; solid where z - Z0 is more), 0x75 (this, east,
+    north: X0 or X0 + 32; solid where less). Past the line: half the overlap + 1 (16.16) on each axis (x and z the same
+    way on x + z lines, opposite ways on x - z ones). Then rolling ($56 = 2): x + z lines (-vz, -vx), facing 0x200 - f;
+    x - z lines (vz, vx), facing 0x600 - f. Otherwise the speed along the line: t = ((vz >> 4) 0xB5 - (vx >> 4) 0xB5)
+    >> 8, then t 0xB5 >> 4: (-t, t); on x - z lines s = ceil(((vx >> 4) + (vz >> 4)) 0xB5 / 256) 0xB5 >> 4: (s, s).
+  * A half turn compares $36 (the facing saved before each turn step; bounces and scripts leave it) with $32.
 - A hit (0x1B63E, d0 = -1 new, -2 thrown, else counting): with the shield ($0AC2): it goes, sound 0x35; with no rings:
   dying ($42 = 0x22, $94 = 0x11, facing 0x700, 8 up, sound 0x35); else min(rings, 25) into $0A52, rings 0, sound 0xB9.
   Then (all but dying) $94 = 8, facing's low byte cleared, 5 up, $3E = -2, $40 = 100, state cleared. Each frame thrown:

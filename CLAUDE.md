@@ -222,10 +222,11 @@ serves index.html from main.
   toward Sonic + 16, not under `minY`), nine segments along its path (`b.segs`); drawn with object 138's frames (line 3).
   `GIMMICKS[14]` lava. Not modelled: the vents' fire ball hopping (0xA0A8) and its fight with the serpent.
 - Original movement (`physics.orig` = 1; converted levels, `L.rom` set), ported to the original's own fixed point and
-  matched exactly (to 1/100 unit, heights too) over three emulator traces (GG1 walk/walls/jumps, GG1 spin dash/rolls/
-  bounces, GG2 slopes/roll jumps/air walls; private movetrace.py + move_parity.js):
-  * `origTurn` (0x3134): facing in 0x800 a turn, 0x40 a frame the short way; a half turn goes against the last turn
-    (`p.lastTurn`); stick let go, a turn finishes to the next eighth from its target (`p.turnTgt`).
+  matched exactly (to 1/100 unit, heights too) over four emulator traces (GG1 walk/walls/jumps, GG1 spin dash/rolls/
+  bounces, GG2 slopes/roll jumps/air walls, DD2 diagonal bounce/landing; private movetrace.py + move_parity.js):
+  * `origTurn` (0x3134): facing in 0x800 a turn, 0x40 a frame the short way; a half turn goes up when the facing
+    before the last turn step (`p.face36`, the original's $36, untouched by bounces) is above the facing now, else
+    down; stick let go, a turn finishes to the next eighth from its target (`p.turnTgt`).
   * `origVelocity` (0x342C): 16.16 velocity turned into the facing frame at 1/0x1000 with the sine table
     (`P.orig.sin` = floor(sin x 0x7FFF)), forward gains A with any direction held, losses toward 0, over the top
     loses A, cap 0x7F00, turned back; tables `P.orig.raw` (walk, ball, ice, roll); a roll ends under forward 0x1000
@@ -239,8 +240,14 @@ serves index.html from main.
     (1/8 a step, x 0x5A00, cut toward 0), g + g/4 (rolling a quarter) when steep (0x1000) or moving (0x800).
   * Walls (`resolveWallsOrig`, 0x40D6): a point; a cell 9+ whole units over him is a wall, in the air too; stopped at
     his own cell's edge, x then z, that speed gone, the other kept; a roll comes back 0x4000 slower (stopping if that
-    crosses zero) with its facing mirrored. Rising into a cell within 8 lifts him onto it; a drop over 2 units leaves
-    the ground (stepUp 8, snapDown 2 units). One move a frame. game.js draws him `WALL_SKIN` 0.15 m off tall faces.
+    crosses zero) with its facing mirrored. Rising into a cell within 8 puts him on its floor, still in the air;
+    falling, he lands once his whole-unit height is under the floor (on it, he still falls that frame); a drop over 2
+    units leaves the ground (stepUp 8, snapDown 2 units). One move a frame. game.js draws him `WALL_SKIN` 0.15 m off
+    tall faces.
+  * Diagonal pieces (`origDiag`, 0x3A1A, before the walls): converters mark them (`s` bits 2-4 from bytes 0xD5, 0x75,
+    0x5D, 0x57; `piecesOf`); lines x + z = cell + 32 (SE: + 31) or x - z = cell, checked from his last cell and the
+    neighbours one walks in from; past the line he is put on it; walking, his speed becomes its part along the line
+    (0xB5 fixed point); rolling, it is mirrored off it and his facing turned (0x200 - f or 0x600 - f).
   * Jump 5.625 units a frame; let go while rising: over 3.125 loses 1.5, then halves, no gravity that frame.
   * A hit (`origKnock`, 0x1B6B2; a shield too): facing cut to an eighth, thrown back along it at 0x7800 x 4 and 5 up,
     that speed set each frame (`p.knockT`, pad ignored) till he lands (100 frames at most), then 120 frames safe, no

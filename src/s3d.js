@@ -9,7 +9,7 @@ const S3D = (() => {
   'use strict';
   const HEADERS = 0x1AB62, HSIZE = 0x2A, CELL = 32, STEP = 8, RING_TABLE = 0x1936, RING_HOVER = 18;
   // per corner byte: 1 = the cell is split north-east to south-west for its floor and slope (routines 0x3540, 0x3BB2)
-  const SPLIT = 0x4A08;
+  const SPLIT = 0x4A08, PIECES = [0xD5, 0x75, 0x5D, 0x57];   // (the wall routine's diagonal pieces, 0x3A1A)
   const HUNTER_ORBIT = 23.5, HUNTER_BALL_Y = 20;
   // Green Grove gimmicks that the act's own routine runs (RunLevel_GGz1 0xE59E, RunLevel_GGz2 0xE9C2, cannon 0xF0B0):
   // cannons [cell x, cell z, mouth height, launch up and launch south in units a frame (emulator: the routine asks 9 and
@@ -479,7 +479,8 @@ const S3D = (() => {
       const hb = v >> 8, c = [(v >> 6) & 3, (v >> 4) & 3, (v >> 2) & 3, v & 3].map(k => Math.round((hb + k) * unit * 1e4) / 1e4);
       minTop = Math.min(minTop, ...c); sumX += x; sumZ += z; nFloor++;
       // s: bit 0 the cell's split flag; bit 1 all four corners odd, which the slope routine reads as flat (0x3560)
-      const s = (d[SPLIT + (v & 0xFF)] ? 1 : 0) | ((v & 0x55) === 0x55 ? 2 : 0);
+      // bits 2-4: a diagonal corner piece by its byte (0xD5, 0x75, 0x5D, 0x57 = NW, NE, SE, SW corner up), plus one
+      const s = (d[SPLIT + (v & 0xFF)] ? 1 : 0) | ((v & 0x55) === 0x55 ? 2 : 0) | ((PIECES.indexOf(v & 0xFF) + 1) << 2);
       tiles.push(Object.assign({ c, t: gm.spikes !== undefined && (v & 0xFF) === gm.spikes ? 'H' : 'F' }, s ? { s } : {}));
     }
     const floorCell = (cx, cz) => cx >= 0 && cz >= 0 && cx < 128 && cz < 128 && map[cz * 128 + cx] !== 0;
