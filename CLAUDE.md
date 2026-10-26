@@ -215,7 +215,8 @@ serves index.html from main.
   writes: PP3's start cell, and its first 370 bytes, the serpent's path buffer); the art baker applies them too.
 - Converted levels, all zones (watched in GnG1 and GG1): a roll bounces off walls (`rollBounce`, facing turned); corner
   pieces (one corner two steps over three level ones, both neighbours by it without floor; `L.diag`, findDiagonals) are
-  diagonal walls (that half solid, rest flat), met as a point (`P.rDiag`); walls keep `P.rOrig` 0.12 m; slope pull
+  diagonal walls (that half solid, rest flat), met as a point (`P.rDiag`); cell walls meet a point too (`resolveWallsOrig`: stopped at his own cell's edge, x
+  then z, the speed into the wall gone and the other kept; game.js draws him `WALL_SKIN` 0.15 m off tall faces); slope pull
   `P.slopeOrig` (0.045 units a frame per frame per gradient, measured rolling).
 - VV3 boss `vv` (`vvStep`, 0x9EBA): pod down to `low` (feet frame) in the crater; a falling ball inside `hitBox` is a hit
   (bounce 5, pad 30, 60 frames apart), grounded there hurts; `spikes` cells round the mouth hurt; every 510 frames a fire
@@ -224,8 +225,10 @@ serves index.html from main.
   `GIMMICKS[14]` lava. Not modelled: the vents' fire ball hopping (0xA0A8) and its fight with the serpent.
 - Original movement (`physics.orig` = 1 on converted levels, `P.orig`, routine 0x3330): velocity split along
   `p.facing` (which is the heading there, turned 0x40/0x800 a frame toward the stick); tables [A, F, G] walk, ball,
-  ice, roll; top 5 units a frame; spin dash steps by held frames 14/29/44/59. Measured in GG2 (speedprobe.py): sim
-  within 1% of the emulator over a 60-frame run. A cannon's flight skips it. `runRef()` in game.js scales animation
+  ice, roll; top 5 units a frame; spin dash steps by held frames 14/29/44/59; a half turn turns the original's angle
+  up. Jump 5.625 units a frame; letting go of jump while rising: over 3.125 loses 1.5, then halves, and the next frame
+  has no gravity. A 385-frame GG1 trace (walk, wall slide into a corner, turn, jump, air turn; private movetrace.py +
+  move_parity.js) stays within 1.8 units, heights exact; the rest is the original's fixed-point rounding. A cannon's flight skips it. `runRef()` in game.js scales animation
   and camera thresholds.
 - Object handlers: the table at 0x1BF42 + type (bra.w per type); `re/NOTES.md` lists the ones read.
 - Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
@@ -302,6 +305,8 @@ serves index.html from main.
   `heads`, `continues`); out of lives: a continue restarts the act, else game over and the first act. Score: Sim
   `w.score` (hundreds: enemy 1, boss 10, FF 50, Flickies into a ring 1/2/4/8/16; `step` wraps `stepInner` to count
   events) plus game.js `score` (acts' bonuses, special stages), shown on the results screens.
+- 2026-10-27: movement checked frame by frame against the original (above): point walls, the jump and its let-go,
+  the half turn. 126 sim tests.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;
   the Jam Flicky body is a flat quad (edge-on from the side).

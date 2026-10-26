@@ -444,13 +444,12 @@ const S3D = (() => {
   }
 
   // The original's movement, measured in the running game (world units, 60 frames a second; one cell = 32 units):
-  // gravity 0.25 units/frame², jump rise 60 units, terminal fall 7 units/frame, steps of 8 walked, 16 blocked.
-  // Spring rise is not measured yet: 3.27 cells is a guess.
+  // gravity 0.25 units/frame², a jump at 5.625 units a frame (0x5A000; the first frame rises 5.375, about 60 in all),
+  // terminal fall 7 units/frame, steps of 8 walked, 16 blocked.
   // orig: the original's movement tables (Sim.P.orig, routine 0x3330)
   function physicsFor(vscale) {
-    const r4 = v => Math.round(v * vscale * 1e4) / 1e4, g = 900 / CELL, h = 60 / CELL;
-    // launch speed that peaks at h under Blast Grid's 60 Hz stepping (it loses v/120 against the smooth formula)
-    const jump = (g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * h)) / 2;
+    const r4 = v => Math.round(v * vscale * 1e4) / 1e4, g = 900 / CELL;
+    const jump = 5.625 * 60 / CELL;   // (checked frame by frame against the original: the rise matches to the unit)
     return { gravity: r4(g), jumpV: r4(jump), jumpCut: r4(jump * 0.4), maxFall: r4(420 / CELL), stepUp: r4(12 / CELL), snapDown: r4(12 / CELL), orig: 1 };
   }
   const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };

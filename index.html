@@ -1025,7 +1025,7 @@ const Sim = (() => {
   const P = {
     dt: 1 / 60,
     r: 0.3,             // player radius in metres
-    rOrig: 0.12,        // against walls, in levels with the original's movement
+    rOrig: 0.12,        // against capsules, in levels with the original's movement (walls meet a point: resolveWallsOrig)
     rDiag: 0.03,        // against diagonal walls (the original turns Sonic, a point, on the line itself)
     stepUp: 0.3,        // highest rise walked without jumping
     snapDown: 0.3,      // largest drop followed while staying grounded
@@ -1805,6 +1805,34 @@ const Sim = (() => {
         if (sd < P.rDiag && sd > -0.75) { p.x += ux * (P.rDiag - sd + 1e-5); p.z += uz * (P.rDiag - sd + 1e-5); nx += ux; nz += uz; hit = moved = true; _dn[0] = ux; _dn[1] = uz; _dn[2] = 1; }
       }
       if (!moved) break;
+    }
+    if (!hit) return null;
+    const m = Math.hypot(nx, nz) || 1;
+    _n[0] = nx / m; _n[1] = nz / m;
+    return _n;
+  }
+
+  // The original's walls (routine 0x39DC; checked against it frame by frame): Sonic is a point. Crossing into a cell too
+  // high to step onto stops him at the edge of his own cell on that axis (x first, then z, so a corner is met by the
+  // second), and the speed into it is gone (the caller's response), the other kept: he slides along at full speed.
+  // Corner pieces as in resolveWalls.
+  const _ax = [0, 0, 0];   // the axes resolveWallsOrig stopped ([2] set when any)
+  function resolveWallsOrig(L, p, ox, oz) {
+    _dn[2] = 0; _ax[0] = _ax[1] = _ax[2] = 0;
+    const lim = p.y + L.phys.stepUp, air = p.flyT > 0, E = 1 / (32 * 65536), ci = Math.floor(ox), cj = Math.floor(oz);
+    let i = Math.floor(p.x), j = Math.floor(p.z), nx = 0, nz = 0, hit = false;
+    if (i !== ci && tileTopNear(L, i, cj, p.x, oz, air) > lim) { p.x = i > ci ? ci + 1 - E : ci; nx = _ax[0] = i > ci ? -1 : 1; hit = true; i = ci; _ax[2] = 1; }
+    if (j !== cj && tileTopNear(L, i, j, p.x, p.z, air) > lim) { p.z = j > cj ? cj + 1 - E : cj; nz = _ax[1] = j > cj ? -1 : 1; hit = true; _ax[2] = 1; }
+    if (L.diag && L.diag.size && !(p.flyT > 0)) {
+      const r = P.rDiag, i0 = Math.floor(p.x - r), i1 = Math.floor(p.x + r), j0 = Math.floor(p.z - r), j1 = Math.floor(p.z + r);
+      for (let jj = j0; jj <= j1; jj++) for (let ii = i0; ii <= i1; ii++) {
+        const dg = L.diag.get(jj * L.width + ii);
+        if (!dg) continue;
+        const u = p.x - ii, v = p.z - jj, S = Math.SQRT1_2, along = dg.k === 0 || dg.k === 2 ? (u - v + 1) / 2 : (u + v) / 2;
+        if (along < 0 || along > 1) continue;
+        const [ux, uz, sd] = dg.k === 0 ? [S, S, (u + v - 1) * S] : dg.k === 1 ? [-S, S, (v - u) * S] : dg.k === 2 ? [-S, -S, (1 - u - v) * S] : [S, -S, (u - v) * S];
+        if (sd < r && sd > -0.75) { p.x += ux * (r - sd + 1e-5); p.z += uz * (r - sd + 1e-5); nx += ux; nz += uz; hit = true; _dn[0] = ux; _dn[1] = uz; _dn[2] = 1; }
+      }
     }
     if (!hit) return null;
     const m = Math.hypot(nx, nz) || 1;
@@ -3120,7 +3148,11 @@ const Sim = (() => {
       p.goldUsed = true; p.vx = Math.sin(p.facing) * P.goldDash; p.vz = Math.cos(p.facing) * P.goldDash; p.vy = Math.max(p.vy, 2);
       p.jumping = false; p.ball = true; w.events.push('goldDash');
     }
-    if (p.jumping && !inp.jump && p.vy > L.phys.jumpCut) p.vy = L.phys.jumpCut;
+    if (O && p.jumping && !inp.jump && p.vy > 0) {   // the original's let-go (0x36A6): rising faster than 3.125 a frame loses 1.5, then half; no gravity that frame
+      const U = 60 / 32 * (L.rom ? L.rom.vscale : 1); let v = p.vy / U;
+      if (v > 3.125) v -= 1.5;
+      p.vy = v / 2 * U; p.jumping = false; p.noGrav = true;
+    } else if (!O && p.jumping && !inp.jump && p.vy > L.phys.jumpCut) p.vy = L.phys.jumpCut;
 
     // horizontal control
     speed = Math.hypot(p.vx, p.vz);
@@ -3135,6 +3167,7 @@ const Sim = (() => {
       if (!Number.isFinite(p.facing)) p.facing = 0;
       if (m > 0.3) {
         let da = Math.atan2(mx, mz) - p.facing; da = Math.atan2(Math.sin(da), Math.cos(da));
+        if (da > Math.PI - 1e-6) da -= 2 * Math.PI;   // (a half turn goes the original's way: its angle up, ours down; watched)
         p.facing += Math.max(-O.turn * dt, Math.min(O.turn * dt, da));
       }
       const hx = Math.sin(p.facing), hz = Math.cos(p.facing);
@@ -3198,7 +3231,7 @@ const Sim = (() => {
       else { if (p.hoverBelow && p.vy > 0) p.vy *= 0.5; p.vy -= a * dt; }
       p.hoverBelow = p.y < line;
     }
-    else { p.vy = Math.max(-L.phys.maxFall, p.vy - L.phys.gravity * dt); if (p.coyote > 0) p.coyote -= dt; }
+    else { if (p.noGrav) p.noGrav = false; else p.vy = Math.max(-L.phys.maxFall, p.vy - L.phys.gravity * dt); if (p.coyote > 0) p.coyote -= dt; }
     speed = Math.hypot(p.vx, p.vz);
     if (speed > P.cap) { p.vx *= P.cap / speed; p.vz *= P.cap / speed; speed = P.cap; }
 
@@ -3235,7 +3268,8 @@ const Sim = (() => {
     const n = Math.max(1, Math.ceil(Math.max(speed, Math.abs(p.vy)) * dt / (P.r * 0.5)));
     const sdt = dt / n;
     for (let s = 0; s < n; s++) {
-      const nrm = p.sled && p.grounded ? sledMove(L, p, sdt) : (p.x += p.vx * sdt, p.z += p.vz * sdt, resolveWalls(L, p));
+      const ox = p.x, oz = p.z;
+      const nrm = p.sled && p.grounded ? sledMove(L, p, sdt) : (p.x += p.vx * sdt, p.z += p.vz * sdt, O ? resolveWallsOrig(L, p, ox, oz) : resolveWalls(L, p));
       if (nrm) {
         // a whirl bounces off; so does a roll in the original's movement (watched: Green Grove 1's first wall, Gene
         // Gadget 1's corridor), turning to its new way
@@ -3243,8 +3277,18 @@ const Sim = (() => {
         if (bounce && _dn[2]) { nrm[0] = _dn[0]; nrm[1] = _dn[1]; }   // (a point in the original: the diagonal alone turns it)
         // (in the air the original only stops him at the wall: his speed is kept, so he goes on once over the ledge;
         // watched: thrown out of Diamond Dust 1's warp hole against its edge)
-        const dot = p.vx * nrm[0] + p.vz * nrm[1], kb = p.whirl ? 1 + P.whirlBounce : bounce ? 2 : 1, keep = O && !p.grounded && !p.whirl;
-        if (dot < 0 && !keep) { p.vx -= nrm[0] * dot * kb; p.vz -= nrm[1] * dot * kb; if (bounce) { p.facing = Math.atan2(p.vx, p.vz); w.events.push('rollBounce'); } }
+        const keep = O && !p.grounded && !p.whirl;
+        if (O && _ax[2] && !_dn[2] && !p.whirl) {   // (a cell wall in the original: each axis met on its own, the other kept)
+          if (!keep) {
+            let met = false;
+            if (_ax[0] && p.vx * _ax[0] < 0) { p.vx = bounce ? -p.vx : 0; met = true; }
+            if (_ax[1] && p.vz * _ax[1] < 0) { p.vz = bounce ? -p.vz : 0; met = true; }
+            if (met && bounce) { p.facing = Math.atan2(p.vx, p.vz); w.events.push('rollBounce'); }
+          }
+        } else {
+          const dot = p.vx * nrm[0] + p.vz * nrm[1], kb = p.whirl ? 1 + P.whirlBounce : bounce ? 2 : 1;
+          if (dot < 0 && !keep) { p.vx -= nrm[0] * dot * kb; p.vz -= nrm[1] * dot * kb; if (bounce) { p.facing = Math.atan2(p.vx, p.vz); w.events.push('rollBounce'); } }
+        }
       }
       let f = floorAt(L, p.x, p.z);
       if (w.plats.length || w.jets.length || w.movers.length) f = platFloor(w, p, f, p.grounded ? L.phys.stepUp : 0.02);
@@ -5039,13 +5083,12 @@ const S3D = (() => {
   }
 
   // The original's movement, measured in the running game (world units, 60 frames a second; one cell = 32 units):
-  // gravity 0.25 units/frame², jump rise 60 units, terminal fall 7 units/frame, steps of 8 walked, 16 blocked.
-  // Spring rise is not measured yet: 3.27 cells is a guess.
+  // gravity 0.25 units/frame², a jump at 5.625 units a frame (0x5A000; the first frame rises 5.375, about 60 in all),
+  // terminal fall 7 units/frame, steps of 8 walked, 16 blocked.
   // orig: the original's movement tables (Sim.P.orig, routine 0x3330)
   function physicsFor(vscale) {
-    const r4 = v => Math.round(v * vscale * 1e4) / 1e4, g = 900 / CELL, h = 60 / CELL;
-    // launch speed that peaks at h under Blast Grid's 60 Hz stepping (it loses v/120 against the smooth formula)
-    const jump = (g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * h)) / 2;
+    const r4 = v => Math.round(v * vscale * 1e4) / 1e4, g = 900 / CELL;
+    const jump = 5.625 * 60 / CELL;   // (checked frame by frame against the original: the rise matches to the unit)
     return { gravity: r4(g), jumpV: r4(jump), jumpCut: r4(jump * 0.4), maxFall: r4(420 / CELL), stepUp: r4(12 / CELL), snapDown: r4(12 / CELL), orig: 1 };
   }
   const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };
@@ -9425,6 +9468,15 @@ const Art = (() => {
   const prev = { x: world.p.x, y: world.p.y, z: world.p.z };
   let acc = 0, last = performance.now(), frames = 0, shownRings = -1;
   const g2 = [0, 0], nrmV = new THREE.Vector3(), zAxis = new THREE.Vector3(0, 0, 1), rp = new THREE.Vector3();
+  // The original's Sonic is a point that walks up to a wall's face (Sim resolveWallsOrig); a body drawn there would be
+  // half inside it, so the drawing alone keeps WALL_SKIN off faces too high to step onto. The sim is not moved.
+  const WALL_SKIN = 0.15;
+  function wallSkin(v) {
+    const i = Math.floor(v.x), j = Math.floor(v.z), fx = v.x - i, fz = v.z - j, lim = v.y + L.phys.stepUp;
+    const tall = (ii, jj) => ii < 0 || jj < 0 || ii >= L.width || jj >= L.depth || Sim.tileTopNear(L, ii, jj, v.x, v.z) > lim;
+    if (fx < WALL_SKIN && tall(i - 1, j)) v.x = i + WALL_SKIN; else if (fx > 1 - WALL_SKIN && tall(i + 1, j)) v.x = i + 1 - WALL_SKIN;
+    if (fz < WALL_SKIN && tall(i, j - 1)) v.z = j + WALL_SKIN; else if (fz > 1 - WALL_SKIN && tall(i, j + 1)) v.z = j + 1 - WALL_SKIN;
+  }
   function frame(now) {
     const dt = Math.min(0.25, (now - last) / 1000); last = now;
     if (bonus) { frameBonus(now, dt); requestAnimationFrame(frame); return; }
@@ -9471,6 +9523,7 @@ const Art = (() => {
     if (steps === 5) acc = 0;
     const a = acc / STEP, p = world.p, t = now / 1000;
     rp.set(prev.x + (p.x - prev.x) * a, prev.y + (p.y - prev.y) * a, prev.z + (p.z - prev.z) * a);
+    if (L.phys && L.phys.orig && !p.ride && !(p.flyT > 0)) wallSkin(rp);
 
     // pick the drawing: pose from the sim state, view and left/right from movement relative to the camera
     const sp = Math.hypot(p.vx, p.vz);

@@ -2688,6 +2688,15 @@
   const prev = { x: world.p.x, y: world.p.y, z: world.p.z };
   let acc = 0, last = performance.now(), frames = 0, shownRings = -1;
   const g2 = [0, 0], nrmV = new THREE.Vector3(), zAxis = new THREE.Vector3(0, 0, 1), rp = new THREE.Vector3();
+  // The original's Sonic is a point that walks up to a wall's face (Sim resolveWallsOrig); a body drawn there would be
+  // half inside it, so the drawing alone keeps WALL_SKIN off faces too high to step onto. The sim is not moved.
+  const WALL_SKIN = 0.15;
+  function wallSkin(v) {
+    const i = Math.floor(v.x), j = Math.floor(v.z), fx = v.x - i, fz = v.z - j, lim = v.y + L.phys.stepUp;
+    const tall = (ii, jj) => ii < 0 || jj < 0 || ii >= L.width || jj >= L.depth || Sim.tileTopNear(L, ii, jj, v.x, v.z) > lim;
+    if (fx < WALL_SKIN && tall(i - 1, j)) v.x = i + WALL_SKIN; else if (fx > 1 - WALL_SKIN && tall(i + 1, j)) v.x = i + 1 - WALL_SKIN;
+    if (fz < WALL_SKIN && tall(i, j - 1)) v.z = j + WALL_SKIN; else if (fz > 1 - WALL_SKIN && tall(i, j + 1)) v.z = j + 1 - WALL_SKIN;
+  }
   function frame(now) {
     const dt = Math.min(0.25, (now - last) / 1000); last = now;
     if (bonus) { frameBonus(now, dt); requestAnimationFrame(frame); return; }
@@ -2734,6 +2743,7 @@
     if (steps === 5) acc = 0;
     const a = acc / STEP, p = world.p, t = now / 1000;
     rp.set(prev.x + (p.x - prev.x) * a, prev.y + (p.y - prev.y) * a, prev.z + (p.z - prev.z) * a);
+    if (L.phys && L.phys.orig && !p.ride && !(p.flyT > 0)) wallSkin(rp);
 
     // pick the drawing: pose from the sim state, view and left/right from movement relative to the camera
     const sp = Math.hypot(p.vx, p.vz);

@@ -32,8 +32,8 @@ MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fir
 # the original's movement, measured in the running game (see s3d.js physicsFor)
 def physics_for(vscale):
     r4 = lambda v: jround(v * vscale, 4)
-    g, h = 900 / CELL, 60 / CELL
-    jump = (g / 60 + math.sqrt((g / 60) ** 2 + 8 * g * h)) / 2   # peaks at h under Blast Grid's 60 Hz stepping
+    g = 900 / CELL
+    jump = 5.625 * 60 / CELL   # the original's 0x5A000 (see s3d.js)
     return {"gravity": r4(g), "jumpV": r4(jump), "jumpCut": r4(jump * 0.4), "maxFall": r4(420 / CELL), "stepUp": r4(12 / CELL), "snapDown": r4(12 / CELL), "orig": 1}
 
 

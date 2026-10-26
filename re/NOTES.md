@@ -109,7 +109,15 @@ original art. The browser code carries reading rules only.
 - Springs (type 18) throw Sonic 140 units up: launch speed 8 units/frame, contact at the object's y (`objwatch.py`).
   Some springs stand on a raised cell, so they are jumped onto.
 - Cells with no floor (map word 0) are walls: Sonic stops at the edge walking and jumping (18 of 18 edges in GG1,
-  GG2, DD1). The map has no bottomless pits. Spring height not measured.
+  GG2, DD1). The map has no bottomless pits.
+- Frame by frame (2026-10-27; movetrace.py, move_parity.js; GG1 from the start: right 60, up 40, left 30, jump,
+  right with jump): Sonic is a point against cell walls (routine 0x39DC). Crossing into a cell too high stops him at
+  his own cell's edge on that axis (x 2975.99997 against a wall at 2976), that axis's speed zeroed and the other kept,
+  so he slides on at full speed; x is met before z, so a corner stops both. The jump is 5.625 units a frame (0x5A000);
+  letting go while rising: a speed over 3.125 loses 1.5, then it halves, and that frame skips gravity. A half turn
+  (stick exactly opposite the facing) turns the facing angle up (0x100 to 0x500 by 0x200, 0x300, 0x400), in the air
+  too. Accelerating at 45 degrees gains 0x180 an axis (0x220 forward, rounded down). With these the sim stays within
+  1.8 units over 385 frames, heights exact.
 
 ## Sections, rings and holes
 

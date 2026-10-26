@@ -98,7 +98,7 @@ test('cannot jump onto a 1.5 m ledge', () => {
   near(w.p.y, 1.0, 1e-6, 'still on the ground'); assert.ok(w.p.x < 5);
 });
 // the physics a converted level brings at true shape (see S3D physicsFor): jump peak 1.875 m, step limit 0.375 m
-const ORIG = { physics: { gravity: 28.125, jumpV: 10.5068, jumpCut: 4.2027, maxFall: 13.125, stepUp: 0.375, snapDown: 0.375 } };
+const ORIG = { physics: { gravity: 28.125, jumpV: 10.5469, jumpCut: 4.2188, maxFall: 13.125, stepUp: 0.375, snapDown: 0.375 } };
 test('level physics: jump peaks near 1.875 m', () => {
   const w = world(grid(W12(row('4', 12)), Object.assign({ entities: [{ type: 'start', x: 5.5, z: 2.5 }] }, ORIG)));
   let top = 0;
@@ -800,6 +800,20 @@ test('original movement: a jump without the stick loses 0.086 a frame per frame;
   run(w, 30, { mx: 1 }); near(w.p.vx, UF(30 * (0x100 - 0x20) / 0x1000), UF(0.02), 'slow start on ice');
   const v1 = w.p.vx; run(w, 30, {}); near(v1 - w.p.vx, UF(30 * 0x20 / 0x1000), UF(0.01), 'long slide');
 });
+test('original movement: a wall stops a point at its cell edge and keeps the other part; letting go of jump cuts the rise; a half turn goes its way', () => {
+  const box = () => world(grid(['cccccc', 'c4444c', 'c4444c', 'c4444c', 'cccccc'], { entities: [{ type: 'start', x: 2.5, z: 2.5, facing: 90 }],
+    physics: Object.assign({}, ORIG.physics, { orig: 1 }) }));
+  let w = box(); place(w, 2.5, 2.5); w.p.facing = Math.atan2(1, -1); w.p.vx = UF(2); w.p.vz = UF(-2);
+  run(w, 40, { mx: Math.SQRT1_2, mz: -Math.SQRT1_2 });
+  assert.ok(w.p.x < 5 && w.p.x > 5 - 1e-6 && w.p.vx === 0, `stopped at the cell edge: ${w.p.x}`);
+  near(w.p.z, 1, 1e-6, 'slid on into the corner');
+  const peak = jump => { const ww = box(); place(ww, 2.5, 2.5); const y0 = ww.p.y; let top = 0;
+    run(ww, 60, f => { top = Math.max(top, ww.p.y - y0); return { jump: f < jump }; }); return top * 32; };
+  near(peak(40), 60, 3, 'a held jump rises about 60 units');
+  assert.ok(peak(2) < 20, `a tapped jump rises ${peak(2).toFixed(1)} units`);
+  w = box(); place(w, 2.5, 2.5); w.p.facing = -Math.PI / 2; run(w, 1, { mx: 1 });
+  near(w.p.facing, -Math.PI / 2 - Sim.P.orig.turn / 60, 1e-6, 'a half turn turns our angle down (the original\'s up)');
+});
 test('Diamond Dust: ice spikes hurt until a roll breaks them; a low roof stops a jump', () => {
   let w = ORIGM([{ type: 'iceSpikes', cells: [[5, 2]] }]); w.ringCount = 5; place(w, 3.5, 2.5); w.p.facing = Math.PI / 2;
   let hit = false; run(w, 40, (f, ww) => { if (ww.events.includes('hurt')) hit = true; return { mx: 1 }; });
@@ -912,7 +926,7 @@ test('gates stand until their ring or a supercharged run (until a passOff cell);
   // (a passOff cell ends the run's pass: the gates stand again, walking back is blocked)
   w = GNG([{ type: 'gate', cells: [[6, 1], [6, 2], [6, 3]], top: 3, pass: true }, { type: 'booster', x: 3.5, z: 2.5, dir: [1, 0] }, { type: 'passOff', cells: [[9, 2]] }]); place(w, 3.5, 2.5);
   run(w, 150, {}); assert.ok(w.p.x > 9 && !w.passOn.has(1), `through, and the flag cleared at ${w.p.x.toFixed(2)}`);
-  place(w, 7.5, 2.5); run(w, 90, { mx: -1 }); assert.ok(w.p.x > 7, `held behind the gate at ${w.p.x.toFixed(2)}`);
+  place(w, 7.5, 2.5); run(w, 90, { mx: -1 }); assert.ok(w.p.x >= 7, `held behind the gate at ${w.p.x.toFixed(2)}`);
   w = GNG([{ type: 'barrier', cells: [[6, 2]], half: 'n', away: [0, 1], opens: 1 }]); w.ringCount = 5; place(w, 6.5, 2.8);
   run(w, 30, { mz: -1 }); assert.ok(w.ringCount === 0, 'zapped in its north half');
 });
@@ -957,7 +971,7 @@ test('a door gate opens for the ride that gives its key until its keyOff cell; a
   const tube = { type: 'hole', x: 2.5, z: 2.5, size: 0.5, opens: 0, key: 7, ride: { start: [2.5, null, 2.5], path: [[0, 0, 0]], end: { at: [4.5, 1, 2.5], facing: 90, vel: [3, 0, 0] } } };
   let w = GNG([tube, { type: 'gate', cells: [[6, 1], [6, 2], [6, 3]], top: 3, key: 7 }, { type: 'keyOff', x: 8, z: 2, key: 7 }]); place(w, 1.5, 2.5);
   run(w, 150, (f) => f < 20 ? { mx: 1 } : f > 60 ? { mx: 1 } : {}); assert.ok(w.p.x > 8 && !w.keys.has(7), `through the door, key gone: ${w.p.x.toFixed(2)}`);
-  run(w, 90, { mx: -1 }); assert.ok(w.p.x > 7, `shut behind: ${w.p.x.toFixed(2)}`);
+  run(w, 90, { mx: -1 }); assert.ok(w.p.x >= 7, `shut behind: ${w.p.x.toFixed(2)}`);
   const hop = { type: 'hole', x: 5.5, z: 2.5, size: 0.5, opens: 0, air: true, run: true, ride: { path: [[0, 0.1, 0]], end: null, vel: [0, 0, 0] } };
   w = GNG([hop]); place(w, 3.5, 2.5); let rode = false;
   run(w, 60, (f, ww) => { if (ww.events.includes('ride')) rode = true; return { mx: 1 }; }); assert.ok(!rode, 'walked over it');
@@ -1017,7 +1031,7 @@ test('Panic Puppet 2: cells shut behind the player; a belt along z; the lift end
   let w = GNG([{ type: 'gate', cells: [[5, 1], [5, 2], [5, 3]], top: 3, shut: [[6, 2]], ev: 'shut' }]); place(w, 3.5, 2.5);
   let shut = false; run(w, 60, (f, ww) => { if (ww.events.includes('shut')) shut = true; return { mx: 1 }; });
   assert.ok(shut && w.p.x > 7, `through and shut: ${w.p.x.toFixed(2)}`);
-  run(w, 90, { mx: -1 }); assert.ok(w.p.x > 6, `held at ${w.p.x.toFixed(2)}`);
+  run(w, 90, { mx: -1 }); assert.ok(w.p.x >= 6, `held at ${w.p.x.toFixed(2)}`);
   w = GNG([{ type: 'carrier', box: [3, 5, 1, 3], y: null, line: 4, lo: null, hi: 3, v: 1.875, way: 1, axis: 'z' }]); place(w, 4, 1.5);
   run(w, 3, {}); assert.ok(w.p.carry && Math.abs(w.p.x - 4) < 1e-9, 'held on its line');
   run(w, 60, {}); assert.ok(!w.p.carry && w.p.z >= 3 && w.p.z < 3.2, `carried south, let go at z ${w.p.z.toFixed(3)}`);
