@@ -94,8 +94,12 @@ serves index.html from main.
   (`blastgrid.mute`); the help card pauses the audio context. Rebuild the wasm with `sh sound/build.sh`, then build.py.
 - Scar: a compiled WebAssembly.Module posted to the AudioWorklet never arrived (no error); post the bytes instead.
   Requests sent before the worklet's async start were wiped by boot(): boot no longer clears the queue.
-- 3D hero: `src/jam.js` (tag `#jam`) reads the player's Sonic Jam disc image (.iso or Track 1 .bin; ISO 9660 via
-  File.slice, only MUSEUM.MUS and SPRDATA.MUS kept, IndexedDB key 'jam'). `buildHero3d` makes a group per part
+- 3D hero: `src/jam.js` (tag `#jam`) reads the player's Sonic Jam disc image (ISO 9660; only MUSEUM.MUS and
+  SPRDATA.MUS kept, IndexedDB key 'jam'). Images: plain (.iso/.bin/.img/.mdf/.nrg: sector size 2048/2352/2448, data
+  offset and lead-in found by scanning the first 1 MB for CD001 + the Saturn header), CHD v5 (Huffman map, codecs
+  cdlz/cdzl/cdfl with own LZMA and FLAC decoders, deflate by DecompressionStream; not cdzs/zstd, not v3/v4, no
+  parents), ECM (record list, then random access), zip (stored: random; deflate: one sweep per fetch). A source has
+  read(o, n) or pass(ranges); sectors are fetched as spans. Private test images: scratchpad discs/ + disctest.js. `buildHero3d` makes a group per part
   (Lambert, vertex colours + texture atlas, DoubleSide) and the jump ball; `updateHero3d` picks idle/walk/run/sprint/
   spring/fall/skid (sim `p.skid`: grounded, fast, stick against travel) at 30 frames a second (assumed) scaled by speed; angles z,y,x → Euler 'ZYX'; model faces -x so
   rotation.y = facing + pi/2. Model select `#heroSel` ('3d' default when a disc is loaded; `blastgrid.hero`).
@@ -137,6 +141,7 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
+- 2026-10-26 late: Jam discs as CHD, ECM, zip, .img, .mdf, .nrg (all checked byte for byte against the files).
 - 2026-10-26 evening: Rusty Ruin 1 gimmicks (above); 75 sim tests. Open in RR: maces (084/088 orbit, helper 0x86B0),
   flamethrowers (helper 0x84F2, sound 0x7F), green dome buttons (0xAA cells, cosmetic), RR2 rides (states 2E-34),
   conveyor cells (0xC3/0xF0), RR2 pillars and wall, RR3 boss.
