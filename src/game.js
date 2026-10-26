@@ -3,7 +3,7 @@
   const $ = id => document.getElementById(id);
   const canvas = $('view');
   const isTouch = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
-  const LEVEL_KEY = 'blastgrid.level', CAM_KEY = 'blastgrid.cam', LOOK_KEY = 'blastgrid.look', MUTE_KEY = 'blastgrid.mute';
+  const LEVEL_KEY = 'blastgrid.level', CAM_KEY = 'blastgrid.cam', LOOK_KEY = 'blastgrid.look', MUTE_KEY = 'blastgrid.mute', SCREEN_KEY = 'blastgrid.screen';
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } },
@@ -530,7 +530,7 @@
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
-  let mineSprites = [], turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null;
+  let mineSprites = [], turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
   function buildLevelObjects() {
     if (levelGroup) {
       scene.remove(levelGroup);
@@ -599,6 +599,7 @@
     for (let i = 0; i < 24; i++) { const s = new THREE.Sprite(flickyMat(0, 0, false)); s.center.set(0.5, 0.08); s.scale.set(0.55, 0.55, 1); s.visible = false; levelGroup.add(s); flickySprites.push(s); }
     goalFx = null;
     $('flickyHud').hidden = !L.flickies;
+    if (typeof satScene === 'function' && satReady) satScene();
     looseSprites = [];
     for (let i = 0; i < Sim.P.scatterMax; i++) { const s = new THREE.Sprite(rom ? romArt.rings[0] : ringMats[0]); s.scale.set(0.5, 0.5, 1); s.visible = false; levelGroup.add(s); looseSprites.push(s); }
     for (const e of L.entities) {
@@ -689,6 +690,61 @@
   }
   window.addEventListener('resize', resize);
   resize();
+
+  // ---- Saturn screen: what made Saturn 3D look the way it did, imitated with no Saturn data ----
+  // The scene is drawn into a 224-line target with no smoothing and shown with hard pixels in 15-bit colour; textures
+  // on 3D faces are mapped without perspective correction (the wobble of the Saturn's distorted sprites); anything
+  // see-through becomes a checkerboard of dropped pixels (the Saturn's mesh transparency); textures are not filtered.
+  let saturn = store.get(SCREEN_KEY) === 'saturn';
+  const satTarget = new THREE.WebGLRenderTarget(320, 224, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+  const postScene = new THREE.Scene(), postCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  postScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+    uniforms: { tex: { value: satTarget.texture } }, depthTest: false, depthWrite: false,
+    vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+    fragmentShader: 'uniform sampler2D tex; varying vec2 vUv; void main() { vec3 c = texture2D(tex, vUv).rgb; gl_FragColor = vec4(floor(c * 31.0 + 0.5) / 31.0, 1.0); }',
+  })));
+  const SAT_DITHER = `
+    if (SAT_ON && gl_FragColor.a < 0.99) {
+      if (gl_FragColor.a < 0.12 || mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0) < 1.0) discard;
+      gl_FragColor.a = 1.0;
+    }`;
+  // patch a material once; its program is rebuilt when the screen setting changes (the cache key includes it)
+  function satPatch(m, affine) {
+    if (!m || m.userData.sat) return;
+    m.userData.sat = true;
+    const prevKey = m.customProgramCacheKey ? m.customProgramCacheKey.bind(m) : () => '';
+    m.customProgramCacheKey = () => prevKey() + (saturn ? '|sat' : '|mod');
+    m.onBeforeCompile = sh => {
+      sh.fragmentShader = '#define SAT_ON ' + (saturn ? 'true' : 'false') + '\n' + sh.fragmentShader.replace(/}\s*$/, SAT_DITHER + '\n}');
+      if (!saturn || !affine || !sh.fragmentShader.includes('#include <map_fragment>')) return;
+      sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vAffUv; varying float vAffW;')
+        .replace('#include <project_vertex>', '#include <project_vertex>\n#ifdef USE_UV\nvAffUv = vUv * gl_Position.w; vAffW = gl_Position.w;\n#endif');
+      sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nvarying vec2 vAffUv; varying float vAffW;')
+        .replace('#include <map_fragment>', THREE.ShaderChunk.map_fragment.replace('vUv', '(vAffUv / vAffW)'));
+    };
+    m.needsUpdate = true;
+  }
+  const satMin = new WeakMap();   // textures' own minification filters, put back when the Saturn screen is off
+  function satScene() {
+    scene.traverse(o => {
+      for (const m of [].concat(o.material || [])) {
+        satPatch(m, o.isMesh);
+        if (m.map) { if (!satMin.has(m.map)) satMin.set(m.map, m.map.minFilter); const f = saturn ? THREE.NearestFilter : satMin.get(m.map); if (m.map.minFilter !== f) { m.map.minFilter = f; m.map.needsUpdate = true; } }
+      }
+    });
+  }
+  function setSaturn(on) {
+    saturn = on; store.set(SCREEN_KEY, on ? 'saturn' : 'modern');
+    satScene();
+    scene.traverse(o => { for (const m of [].concat(o.material || [])) if (m.userData.sat) m.needsUpdate = true; });
+    for (const m of Object.values(shieldMats)) { satPatch(m, false); m.needsUpdate = true; }
+    $('screenSel').value = on ? 'saturn' : 'modern';
+  }
+  function satSize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    satTarget.setSize(Math.max(1, Math.round(224 * w / h)), 224);
+  }
+  window.addEventListener('resize', satSize); satSize();
   // bearing of the camera as seen from the player (0 = camera south of the player)
   function currentYaw() { return view.mode === 'iso' ? view.yaw : Math.atan2(view.pos.x - lastRp.x, view.pos.z - lastRp.z); }
   function setMode(mode) {
@@ -1303,10 +1359,15 @@
     fadeBlockers(dt);
     updateFoliage();
     dome.position.copy(cam.position);
-    renderer.render(scene, cam);
+    if (saturn) {
+      renderer.setRenderTarget(satTarget); renderer.render(scene, cam);
+      renderer.setRenderTarget(null); renderer.render(postScene, postCam);
+    } else renderer.render(scene, cam);
     frames++;
     requestAnimationFrame(frame);
   }
+  satReady = true; setSaturn(saturn);
+  $('screenSel').addEventListener('change', () => setSaturn($('screenSel').value === 'saturn'));
   window.__game = { Sim, view, setMode, start, get world() { return world; }, get level() { return L; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
   setMode(view.mode);
   requestAnimationFrame(frame);

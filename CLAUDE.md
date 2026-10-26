@@ -59,6 +59,11 @@ serves index.html from main.
 - Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
   ROM look draws springs as 3D drums coloured from the ROM sprite (`romSpringMats`).
 - Act end: the `goal` event shows `#clearCard`, flashes, and after 5 s converts the next act in `S3D.LEVELS` order.
+- Act results (ROM look): `S3D.tallyImage` draws the original's results screen (fonts RNC 0x15DEBA/0x15E3E6, palettes
+  26/27/3) into `#tallyCanvas`; bonus rules are mine (`timeBonus`, 100 a ring, 100 a Flicky saved = `w.saved`).
+- Saturn screen (`#screenSel`, `blastgrid.screen`): scene into a 224-line target, 15-bit colour, nearest filtering;
+  `satPatch` adds affine texture mapping (vAffUv/vAffW) to meshes and checkerboard mesh transparency to all materials.
+  Texture userData does not exist in r128: original filters live in the `satMin` WeakMap.
 - Sound: `Sfx` in game.js, Web Audio blips per sim event (original, nothing from the ROM); M mutes (`blastgrid.mute`).
 - Big ring in ROM look: object art 0x3D068 frame 0, floating 56 units up, squeezed in x to turn.
 - ROM files: `S3D.openRomFile` takes a plain ROM, an .smd dump (de-interleaved) or either inside a .zip (stored or
