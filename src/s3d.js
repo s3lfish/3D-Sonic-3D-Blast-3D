@@ -41,6 +41,12 @@ const S3D = (() => {
         [100, 60, 0, 0x32, null, null, [0, 0, 0]], [91, 71, 0, 0x34, null, null, [0, 0, 0]]],
       cracks: [[[[101, 60]], 336, [-1, 0]]] },
   };   // units: spike ball circle radius (measured) and height (estimated)
+  // Bosses run by the act's own routine. Green Grove 3 (RunLevel_GGz3 0xDDE4): Robotnik's pod starts at [x, y, z],
+  // comes down to the cruise height, then loops: follows Sonic (2 units a frame) until close, lets its spiked ball go
+  // (it falls and hops five times towards Sonic, 2 units a frame out, 2 up, 0.125 gravity), goes back home (1 a frame),
+  // sinks to the ball's height + 40, takes the ball back and rises. A hit: Sonic within 32 units, at the pod's height
+  // + 8 or above; five hits, 60 frames apart. All inside the arena square.
+  const BOSSES = { 3: { kind: 'gg', at: [1152, 350, 1152], home: [1088, 1088], cruise: 160, arena: [800, 1375], hp: 5 } };
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
   // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
@@ -325,6 +331,10 @@ const S3D = (() => {
       if (maxY !== undefined) e.maxY = r3(maxY / CELL * vscale);
       ents.push(e);
     }
+    const bs = BOSSES[id];
+    if (bs) ents.push({ type: 'boss', kind: bs.kind, x: r3(bs.at[0] / CELL - x0), y: r3(bs.at[1] / CELL * vscale), z: r3(bs.at[2] / CELL - z0),
+      home: [r3(bs.home[0] / CELL - x0), r3(bs.home[1] / CELL - z0)], cruise: r3(bs.cruise / CELL * vscale),
+      arena: [r3(bs.arena[0] / CELL - x0), r3(bs.arena[1] / CELL - x0), r3(bs.arena[0] / CELL - z0), r3(bs.arena[1] / CELL - z0)], hp: bs.hp, vs: vscale });
     if (tableRings) for (let k = 0; k < 3; k++) {
       const x = s16(d, st + 0x14 + 6 * k), z = s16(d, st + 0x18 + 6 * k);
       if (!x) break;
@@ -529,7 +539,8 @@ const S3D = (() => {
     sfx: { jump: [0x62], charge: [0xAB], dash: [0xB6], ring: [0x33], spring: [0x68], enemy: [0x3D, 0x38], monitor: [0x3D],
       hurt: [0xB9], shot: [0x4D], boom: [0x9A], goal: [0x6A], boostIn: [0xAB], boost: [0xB6], goldDash: [0xB6],
       shieldLost: [0xB9], section: [0xAC] /* near the big ring routine */,
-      cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */ },
+      cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */,
+      bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {
@@ -1109,5 +1120,6 @@ const S3D = (() => {
       animSlots, animStep, slotPixels: i => slots[i] };
   }
 
-  return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, levelPalettes, OCTANT, HERO };
+  const typeArt = (d, t) => u32(d, 0x280E8 + t);   // an object type's art block (Green Grove's boss: 48 pod, 50 ball)
+  return { LEVELS, check, openRomFile, objImage, typeArt, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, levelPalettes, OCTANT, HERO };
 })();

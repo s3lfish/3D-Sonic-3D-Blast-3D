@@ -476,6 +476,30 @@ test('a mace ball circling its post hurts; a flamethrower fires while the player
   run(u, 60, (f, ww) => { if (ww.events.includes('flame')) quiet = false; return {}; });
   assert.ok(quiet, 'quiet when the player is not in front');
 });
+test('the Green Grove boss comes down, drops its ball to hop at the player, sinks to take it back, and goes down after five hits', () => {
+  const rows = Array.from({ length: 20 }, () => '4'.repeat(20));
+  const lvl = grid(rows, { entities: [{ type: 'start', x: 3.5, z: 3.5 }, { type: 'boss', kind: 'gg', x: 12, y: 10, z: 12, home: [10, 10], cruise: 5, arena: [2, 18, 2, 18], hp: 5 }] });
+  const w = world(lvl);
+  const seen = new Set();
+  w.ringCount = 50;
+  for (let f = 0; f < 2400 && !(w.boss.step === 3 && w.boss.sub === 1); f++) {
+    Sim.step(w, {}); for (const e of w.events) seen.add(e);
+    if (w.boss.phase && w.boss.step === 1) seen.add('chased');
+  }
+  assert.ok(seen.has('bossDrop') && seen.has('bossHop'), `dropped and hopped: ${[...seen]}`);
+  assert.ok(w.boss.step === 3 && w.boss.sub === 1, 'sank to the ball');
+  near(w.boss.x, 10, 1e-9, 'went home first');
+  // five stomps from above while it waits low (the player made invincible so the hopping ball cannot send them back)
+  let hits = 0; w.p.inv = 1e9;
+  for (let k = 0; k < 5; k++) {
+    for (let f = 0; f < 3000 && !(w.boss.step === 3 && w.boss.sub === 1 && w.boss.cool <= 0); f++) Sim.step(w, {});
+    Object.assign(w.p, { x: w.boss.x, z: w.boss.z, y: w.boss.y + 0.5, vy: -1, grounded: false, invuln: 0, inv: 1e9 });
+    Sim.step(w, {}); if (w.events.includes('bossHit')) hits++;
+  }
+  assert.strictEqual(hits, 5, 'five hits'); assert.ok(w.boss.dead >= 0, 'beaten');
+  let goal = false; run(w, 300, (f, ww) => { if (ww.events.includes('goal')) goal = true; return {}; });
+  assert.ok(goal && w.cleared, 'the act ends');
+});
 test('converted spike blocks (H) hurt', () => {
   const tiles = []; for (let k = 0; k < 15; k++) tiles.push({ c: [1, 1, 1, 1], t: k === 7 ? 'H' : 'F' });
   const w = world({ version: 1, format: 'tiles', width: 5, depth: 3, tiles, entities: [{ type: 'start', x: 0.5, z: 1.5 }] });

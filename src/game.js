@@ -167,6 +167,15 @@
     }
     return romArt.objs.get(key);
   }
+  // a boss's own frames (object art by type) in the level's sprite palette (line 3)
+  function romBossMat(type, frame, size, oy) {
+    const key = 'boss' + type + '/' + frame + (L.palettes || []).join(',');
+    if (!romArt.objs.has(key)) {
+      const pal = S3D.paletteRGB(romArt.d, (L.palettes || romArt.fallbackPals)[3]);
+      romArt.objs.set(key, new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.objImage(romArt.d, S3D.typeArt(romArt.d, type), frame, pal, size, size / 2, oy), size)), alphaTest: 0.5 }));
+    }
+    return romArt.objs.get(key);
+  }
   // the big ring's own nine frames (it shrinks away when used) and monitors with the icon of what they hold
   function romRingFrameMat(k) {
     const key = 'bigring' + k;
@@ -327,6 +336,12 @@
       whirl: () => tone('sawtooth', 300, 1100, 0.12, 0.12),
       padIn: () => tone('triangle', 500, 120, 0.9, 0.2),
       flame: () => noise(0.25, 0.35, 900),
+      bossHit: () => { noise(0.3, 0.8, 2000); tone('square', 300, 80, 0.3, 0.3); },
+      bossBump: () => tone('square', 200, 400, 0.12, 0.2),
+      bossDrop: () => tone('sawtooth', 400, 150, 0.4, 0.15),
+      bossHop: () => tone('triangle', 120, 60, 0.12, 0.3),
+      bossGrab: () => tone('square', 150, 600, 0.25, 0.15),
+      bossDown: () => { noise(1.2, 0.9, 500); tone('sine', 90, 30, 1.2, 0.6); },
       padOut: () => { tone('triangle', 180, 1400, 0.32, 0.4); noise(0.2, 0.3, 2000); },
       boost: () => { noise(0.35, 0.6, 2500); tone('square', 700, 120, 0.4, 0.25); },
       enemy: () => { noise(0.22, 0.7, 1400); tone('square', 520, 90, 0.2, 0.3); },
@@ -710,7 +725,56 @@
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
   let mineSprites = [], turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
-  let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [];
+  let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
+  // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
+  // spiked ball on a chain, and a burst of fireballs when beaten
+  function buildBoss() {
+    if (romOn()) {   // the original's own pod and ball
+      const pod = new THREE.Sprite(romBossMat(0x48, 0, 128, 100)); pod.center.set(0.5, 1 - 100 / 128); pod.scale.set(128 * 0.025, 128 * 0.025, 1);
+      const ball = new THREE.Sprite(romBossMat(0x50, 0, 64, 40)); ball.center.set(0.5, 1 - 40 / 64); ball.scale.set(64 * 0.025, 64 * 0.025, 1);
+      levelGroup.add(pod); levelGroup.add(ball);
+      const links = [1, 2, 3].map(() => { const l = new THREE.Mesh(linkGeo, linkMat); levelGroup.add(l); return l; });
+      return { g: pod, pod, ball, links, rom: true };
+    }
+    const g = new THREE.Group(), metal = new THREE.MeshLambertMaterial({ color: 0x8c949c }), dark = new THREE.MeshLambertMaterial({ color: 0x3a3f46 });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.55, 0.55, 8), metal); g.add(body);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.77, 0.77, 0.14, 8), new THREE.MeshLambertMaterial({ color: 0xe0b020 })); band.position.y = 0.12; g.add(band);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff3020 })); lamp.position.set(0, 0.1, 0.62); g.add(lamp);
+    const rotors = [];
+    for (let k = 0; k < 4; k++) {
+      const a = k * Math.PI / 2 + Math.PI / 4, arm = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.08, 0.12), dark);
+      arm.position.set(Math.cos(a) * 0.9, 0.3, Math.sin(a) * 0.9); arm.rotation.y = -a; g.add(arm);
+      const r = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.03, 16), new THREE.MeshLambertMaterial({ color: 0x20262c, transparent: true, opacity: 0.55 }));
+      r.position.set(Math.cos(a) * 1.3, 0.38, Math.sin(a) * 1.3); g.add(r); rotors.push(r);
+    }
+    levelGroup.add(g);
+    const rm = romOn() ? romObjMat('enemy', 'SPK', false) : null, ball = new THREE.Sprite(rm || mineMat);
+    if (rm) { ball.center.set(0.5, OBJ_FOOT); ball.scale.set(ROM_SIZE * 1.6, ROM_SIZE * 1.6, 1); } else ball.scale.set(1.1, 1.1, 1);
+    levelGroup.add(ball);
+    const links = [1, 2, 3].map(() => { const l = new THREE.Mesh(linkGeo, linkMat); levelGroup.add(l); return l; });
+    return { g, lamp, rotors, ball, links, rom: !!rm };
+  }
+  function updateBoss(t) {
+    const b = world.boss, o = bossObj;
+    if (!b || !o) return;
+    o.g.position.set(b.x, b.y, b.z);
+    o.g.visible = (b.dead < 0 || b.dead < 2 || Math.floor(t * 20) % 2 === 0) && !(b.cool > 0 && Math.floor(t * 16) % 2);
+    const bl = b.ball;
+    if (o.pod) {   // frames 0-7 while whole, 9-11 cracked as its hits run out
+      const left = b.hp - b.hits;
+      o.pod.material = romBossMat(0x48, left <= 3 && b.hits ? 9 + (3 - Math.max(1, left)) : Math.floor(t * 8) % 8, 128, 100);
+      o.ball.material = romBossMat(0x50, Math.floor(t * 12) % 8, 64, 40);
+    } else {
+      o.lamp.material.color.setHex(b.cool > 0 && Math.floor(t * 16) % 2 ? 0xffffff : 0xff3020);
+      o.rotors.forEach((r, k) => { r.rotation.y = t * 30 + k; });
+    }
+    o.ball.position.set(bl.x, bl.y + (o.rom ? 0.3 : 0.45), bl.z);
+    o.links.forEach((l, i) => { l.visible = bl.state === 'held'; l.position.set(b.x, b.y - (i + 1) * 0.3, b.z); });
+    if (b.dead >= 0) for (let q = 0; q < puffSprites.length; q++) {
+      const s = puffSprites[q], k = (t * 3 + q * 0.37) % 1;
+      s.visible = q < 12 && b.dead < 3.5; s.position.set(b.x + Math.sin(q * 7.1) * 1.2 * k, b.y + Math.cos(q * 3.3) * 0.8 * k, b.z + Math.cos(q * 5.3) * 1.2 * k); s.scale.setScalar(0.4 + k);
+    }
+  }
   // a fireball: an orange glow drawn once
   const puffMat = (() => {
     const c = document.createElement('canvas'); c.width = c.height = 32; const g = c.getContext('2d');
@@ -824,6 +888,7 @@
       levelGroup.add(b); return { links, ball: b, rom: !!rm };
     }));
     puffSprites = Array.from({ length: 24 }, () => { const s = new THREE.Sprite(puffMat); s.visible = false; levelGroup.add(s); return s; });
+    bossObj = world.boss ? buildBoss() : null;
     springSprites = world.springs.map(sp => {
       if (sp.raised) { jamSprings.push(null); return slab(sp.x, sp.y, sp.z, 0xa8a492); }
       if (rom && jamOn()) {
@@ -1864,7 +1929,8 @@
         o.ball.position.set(m.x + sx * m.r, m.y - (o.rom ? 0.35 : 0), m.z + sz * m.r);
       });
     }
-    for (let q = 0; q < puffSprites.length; q++) {
+    updateBoss(t);
+    if (!world.boss || world.boss.dead < 0) for (let q = 0; q < puffSprites.length; q++) {
       const f = world.puffs[q], s = puffSprites[q];
       s.visible = !!f;
       if (f) { const k = f.t / Sim.P.flameLife; s.position.set(f.x, f.y + 0.3, f.z); s.scale.setScalar(0.45 + 0.6 * k); s.material.opacity = 1; }

@@ -90,6 +90,13 @@ serves index.html from main.
   098 (`lift`: raised cell in `L.up`, sinks 84 units 1 s after landing); pillar (85, 101) breaks into a pit (crack
   cell [x, z, top, after, quiet]; quiet linked cell (99, 96)) whose ride 0x2E runs under the floor to (98, 96); rides
   0x30/0x32/0x34; dash wall (101, 60). Private flow check: s3d/flow.py, comps.py, simat.js.
+- Bosses (`BOSSES` in s3d.js/convert.py, `boss` entity {kind, x, y, z, home, cruise, arena, hp, vs}, `w.boss`,
+  `bossStep`, `initBoss` on every respawn: a lost life restarts the fight). GG3 (`gg`, RunLevel_GGz3 0xDDE4): pod
+  descends to 160, then loops follow (2/frame, 10 frames, until within 96) / drop the ball (falls, hops 5 times at
+  the player in 8 directions, 2 out 2 up, gravity 0.125) / home (1/frame) / sink to ball + 40, wait 60 (takes it
+  back at 30) / rise. Hit = within 32 units and at pod y + 8 or above; 5 hits, 60 frames apart; beaten: rises 4 s,
+  then `goal`. ROM look: object art by type (`S3D.typeArt`: 0x280E8 + type): 48 pod (frames 0-7, 9-11 cracked),
+  50 ball, 4C claw (unused), level palette line 3 (`romBossMat`); otherwise a drone of our own design.
 - Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
   ROM look draws springs as 3D drums coloured from the ROM sprite (`romSpringMats`).
 - Act end: the `goal` event shows `#clearCard`, flashes, and after 5 s converts the next act in `S3D.LEVELS` order.
@@ -154,7 +161,7 @@ serves index.html from main.
 ## Status
 - 2026-10-27 early: RR2 gimmicks; pads with the original sequence (GG too); maces (`mace`: tables 0x75C2/0x80B8, ball 64
   units out, 2048 a turn) and flamethrowers (`flame`: tables 0x7548/0x7EC4, box 128x64 units, a fireball every 6
-  frames, `w.puffs`); 79 sim tests. Open: 0AC crawler (patrols 1 unit a frame, hurts), RR3 boss.
+  frames, `w.puffs`); GG3 boss; 80 sim tests. Open: 0AC crawler (patrols 1 unit a frame, hurts), other bosses.
 - 2026-10-26 late: Jam discs as CHD, ECM, zip, .img, .mdf, .nrg (all checked byte for byte against the files).
 - 2026-10-26 evening: Rusty Ruin 1 gimmicks (above); 75 sim tests. Open in RR: maces (084/088 orbit, helper 0x86B0),
   flamethrowers (helper 0x84F2, sound 0x7F), green dome buttons (0xAA cells, cosmetic), RR2 rides (states 2E-34),

@@ -56,6 +56,7 @@ GIMMICKS = {
         'cracks': [([(101, 60)], 336, [-1, 0])]},
 }
 DOOR_PUSH = {0: (0, 4), 2: (-4, 0), 4: (0, -4)}
+BOSSES = {3: {'kind': 'gg', 'at': (1152, 350, 1152), 'home': (1088, 1088), 'cruise': 160, 'arena': (800, 1375), 'hp': 5}}
 SCRIPTS = 0x25DF2
 
 
@@ -211,6 +212,11 @@ def convert(rom, level_id, vscale=1.0):
             e = {"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": after, "air": True, "ride": ride}
             if rest: e["maxY"] = r3(rest[0] / CELL * vscale)
             ents.append(e)
+    bs = BOSSES.get(level_id)
+    if bs:
+        ents.append({"type": "boss", "kind": bs['kind'], "x": jround(bs['at'][0] / CELL - x0, 3), "y": jround(bs['at'][1] / CELL * vscale, 3), "z": jround(bs['at'][2] / CELL - z0, 3),
+                     "home": [jround(bs['home'][0] / CELL - x0, 3), jround(bs['home'][1] / CELL - z0, 3)], "cruise": jround(bs['cruise'] / CELL * vscale, 3),
+                     "arena": [jround(bs['arena'][0] / CELL - x0, 3), jround(bs['arena'][1] / CELL - x0, 3), jround(bs['arena'][0] / CELL - z0, 3), jround(bs['arena'][1] / CELL - z0, 3)], "hp": bs['hp'], "vs": vscale})
     if table_rings:
         for k in range(3):
             x, z = struct.unpack('>h', rom[st + 0x14 + 6 * k:st + 0x16 + 6 * k])[0], struct.unpack('>h', rom[st + 0x18 + 6 * k:st + 0x1A + 6 * k])[0]

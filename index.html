@@ -1026,7 +1026,7 @@ const Sim = (() => {
     // the whirl (Rusty Ruin fans), measured in the emulator: held on the fan 32 frames, then 0.094 units a frame per frame
     // towards the stick, up to 5 units a frame, 0.03 a frame per frame of drag with the stick let go, 0.94 kept off a wall
     whirlHold: 32 / 60, whirlAccel: 10.5, whirlTop: 9.375, whirlDrag: 3.4, whirlBounce: 0.94,
-    liftWait: 1, liftSink: 40 / 60,
+    liftWait: 1, liftSink: 40 / 60, bossBallR: 0.6,
     // flamethrowers (helper 0x84F2): the box in front reaches 8 units back, 120 out, 32 to each side; fireballs (speed and
     // life estimated from emulator frames: about 5 units a frame for 4 m)
     flameBack: 8 / 32, flameReach: 120 / 32, flameWide: 1, flameSpeed: 5 * 60 / 32, flameLife: 0.45, flameR: 0.45,
@@ -1238,6 +1238,13 @@ const Sim = (() => {
           L.entities.push({ type: 'flame', x: e.x, z: e.z, y: e.y, dir: Array.isArray(e.dir) && e.dir.length === 2 ? e.dir : [1, 0] });
           break;
         }
+        // a boss (its kind names its routine): start [x, y, z], "home" [x, z], "cruise" height, "arena" [x0, x1, z0, z1], "hp"
+        case 'boss': {
+          if (!inBounds(e.x, e.z) || !Number.isFinite(e.y) || !BOSS_KINDS.has(e.kind)) { errs.push(`A boss needs a known "kind" and a place on the map.`); break; }
+          L.entities.push({ type: 'boss', kind: e.kind, x: e.x, y: e.y, z: e.z, home: e.home || [e.x, e.z], cruise: e.cruise ?? e.y,
+            arena: e.arena || [0, L.width, 0, L.depth], hp: e.hp || 5, vs: e.vs || 1 });
+          break;
+        }
         // fan tiles: standing on one sets the player whirling (Rusty Ruin)
         case 'fan': {
           if (!Array.isArray(e.cells) || !e.cells.every(c => Array.isArray(c) && inBounds(c[0], c[1]))) { errs.push('A fan needs "cells" inside the map.'); break; }
@@ -1316,6 +1323,7 @@ const Sim = (() => {
     }
     return out;
   }
+  const BOSS_KINDS = new Set(['gg']);
   function importLevel(raw) {
     const errs = [];
     if (!raw || typeof raw !== 'object') throw new LevelError(['The level data is not a JSON object.']);
@@ -1443,12 +1451,83 @@ const Sim = (() => {
     for (const c of w.cracks) for (const [cx, cz, top] of c.cells) L.up.set(cz * L.width + cx, top);
     w.lifts = L.entities.filter(e => e.type === 'lift').map(e => ({ ...e, cell: Math.floor(e.z) * L.width + Math.floor(e.x), top: e.y, t: -1 }));
     for (const f of w.lifts) L.up.set(f.cell, f.top);
+    initBoss(w);
     w.maces = L.entities.filter(e => e.type === 'mace').map((e, i) => ({ ...e, phase: i * 1.3 }));
     w.flames = L.entities.filter(e => e.type === 'flame').map(e => ({ ...e, cool: 0 })); w.puffs = [];
     w.turrets = L.entities.filter(e => e.type === 'turret').map((e, i) => ({ x: e.x, z: e.z, y: e.y, cool: 1 + i * 0.4, firedAt: -9, skin: e.skin }));
     w.shots = [];
     w.goals = L.entities.filter(e => e.type === 'goal').map(e => ({ x: e.x, z: e.z, y: e.y, put: e.put }));
     respawn(w);
+  }
+  // Green Grove's boss, after its routine (see s3d.js BOSSES): the original's moves in its units (1/32 m) a frame.
+  // Phases: 0 come down to the cruise height; then a loop of 1 follow the player, 2 let the ball go, 3 wait for the
+  // ball's five hops and go home, 4 sink to the ball, take it back, rise. Returns true when the player was sent back.
+  const GG_LOOP = [1, 2, 3, 4];
+  // a lost life starts the boss act again, the boss too (its routine's init runs again)
+  function initBoss(w) {
+    const b = w.L.entities.find(e => e.type === 'boss');
+    w.boss = b ? { ...b, phase: 0, step: 0, t: 0, cool: 0, sub: 0, dead: -1, hits: 0,
+      ball: { x: b.x, y: b.y - 40 / 32 * b.vs, z: b.z, vx: 0, vy: 0, vz: 0, state: 'held', hops: 0 } } : null;
+  }
+  function bossStep(w, pcy) {
+    const b = w.boss, p = w.p, L = w.L, U = 1 / 32, V = b.vs / 32, ball = b.ball;
+    const toward = (v, t, s) => (Math.abs(t - v) <= s ? t : v + Math.sign(t - v) * s);
+    if (b.dead >= 0) {   // beaten: it rises in a string of explosions, then the act is over
+      b.dead += P.dt; b.y += U * b.vs;
+      if (b.dead > 4 && !w.cleared) { w.cleared = true; w.events.push('goal'); }
+      return false;
+    }
+    if (b.cool > 0) b.cool -= P.dt;
+    const ph = b.phase === 0 ? 0 : GG_LOOP[b.step];
+    if (ph === 0) { b.y = Math.max(b.cruise, b.y - V); if (b.y <= b.cruise) { b.phase = 1; b.step = 0; b.t = 0; } }
+    else if (ph === 1) {
+      b.x = toward(b.x, p.x + 4 * U, 2 * U); b.z = toward(b.z, p.z + 4 * U, 2 * U); b.t++;
+      if (b.t >= 10 && Math.hypot(p.x - b.x, p.z - b.z) <= 96 * U) next();
+    } else if (ph === 2) { ball.state = 'free'; ball.vx = ball.vy = ball.vz = 0; ball.hops = 0; w.events.push('bossDrop'); next(); }
+    else if (ph === 3) {
+      if (ball.state === 'rest') {
+        b.x = toward(b.x, b.home[0], U); b.z = toward(b.z, b.home[1], U);
+        if (b.x === b.home[0] && b.z === b.home[1]) next();
+      }
+    } else if (ph === 4) {
+      if (b.sub === 0) { b.y = Math.max(ball.y + 40 * V, b.y - V); if (b.y <= ball.y + 40 * V + 1e-9) { b.sub = 1; b.t = 0; } }
+      else if (b.sub === 1) { b.t++; if (b.t === 30) { ball.state = 'held'; w.events.push('bossGrab'); } if (b.t >= 60) b.sub = 2; }
+      else { b.y = Math.min(b.cruise, b.y + V); if (b.y >= b.cruise) { b.sub = 0; next(); } }
+    }
+    b.x = Math.min(b.arena[1], Math.max(b.arena[0], b.x)); b.z = Math.min(b.arena[3], Math.max(b.arena[2], b.z));
+    // the ball: held under the pod, or falling and hopping at the player
+    if (ball.state === 'held') { ball.x = b.x; ball.y = b.y - 40 * V; ball.z = b.z; }
+    else if (ball.state === 'free') {
+      ball.vy -= 0.125 * V; ball.x += ball.vx; ball.y += ball.vy; ball.z += ball.vz;
+      if (ball.x < b.arena[0] || ball.x > b.arena[1]) { ball.vx = -ball.vx; ball.x = Math.min(b.arena[1], Math.max(b.arena[0], ball.x)); }
+      if (ball.z < b.arena[2] || ball.z > b.arena[3]) { ball.vz = -ball.vz; ball.z = Math.min(b.arena[3], Math.max(b.arena[2], ball.z)); }
+      const f = floorAt(L, ball.x, ball.z);
+      if (Number.isFinite(f) && ball.y <= f && ball.vy <= 0) {
+        ball.y = f; ball.hops++; w.events.push('bossHop');
+        if (ball.hops >= 5) { ball.state = 'rest'; ball.vx = ball.vz = ball.vy = 0; }
+        else {   // aim at the player in one of eight ways
+          const a = Math.round(Math.atan2(p.x - ball.x, p.z - ball.z) / (Math.PI / 4)) * Math.PI / 4;
+          ball.vy = 2 * V; ball.vx = Math.sin(a) * 2 * U; ball.vz = Math.cos(a) * 2 * U;
+        }
+      }
+    }
+    // the ball hurts
+    const bx = p.x - ball.x, bz = p.z - ball.z;
+    if (bx * bx + bz * bz < P.bossBallR * P.bossBallR && Math.abs(pcy - (ball.y + 0.35)) < 0.7 && p.inv <= 0 && p.invuln <= 0) {
+      hurt(w, bx, bz); if (w.events.includes('respawn')) return true;
+    }
+    // the pod: from above, a hit; from the side or below, a bounce away
+    const dx = p.x - b.x, dz = p.z - b.z;
+    if (b.cool <= 0 && dx * dx + dz * dz <= (32 * U) ** 2 && p.y >= b.y - 32 * V && p.y <= b.y + 64 * V) {
+      p.vx = -p.vx; p.vz = -p.vz; p.vy = 5 * 60 / 32 * b.vs; p.grounded = false; p.jumping = false;
+      b.cool = 1;
+      if (p.y >= b.y + 8 * V) {
+        b.hits++; w.events.push('bossHit');
+        if (b.hits >= b.hp) { b.dead = 0; ball.state = 'rest'; w.events.push('bossDown'); }
+      } else w.events.push('bossBump');
+    }
+    return false;
+    function next() { b.step = (b.step + 1) % GG_LOOP.length; b.t = 0; b.sub = 0; }
   }
   // a broken wall or pillar: its cells drop to the floor beneath, or to their own floor once broken
   function breakCrack(w, c) {
@@ -1469,6 +1548,7 @@ const Sim = (() => {
       shield: null, inv: 0, fast: 0, boost: null, goldUsed: false, dashHeld: 0, cannon: null, flyT: 0, whirl: false, whirlHold: 0,
       ride: null, auto: null, pad: null, slideT: 0, slideDir: null };
     if (s.auto) w.p.auto = autoWalk(w);
+    if (w.boss) initBoss(w);
     // starting again on a pad (a ring stands over one) does not set it off until the player steps off it
     w.padOff = (w.holes || []).find(h => h.pad && Math.abs(h.x - s.x) < h.size && Math.abs(h.z - s.z) < h.size) || null;
   }
@@ -1823,6 +1903,7 @@ const Sim = (() => {
         if (!p.grounded) { p.vy = Math.max(p.vy, 6); p.jumping = false; }
       }
     }
+    if (w.boss && bossStep(w, pcy)) return w;
     // maces: spiked balls on chains circling their posts; they hurt and cannot be broken
     for (const m of w.maces) {
       for (const off of m.balls) {
@@ -2591,6 +2672,12 @@ const S3D = (() => {
         [100, 60, 0, 0x32, null, null, [0, 0, 0]], [91, 71, 0, 0x34, null, null, [0, 0, 0]]],
       cracks: [[[[101, 60]], 336, [-1, 0]]] },
   };   // units: spike ball circle radius (measured) and height (estimated)
+  // Bosses run by the act's own routine. Green Grove 3 (RunLevel_GGz3 0xDDE4): Robotnik's pod starts at [x, y, z],
+  // comes down to the cruise height, then loops: follows Sonic (2 units a frame) until close, lets its spiked ball go
+  // (it falls and hops five times towards Sonic, 2 units a frame out, 2 up, 0.125 gravity), goes back home (1 a frame),
+  // sinks to the ball's height + 40, takes the ball back and rises. A hit: Sonic within 32 units, at the pod's height
+  // + 8 or above; five hits, 60 frames apart. All inside the arena square.
+  const BOSSES = { 3: { kind: 'gg', at: [1152, 350, 1152], home: [1088, 1088], cruise: 160, arena: [800, 1375], hp: 5 } };
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
   // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
@@ -2875,6 +2962,10 @@ const S3D = (() => {
       if (maxY !== undefined) e.maxY = r3(maxY / CELL * vscale);
       ents.push(e);
     }
+    const bs = BOSSES[id];
+    if (bs) ents.push({ type: 'boss', kind: bs.kind, x: r3(bs.at[0] / CELL - x0), y: r3(bs.at[1] / CELL * vscale), z: r3(bs.at[2] / CELL - z0),
+      home: [r3(bs.home[0] / CELL - x0), r3(bs.home[1] / CELL - z0)], cruise: r3(bs.cruise / CELL * vscale),
+      arena: [r3(bs.arena[0] / CELL - x0), r3(bs.arena[1] / CELL - x0), r3(bs.arena[0] / CELL - z0), r3(bs.arena[1] / CELL - z0)], hp: bs.hp, vs: vscale });
     if (tableRings) for (let k = 0; k < 3; k++) {
       const x = s16(d, st + 0x14 + 6 * k), z = s16(d, st + 0x18 + 6 * k);
       if (!x) break;
@@ -3079,7 +3170,8 @@ const S3D = (() => {
     sfx: { jump: [0x62], charge: [0xAB], dash: [0xB6], ring: [0x33], spring: [0x68], enemy: [0x3D, 0x38], monitor: [0x3D],
       hurt: [0xB9], shot: [0x4D], boom: [0x9A], goal: [0x6A], boostIn: [0xAB], boost: [0xB6], goldDash: [0xB6],
       shieldLost: [0xB9], section: [0xAC] /* near the big ring routine */,
-      cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */ },
+      cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */,
+      bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {
@@ -3659,7 +3751,8 @@ const S3D = (() => {
       animSlots, animStep, slotPixels: i => slots[i] };
   }
 
-  return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, levelPalettes, OCTANT, HERO };
+  const typeArt = (d, t) => u32(d, 0x280E8 + t);   // an object type's art block (Green Grove's boss: 48 pod, 50 ball)
+  return { LEVELS, check, openRomFile, objImage, typeArt, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, levelPalettes, OCTANT, HERO };
 })();
 </script>
 
@@ -4140,6 +4233,15 @@ const Art = (() => {
     }
     return romArt.objs.get(key);
   }
+  // a boss's own frames (object art by type) in the level's sprite palette (line 3)
+  function romBossMat(type, frame, size, oy) {
+    const key = 'boss' + type + '/' + frame + (L.palettes || []).join(',');
+    if (!romArt.objs.has(key)) {
+      const pal = S3D.paletteRGB(romArt.d, (L.palettes || romArt.fallbackPals)[3]);
+      romArt.objs.set(key, new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.objImage(romArt.d, S3D.typeArt(romArt.d, type), frame, pal, size, size / 2, oy), size)), alphaTest: 0.5 }));
+    }
+    return romArt.objs.get(key);
+  }
   // the big ring's own nine frames (it shrinks away when used) and monitors with the icon of what they hold
   function romRingFrameMat(k) {
     const key = 'bigring' + k;
@@ -4300,6 +4402,12 @@ const Art = (() => {
       whirl: () => tone('sawtooth', 300, 1100, 0.12, 0.12),
       padIn: () => tone('triangle', 500, 120, 0.9, 0.2),
       flame: () => noise(0.25, 0.35, 900),
+      bossHit: () => { noise(0.3, 0.8, 2000); tone('square', 300, 80, 0.3, 0.3); },
+      bossBump: () => tone('square', 200, 400, 0.12, 0.2),
+      bossDrop: () => tone('sawtooth', 400, 150, 0.4, 0.15),
+      bossHop: () => tone('triangle', 120, 60, 0.12, 0.3),
+      bossGrab: () => tone('square', 150, 600, 0.25, 0.15),
+      bossDown: () => { noise(1.2, 0.9, 500); tone('sine', 90, 30, 1.2, 0.6); },
       padOut: () => { tone('triangle', 180, 1400, 0.32, 0.4); noise(0.2, 0.3, 2000); },
       boost: () => { noise(0.35, 0.6, 2500); tone('square', 700, 120, 0.4, 0.25); },
       enemy: () => { noise(0.22, 0.7, 1400); tone('square', 520, 90, 0.2, 0.3); },
@@ -4683,7 +4791,56 @@ const Art = (() => {
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
   let mineSprites = [], turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
-  let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [];
+  let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
+  // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
+  // spiked ball on a chain, and a burst of fireballs when beaten
+  function buildBoss() {
+    if (romOn()) {   // the original's own pod and ball
+      const pod = new THREE.Sprite(romBossMat(0x48, 0, 128, 100)); pod.center.set(0.5, 1 - 100 / 128); pod.scale.set(128 * 0.025, 128 * 0.025, 1);
+      const ball = new THREE.Sprite(romBossMat(0x50, 0, 64, 40)); ball.center.set(0.5, 1 - 40 / 64); ball.scale.set(64 * 0.025, 64 * 0.025, 1);
+      levelGroup.add(pod); levelGroup.add(ball);
+      const links = [1, 2, 3].map(() => { const l = new THREE.Mesh(linkGeo, linkMat); levelGroup.add(l); return l; });
+      return { g: pod, pod, ball, links, rom: true };
+    }
+    const g = new THREE.Group(), metal = new THREE.MeshLambertMaterial({ color: 0x8c949c }), dark = new THREE.MeshLambertMaterial({ color: 0x3a3f46 });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.55, 0.55, 8), metal); g.add(body);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.77, 0.77, 0.14, 8), new THREE.MeshLambertMaterial({ color: 0xe0b020 })); band.position.y = 0.12; g.add(band);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff3020 })); lamp.position.set(0, 0.1, 0.62); g.add(lamp);
+    const rotors = [];
+    for (let k = 0; k < 4; k++) {
+      const a = k * Math.PI / 2 + Math.PI / 4, arm = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.08, 0.12), dark);
+      arm.position.set(Math.cos(a) * 0.9, 0.3, Math.sin(a) * 0.9); arm.rotation.y = -a; g.add(arm);
+      const r = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.03, 16), new THREE.MeshLambertMaterial({ color: 0x20262c, transparent: true, opacity: 0.55 }));
+      r.position.set(Math.cos(a) * 1.3, 0.38, Math.sin(a) * 1.3); g.add(r); rotors.push(r);
+    }
+    levelGroup.add(g);
+    const rm = romOn() ? romObjMat('enemy', 'SPK', false) : null, ball = new THREE.Sprite(rm || mineMat);
+    if (rm) { ball.center.set(0.5, OBJ_FOOT); ball.scale.set(ROM_SIZE * 1.6, ROM_SIZE * 1.6, 1); } else ball.scale.set(1.1, 1.1, 1);
+    levelGroup.add(ball);
+    const links = [1, 2, 3].map(() => { const l = new THREE.Mesh(linkGeo, linkMat); levelGroup.add(l); return l; });
+    return { g, lamp, rotors, ball, links, rom: !!rm };
+  }
+  function updateBoss(t) {
+    const b = world.boss, o = bossObj;
+    if (!b || !o) return;
+    o.g.position.set(b.x, b.y, b.z);
+    o.g.visible = (b.dead < 0 || b.dead < 2 || Math.floor(t * 20) % 2 === 0) && !(b.cool > 0 && Math.floor(t * 16) % 2);
+    const bl = b.ball;
+    if (o.pod) {   // frames 0-7 while whole, 9-11 cracked as its hits run out
+      const left = b.hp - b.hits;
+      o.pod.material = romBossMat(0x48, left <= 3 && b.hits ? 9 + (3 - Math.max(1, left)) : Math.floor(t * 8) % 8, 128, 100);
+      o.ball.material = romBossMat(0x50, Math.floor(t * 12) % 8, 64, 40);
+    } else {
+      o.lamp.material.color.setHex(b.cool > 0 && Math.floor(t * 16) % 2 ? 0xffffff : 0xff3020);
+      o.rotors.forEach((r, k) => { r.rotation.y = t * 30 + k; });
+    }
+    o.ball.position.set(bl.x, bl.y + (o.rom ? 0.3 : 0.45), bl.z);
+    o.links.forEach((l, i) => { l.visible = bl.state === 'held'; l.position.set(b.x, b.y - (i + 1) * 0.3, b.z); });
+    if (b.dead >= 0) for (let q = 0; q < puffSprites.length; q++) {
+      const s = puffSprites[q], k = (t * 3 + q * 0.37) % 1;
+      s.visible = q < 12 && b.dead < 3.5; s.position.set(b.x + Math.sin(q * 7.1) * 1.2 * k, b.y + Math.cos(q * 3.3) * 0.8 * k, b.z + Math.cos(q * 5.3) * 1.2 * k); s.scale.setScalar(0.4 + k);
+    }
+  }
   // a fireball: an orange glow drawn once
   const puffMat = (() => {
     const c = document.createElement('canvas'); c.width = c.height = 32; const g = c.getContext('2d');
@@ -4797,6 +4954,7 @@ const Art = (() => {
       levelGroup.add(b); return { links, ball: b, rom: !!rm };
     }));
     puffSprites = Array.from({ length: 24 }, () => { const s = new THREE.Sprite(puffMat); s.visible = false; levelGroup.add(s); return s; });
+    bossObj = world.boss ? buildBoss() : null;
     springSprites = world.springs.map(sp => {
       if (sp.raised) { jamSprings.push(null); return slab(sp.x, sp.y, sp.z, 0xa8a492); }
       if (rom && jamOn()) {
@@ -5837,7 +5995,8 @@ const Art = (() => {
         o.ball.position.set(m.x + sx * m.r, m.y - (o.rom ? 0.35 : 0), m.z + sz * m.r);
       });
     }
-    for (let q = 0; q < puffSprites.length; q++) {
+    updateBoss(t);
+    if (!world.boss || world.boss.dead < 0) for (let q = 0; q < puffSprites.length; q++) {
       const f = world.puffs[q], s = puffSprites[q];
       s.visible = !!f;
       if (f) { const k = f.t / Sim.P.flameLife; s.position.set(f.x, f.y + 0.3, f.z); s.scale.setScalar(0.45 + 0.6 * k); s.material.opacity = 1; }

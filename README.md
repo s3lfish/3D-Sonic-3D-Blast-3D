@@ -49,6 +49,7 @@ untested.
   trampolines, sinking slabs, teleport pads, maces, flamethrowers, and the original's own scripted rides through
   tunnels and arches.
 - Monitors show their icon and give rings, a shield, a gold shield, invincibility, speed shoes or a 1-up.
+- The Green Grove boss, moving as the original's routine moves it (five hits from above).
 - Mines, Turrets, chasing enemies, Hunters with their circling spike balls, and superchargers (stand on one and press jump).
 - The original's act results screen, then the next act.
 - With your own Sonic Jam (Saturn) disc image (.chd, .iso, .bin, .img, .mdf, .nrg, .ecm, or zipped): a 3D Sonic using the Saturn game's own model, textures and moves
