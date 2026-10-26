@@ -38,7 +38,7 @@ for e in ents:
 # lets runs through has been reached); hover cells: floated over at 48 units, no jumping
 gates = {}
 for e in ents:
-    if e['type'] == 'gate':
+    if e['type'] == 'gate' and not e.get('shut'):   # (cells that shut behind the player: open ahead)
         for c in e['cells']: gates[(c[0], c[1])] = (e['top'], e['opens'], e.get('pass'), e.get('key'))
 hover = {(c[0], c[1]) for e in ents if e['type'] == 'updraft' for c in e['cells']}
 state = {'section': 0, 'pass': False, 'keys': set()}   # keys: taken as held once a ride that gives one has been reached
@@ -99,12 +99,19 @@ def reach1(seeds, section, seen=None):
         for e in carriers:
             b = e['box']
             if not (b[0] <= x + 0.5 < b[1] and b[2] <= z + 0.5 < b[3]): continue
-            nxt.append((int(e['lo'] - 0.01), z))
+            zx = e.get('axis') == 'z'
+            at = lambda v: (x, int(v)) if zx else (int(v), z)
+            if e['lo'] is not None: nxt.append(at(e['lo'] - 0.01))
             if e.get('launch'):
                 k = e['launch'].get('key')
                 if k and k not in state['keys']: state['keys'].add(k); q.extend(seen)
-                ex, ey, ez = e['launch']['ride']['end']['at']; nxt.append((int(ex), int(ez)))
-            else: nxt.append((int(e['hi'] + 0.01), z))
+                r = e['launch']['ride']
+                if r.get('end'): ex, ey, ez = r['end']['at']
+                else:   # its path from the launch place
+                    ex, ez = (x + 0.5, e['hi']) if zx else (e['hi'], z + 0.5)
+                    ex += sum(p[0] for p in r['path']); ez += sum(p[2] for p in r['path'])
+                nxt.append((int(ex), int(ez)))
+            else: nxt.append(at(e['hi'] + 0.01))
         for e in capsules:
             if abs(e['x'] - x - 0.5) <= 1.5 and abs(e['z'] - z - 0.5) <= 1.5 and e['top'] - y <= JUMP:
                 for zz in range(int(e['z']) - 3, int(e['z']) + 4):
@@ -175,6 +182,9 @@ def reach(seeds, section):
                     if hy is not None and hy <= b['y'] + (26 + 43) / 32 and (xx, zz) not in seen: cells.append((xx, zz))
         seen = reach1(cells, section, seen) if cells else seen
 area = reach([(int(start['x']), int(start['z']))], 0)
+if not goals:   # an act that ends without a ring (Panic Puppet 2's lift)
+    for e in holes:
+        if e.get('ride', {}).get('clear'): print(f"lift at {(int(e['x']), int(e['z']))}: reached {(int(e['x']), int(e['z'])) in area} (area {len(area)} cells)")
 for k, g in enumerate(goals):
     gc = (int(g['x']), int(g['z']))
     print(f'ring {k + 1} at {gc}: reached {gc in area} (area {len(area)} cells)')

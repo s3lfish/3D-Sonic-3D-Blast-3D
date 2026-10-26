@@ -771,7 +771,9 @@
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
-  let sprinklerObjs = [], pylonObjs = [], zapObjs = [], beamObjs = [], capsuleObjs = [], leverObjs = [];
+  let sprinklerObjs = [], pylonObjs = [], zapObjs = [], beamObjs = [], capsuleObjs = [], leverObjs = [], beamPostObjs = [];
+  // Panic Puppet 2's beam posts (180): the frame shown in each of the 24 animation steps (list 0x16030, frame offsets / 4)
+  const BEAM_FRAMES = [4, 4, 4, 4, 3, 3, 3, 2, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3];
   let rockObjs = [], jetObjs = [], moverObjs = [], spikeBallObjs = [], fireObjs = [], fireballObjs = [], iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
   let doorMeshes = [], jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
@@ -1077,7 +1079,7 @@
       const art = mesh.userData.art && levelArtFor(L), vs = L.rom ? L.rom.vscale : 1;
       const floorOf = (cx, cz) => { const k = (cz * L.width + cx) * 4; return Math.min(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]); };
       let shutter = null;
-      doorMeshes = world.gates.filter(g => g.key !== null).map(g => {
+      doorMeshes = world.gates.filter(g => g.key !== null || g.shut).map(g => {
         const grp = new THREE.Group();
         let hMax = 0;
         for (const [cx, cz] of g.cells) {
@@ -1215,10 +1217,11 @@
       const m = new THREE.Mesh(rockGeo, rockMat); m.scale.y = h; m.position.set(cx + 0.5, f + h / 2, cz + 0.5); m.userData.cell = t; levelGroup.add(m); return m;
     });
     const jetMat = new THREE.MeshLambertMaterial({ color: 0x3a64c8 }), jetGlow = new THREE.MeshBasicMaterial({ color: 0xffa040 });
-    jetObjs = world.jets.map(q => {
-      const g = new THREE.Group(), w = q.x1 - q.x0, d = q.z1 - q.z0;
-      const slab = new THREE.Mesh(new THREE.BoxGeometry(w, 0.22, d), jetMat); slab.position.y = -0.11; g.add(slab);
-      const glow = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, 0.06, d * 0.6), jetGlow); glow.position.y = -0.25; g.add(glow);
+    const liftMat = new THREE.MeshLambertMaterial({ color: 0x9aa4b8, emissive: 0x101820 });
+    jetObjs = world.jets.map(q => {   // (Volcano Valley's jet lifts glow under; Panic Puppet 2's 18C lifts are plain metal)
+      const g = new THREE.Group(), w = q.x1 - q.x0, d = q.z1 - q.z0, pp = q.skin === '18C';
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(w, pp ? 0.3 : 0.22, d), pp ? liftMat : jetMat); slab.position.y = pp ? -0.15 : -0.11; g.add(slab);
+      if (!pp) { const glow = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, 0.06, d * 0.6), jetGlow); glow.position.y = -0.25; g.add(glow); }
       g.position.set((q.x0 + q.x1) / 2, q.top, (q.z0 + q.z1) / 2); levelGroup.add(g); return g;
     });
     const moverMat = new THREE.MeshLambertMaterial({ color: 0x8a6a48, map: stoneTex() }), metalMat = new THREE.MeshLambertMaterial({ color: 0x9aa4b8, emissive: 0x101820 });
@@ -1297,6 +1300,12 @@
       glass.position.y = h * 0.5; base.position.y = h * 0.05; lid.position.y = h * 0.95; glass.renderOrder = 2;
       const bird = new THREE.Sprite(flickyMat(c.flicky > 0 ? (c.flicky - 1) & 3 : 0, 0, false)); bird.scale.set(0.5, 0.5, 1); bird.position.y = h * 0.45;
       g.add(base, glass, lid, bird); g.position.set(c.x, floor, c.z); levelGroup.add(g); return g;
+    });
+    beamPostObjs = world.beams.map(b => {
+      if (rom) { const sp = bottomSprite(romBossMat(0x180, BEAM_FRAMES[b.idx], ROM_CANVAS, 80, b.line), b.x, b.y + 0.5, b.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); sp.userData = { size: ROM_SIZE, rom: true, f: -1 }; return sp; }
+      const g = new THREE.Group(), floor = Sim.floorAt(L, b.x, b.z), y0 = Number.isFinite(floor) ? floor : b.y - 0.9, h = b.y - y0 + 0.2;
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, h, 8), postMat), tip = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), new THREE.MeshBasicMaterial({ color: 0x5a5030 }));
+      post.position.y = h / 2; tip.position.set(b.dir[0] * 0.12, b.y - y0, b.dir[1] * 0.12); g.add(post, tip); g.position.set(b.x, y0, b.z); g.userData = { tip, f: -1 }; levelGroup.add(g); return g;
     });
     leverObjs = world.levers.map(lv => {
       const near = [...world.switchCells.entries()].filter(([, [reg]]) => reg === lv.reg).map(([t]) => [t % L.width + 0.5, Math.floor(t / L.width) + 0.5])
@@ -2349,6 +2358,12 @@
     // Panic Puppet: capsules gone once broken; levers swing a frame every 3 ticks to their value; doors slide into the
     // floor while their gate is open
     capsuleObjs.forEach((o, q) => { o.visible = world.capsules[q].alive; });
+    beamPostObjs.forEach((o, q) => {
+      const b = world.beams[q], f = BEAM_FRAMES[b.idx], u = o.userData;
+      if (u.f === f) return;
+      u.f = f;
+      if (u.rom) o.material = romBossMat(0x180, f, ROM_CANVAS, 80, b.line); else u.tip.material.color.setHex(f === 0 ? 0xfff27a : 0x5a5030);
+    });
     for (const d of doorMeshes) {
       const to = d.userData.gate.open ? -d.userData.h - 0.05 : 0;
       d.position.y += Math.sign(to - d.position.y) * Math.min(Math.abs(to - d.position.y), 4 * dt); d.visible = d.position.y > -d.userData.h;

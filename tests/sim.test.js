@@ -997,5 +997,27 @@ test('a 178 shoots every 32 frames, east, south, west and north in turn from its
   });
   assert.deepStrictEqual(dirs, [[0, 1], [-1, 0], [0, -1], [1, 0]]); assert.ok(oldest <= 32 / 60 + 1e-9 && oldest > 0.4, `oldest shot ${oldest.toFixed(3)} s`);
 });
+// Panic Puppet 2 (watched in the emulator; see s3d.js GIMMICKS[19])
+test('Panic Puppet 2: cells shut behind the player; a belt along z; the lift ends the act', () => {
+  let w = GNG([{ type: 'gate', cells: [[5, 1], [5, 2], [5, 3]], top: 3, shut: [[6, 2]], ev: 'shut' }]); place(w, 3.5, 2.5);
+  let shut = false; run(w, 60, (f, ww) => { if (ww.events.includes('shut')) shut = true; return { mx: 1 }; });
+  assert.ok(shut && w.p.x > 7, `through and shut: ${w.p.x.toFixed(2)}`);
+  run(w, 90, { mx: -1 }); assert.ok(w.p.x > 6, `held at ${w.p.x.toFixed(2)}`);
+  w = GNG([{ type: 'carrier', box: [3, 5, 1, 3], y: null, line: 4, lo: null, hi: 3, v: 1.875, way: 1, axis: 'z' }]); place(w, 4, 1.5);
+  run(w, 3, {}); assert.ok(w.p.carry && Math.abs(w.p.x - 4) < 1e-9, 'held on its line');
+  run(w, 60, {}); assert.ok(!w.p.carry && w.p.z >= 3 && w.p.z < 3.2, `carried south, let go at z ${w.p.z.toFixed(3)}`);
+  const lift = { type: 'hole', x: 8, z: 2.5, half: [0.5, 0.25], opens: 0, ride: { start: [8, 2, 2.5], path: [[0, 0.02, 0], [0, 0.02, 0]], end: null, wait: 0.5, clear: 110 / 60 } };
+  w = GNG([lift]); place(w, 8, 2.5); let at = -1, go = -1;
+  run(w, 150, (f, ww) => { if (go < 0 && ww.events.includes('liftGo')) go = f; if (at < 0 && ww.events.includes('goal')) at = f; return {}; });
+  assert.ok(w.cleared && at >= 110 && at <= 112 && go >= 30 && go <= 32, `lift off at ${go}, act over at ${at}`);
+});
+test('beam posts shoot across every 8 frames in their on steps (72 of 216 frames); 17C wanders in its square', () => {
+  const w = GNG([{ type: 'beamPost', x: 6.5, z: 1.2, y: 1.9, dir: [0, 1], phase: 0 }, { type: 'enemy', x: 10.5, z: 2.5, radius: 1, speed: 0.94, wander: [10, 2, 1] }]); place(w, 2.5, 2.5);
+  const at = []; let lo = [99, 99], hi = [0, 0];
+  run(w, 432, (f, ww) => { if (ww.events.includes('beam')) at.push(ww.tick); const e = ww.enemies[0]; lo = [Math.min(lo[0], e.x), Math.min(lo[1], e.z)]; hi = [Math.max(hi[0], e.x), Math.max(hi[1], e.z)]; return {}; });
+  assert.strictEqual(at.length, 18, `two bursts of nine (${at.join(',')})`);
+  assert.ok(at.every(t => t % 8 === 0) && at[9] - at[0] === 216, 'every 8 frames, 216 apart');
+  assert.ok(lo[0] >= 10 && lo[1] >= 2 && hi[0] <= 11 && hi[1] <= 3 && hi[0] - lo[0] > 0.2, `kept in its square ${lo} ${hi}`);
+});
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

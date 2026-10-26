@@ -1082,6 +1082,9 @@ const Sim = (() => {
     // frames' life; fired only within shootRange m: the original's objects wake on screen); capsules throw 5 a frame up;
     // belts carry a unit a frame (carrier "v")
     shootEvery: 32, shootOut: 16, shootUp: 20, shootV: 2, shootRise: 1, shootG: 1 / 16, shootLife: 32, shootRange: 7, capsuleV: 5,
+    // Panic Puppet 2 (watched): beam posts step their animation every 9 frames through 24 steps, on in steps 13..20, a
+    // shot every 8 frames while on (2 units a frame, 16 out, no fall); 17C picks a new way after up to 15 calls (30 frames)
+    beamStep: 9, beamSteps: 24, beamOn: [13, 20], beamEvery: 8, beamV: 2, beamOut: 16, wanderTurn: 30,
     // the original's movement (routine 0x3330; levels with "physics": {"orig": 1}). Velocity is split along Sonic's
     // facing: with a direction held the forward part gains A; the forward part loses F and the side part G every frame;
     // above the top speed a part loses A instead of gaining it; each part is capped at 0x7F00. Facing turns toward the
@@ -1202,7 +1205,7 @@ const Sim = (() => {
     const normRide = ride => ({ start: Array.isArray(ride.start) ? ride.start : null, facing: Number.isFinite(ride.facing) ? deg(ride.facing) : null,
       vel: Array.isArray(ride.vel) ? ride.vel : [0, 0, 0], path: ride.path, turns: (ride.turns || []).map(([i, f]) => [i, deg(f)]),
       end: ride.end && Array.isArray(ride.end.at) ? { at: ride.end.at, facing: deg(ride.end.facing || 0), vel: ride.end.vel || [0, 0, 0] } : null,
-      wait: ride.wait > 0 ? ride.wait : 0, hidden: !!ride.hidden,
+      wait: ride.wait > 0 ? ride.wait : 0, hidden: !!ride.hidden, clear: ride.clear > 0 ? ride.clear : 0,
       force: ride.force && ride.force.t > 0 ? { t: ride.force.t, dir: Array.isArray(ride.force.dir) && ride.force.dir.length === 2 ? ride.force.dir : null, roll: !!ride.force.roll, pass: !!ride.force.pass } : null,
       // "alt" {at, ride}: at that frame of the move, with the Flickies a ring would want following, the other move
       // (its path the same up to there) carries on instead
@@ -1241,7 +1244,9 @@ const Sim = (() => {
             patrol: e.patrol && (e.patrol.axis === 'x' || e.patrol.axis === 'z') && Array.isArray(e.patrol.range) && e.patrol.range.length === 2 && e.patrol.range.every(Number.isFinite) && e.patrol.range[1] > e.patrol.range[0] ? { axis: e.patrol.axis, range: e.patrol.range } : null,
             // "flicky": the colour 1..4 of the Flicky it frees, 0 none (default: frees one); "line": its sprite's palette
             // line; "shoot": fires every Sim.P.shootEvery frames, starting east, south, west or north (0..3)
-            flicky: Number.isInteger(e.flicky) ? e.flicky : -1, line: Number.isInteger(e.line) ? e.line : 3, shoot: Number.isInteger(e.shoot) ? e.shoot & 3 : -1 });
+            flicky: Number.isInteger(e.flicky) ? e.flicky : -1, line: Number.isInteger(e.line) ? e.line : 3, shoot: Number.isInteger(e.shoot) ? e.shoot & 3 : -1,
+            // "wander" [x0, z0, size]: walks a random way at "speed", a new way every so often, kept in that square
+            wander: Array.isArray(e.wander) && e.wander.length === 3 && e.wander.every(Number.isFinite) ? e.wander : null });
           break;
         }
         // a spiked crawler (Rusty Ruin): rolls along "axis" ('x' or 'z') between the two values of "range" at height "y"
@@ -1377,7 +1382,9 @@ const Sim = (() => {
             errs.push(e.type === 'gate' ? 'A gate needs "cells" inside the map, a height "top" and "opens" from 0 to 9.' : 'A barrier needs "cells" inside the map, a "half" (\'n\' or \'w\'), "away" [x, z] and "opens" from 0 to 9.'); break;
           }
           // a gate's "key": open while a ride that gives it has been taken and its "keyOff" cell not yet stepped on
-          L.entities.push({ type: e.type, cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]), top: e.top, opens, pass: !!e.pass, key: e.key ?? null, half: e.half, away: e.away });
+          // "shut" [[x, z], ...]: open until the player steps into one of those cells, then shut for good ("ev": its sound)
+          const shut = e.type === 'gate' && Array.isArray(e.shut) && e.shut.length && e.shut.every(c => Array.isArray(c) && inBounds(c[0], c[1])) ? e.shut.map(c => Math.floor(c[1]) * L.width + Math.floor(c[0])) : null;
+          L.entities.push({ type: e.type, cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]), top: e.top, opens, pass: !!e.pass, key: e.key ?? null, half: e.half, away: e.away, shut, ev: typeof e.ev === 'string' ? e.ev : null });
           break;
         }
         case 'keyOff': {
@@ -1403,11 +1410,18 @@ const Sim = (() => {
           // "box" [x0, x1, z0, z1] (at height "y" when given), carried along x on z = "line" at "v" m/s, let go at x <= "lo"
           // or x >= "hi"; "way" [flag, then, else]: east when the value picked (by the flag's value) is 1; "hide" [x0, x1]:
           // the player is out of sight there; "launch" {ride, key}: at "hi" the ride instead, giving the key
-          const b = e.box, okW = Array.isArray(e.way) && e.way.length === 3 && e.way.every(v => typeof v === 'string');
-          if (!(Array.isArray(b) && b.length === 4 && b.every(Number.isFinite)) || !Number.isFinite(e.line) || !Number.isFinite(e.lo) || !Number.isFinite(e.hi) || !(e.v > 0) || !okW
+          // ("axis" 'z': carried along z on the line x = "line"; "way" 1 or -1: always that way; "lo" null: never let go there)
+          const b = e.box, okW = (Array.isArray(e.way) && e.way.length === 3 && e.way.every(v => typeof v === 'string')) || e.way === 1 || e.way === -1;
+          if (!(Array.isArray(b) && b.length === 4 && b.every(Number.isFinite)) || !Number.isFinite(e.line) || !(e.lo === null || Number.isFinite(e.lo)) || !Number.isFinite(e.hi) || !(e.v > 0) || !okW
             || (e.launch && !(e.launch.ride && okPath(e.launch.ride)))) { errs.push('A carrier needs a "box", "line", "lo", "hi", a speed "v", a "way" and, if it launches, a ride with a "path".'); break; }
-          L.entities.push({ type: 'carrier', box: b, y: Number.isFinite(e.y) ? e.y : null, line: e.line, lo: e.lo, hi: e.hi, v: e.v, way: e.way,
+          L.entities.push({ type: 'carrier', box: b, y: Number.isFinite(e.y) ? e.y : null, line: e.line, lo: e.lo, hi: e.hi, v: e.v, way: e.way, axis: e.axis === 'z' ? 'z' : 'x',
             hide: Array.isArray(e.hide) && e.hide.length === 2 ? e.hide : null, launch: e.launch ? { ride: normRide(e.launch.ride), key: e.launch.key ?? null } : null });
+          break;
+        }
+        // Panic Puppet 2's beam posts: at "x", "z", shooting along "dir" [x, z] at height "y" in their on steps (Sim.P.beam*)
+        case 'beamPost': {
+          if (!inBounds(e.x, e.z) || !Number.isFinite(e.y) || !Array.isArray(e.dir) || e.dir.length !== 2) { errs.push(`A beam post at (${e.x}, ${e.z}) needs a place on the map, "y" and a "dir".`); break; }
+          L.entities.push({ type: 'beamPost', x: e.x, y: e.y, z: e.z, dir: e.dir, phase: (e.phase | 0) % P.beamSteps, line: Number.isInteger(e.line) ? e.line : 3, skin: skinOf(e) });
           break;
         }
         case 'capsule': {
@@ -1780,11 +1794,13 @@ const Sim = (() => {
   // put every ring, enemy and monitor back and the player at the start
   function resetLevel(w) {
     const L = w.L;
-    w.ringCount = 0; w.loose.length = 0; w.cleared = false; w.section = 0; w.spawn = null; w.inGoal = false; w.warpedAt = -9; w.padOff = null;
+    w.ringCount = 0; w.loose.length = 0; w.cleared = false; w.clearAt = 0; w.section = 0; w.spawn = null; w.inGoal = false; w.warpedAt = -9; w.padOff = null;
     w.flickies = []; w.delivered = 0; w.saved = 0; w.trail = []; w.seed = 12345;
     for (const g of w.rings) g.got = false;
     w.enemies = L.entities.filter(e => e.type === 'enemy').map((e, i) => ({ x0: e.x, z0: e.z, x: e.x, z: e.z, y: e.y, radius: e.radius, speed: e.speed, chase: e.chase, ang: i * 1.7, alive: true, diedAt: -9, skin: e.skin, patrol: e.patrol, pdir: 1,
-      orbit: e.orbit || 0, orbitY: e.orbitY || 0, phase: i * 1.7, ball: e.orbit ? { x: e.x, y: e.y, z: e.z } : null, flicky: e.flicky ?? -1, shoot: e.shoot ?? -1, line: e.line ?? 3 }));
+      orbit: e.orbit || 0, orbitY: e.orbitY || 0, phase: i * 1.7, ball: e.orbit ? { x: e.x, y: e.y, z: e.z } : null, flicky: e.flicky ?? -1, shoot: e.shoot ?? -1, line: e.line ?? 3,
+      wander: e.wander || null, wt: 0, wd: [0, 0] }));
+    w.beams = L.entities.filter(e => e.type === 'beamPost').map(e => ({ ...e, on: false, idx: e.phase }));
     w.capsules = L.entities.filter(e => e.type === 'capsule').map(e => ({ ...e, alive: true, diedAt: -9 }));
     w.monitors = L.entities.filter(e => e.type === 'monitor').map(e => ({ x: e.x, z: e.z, y: e.y, broken: false, skin: e.skin, kind: e.kind || 'rings' }));
     w.mines = L.entities.filter(e => e.type === 'mine').map(e => ({ x: e.x, z: e.z, y: e.y, alive: true, diedAt: -9, skin: e.skin }));
@@ -1805,8 +1821,8 @@ const Sim = (() => {
     if (w.movers.some(q => q.lin)) for (const q of w.movers) if (q.lin) q.lin.pos = q.lin.p0;
     w.spikeBalls = L.entities.filter(e => e.type === 'spikeBall').map(e => ({ ...e }));
     // gates stand (raised for the sim only) until their section or a supercharged run opens them
-    w.gates = L.entities.filter(e => e.type === 'gate').map(e => ({ ...e, open: false }));
-    for (const g of w.gates) for (const [cx, cz] of g.cells) L.up.set(cz * L.width + cx, g.top);
+    w.gates = L.entities.filter(e => e.type === 'gate').map(e => ({ ...e, open: !!e.shut, closed: false }));
+    for (const g of w.gates) if (!g.shut) for (const [cx, cz] of g.cells) L.up.set(cz * L.width + cx, g.top);
     w.keys = new Set(); w.keyOff = new Map(L.entities.filter(e => e.type === 'keyOff').map(e => [e.z * L.width + e.x, e]));
     w.zaps = []; w.zapLast = -1;
     w.sprinklers = L.entities.filter(e => e.type === 'sprinkler').map(e => ({ ...e, a: e.phase, on: false }));
@@ -2261,6 +2277,7 @@ const Sim = (() => {
       ride: null, auto: null, pad: null, slideT: 0, slideDir: null, lock: 0, force: null, bumpCell: -1, chute: null, sled: null, frozen: 0, dashCell: -1, vent: null, carry: null, hidden: false };
     if (s.auto) w.p.auto = autoWalk(w);
     if (w.boss) initBoss(w);
+    for (const g of w.gates || []) if (g.shut) g.closed = false;   // (the cells that shut behind the player open again)
     // starting again on a pad (a ring stands over one) does not set it off until the player steps off it
     w.padOff = (w.holes || []).find(h => h.pad && Math.abs(h.x - s.x) < h.size && Math.abs(h.z - s.z) < h.size) || null;
   }
@@ -2277,6 +2294,8 @@ const Sim = (() => {
     w.time += dt;
     // after a ring that puts the player in a pocket, the original walks them to the way out (input is the routine's)
     w.tick++;
+    // an act that ends without a ring (Panic Puppet 2's lift)
+    if (w.clearAt && w.time >= w.clearAt - 1e-9 && !w.cleared) { w.cleared = true; w.events.push('goal'); }
     // a boss's knock-back or a bumper takes the pad for a moment
     if (p.lock > 0) { p.lock -= dt; inp = {}; }
     // after some rides the original holds the pad a while: running on along `dir` at the speed the ride left, or let go
@@ -2324,8 +2343,11 @@ const Sim = (() => {
     }
     // gates (Gene Gadget's InitLevel raises them): open from their section on, or while a supercharged run lasts (the
     // routine lets the run through cells it lists while the supercharger's flag is up)
+    const gcell = Math.floor(p.z) * L.width + Math.floor(p.x);
     for (const g of w.gates) {
-      const open = (g.opens > 0 && w.section >= g.opens) || (g.pass && !!(p.force && p.force.pass)) || (g.key !== null && w.keys.has(g.key));
+      // (Panic Puppet 2: cells raised behind the player once they step into a trigger cell)
+      if (g.shut && !g.closed && g.shut.includes(gcell)) { g.closed = true; if (g.ev) w.events.push(g.ev); }
+      const open = g.shut ? !g.closed : (g.opens > 0 && w.section >= g.opens) || (g.pass && !!(p.force && p.force.pass)) || (g.key !== null && w.keys.has(g.key));
       if (open !== g.open) { g.open = open; for (const [cx, cz] of g.cells) { const t = cz * L.width + cx; if (open) L.up.delete(t); else L.up.set(t, g.top); } }
     }
     // a pad: held on its middle, sinking, then out of the other pad (or into the ring's pocket) and thrown up
@@ -2359,11 +2381,14 @@ const Sim = (() => {
     // at an end, or thrown into a ride at the east end
     p.hidden = false;
     if (p.carry) {
-      const c = p.carry, dir = (w.regs[c.way[0]] ? w.regs[c.way[1]] : w.regs[c.way[2]]) ? 1 : -1;
-      p.x += dir * c.v * dt; p.z = c.line; p.vx = p.vz = p.vy = 0; p.grounded = true; p.ball = p.rolling = p.jumping = false; p.charge = 0;
-      p.hidden = !!c.hide && p.x >= c.hide[0] && p.x < c.hide[1];
-      if (dir < 0 && p.x <= c.lo) p.carry = null;
-      else if (dir > 0 && p.x >= c.hi) {
+      const c = p.carry, dir = typeof c.way === 'number' ? c.way : (w.regs[c.way[0]] ? w.regs[c.way[1]] : w.regs[c.way[2]]) ? 1 : -1;
+      if (c.axis === 'z') { p.z += dir * c.v * dt; p.x = c.line; } else { p.x += dir * c.v * dt; p.z = c.line; }
+      const s = c.axis === 'z' ? p.z : p.x, f = floorAt(L, p.x, p.z);
+      if (Number.isFinite(f) && Math.abs(f - p.y) < 0.6) p.y = f;   // (on the floor of a sloping belt; held through a tunnel)
+      p.vx = p.vz = p.vy = 0; p.grounded = true; p.ball = p.rolling = p.jumping = false; p.charge = 0;
+      p.hidden = !!c.hide && s >= c.hide[0] && s < c.hide[1];
+      if (dir < 0 && c.lo !== null && s <= c.lo) p.carry = null;
+      else if (dir > 0 && s >= c.hi) {
         p.carry = null;
         if (c.launch) {
           const R = c.launch.ride;
@@ -2379,7 +2404,7 @@ const Sim = (() => {
     if (p.ride) {
       const r = p.ride, R = r.ride;
       p.hidden = R.hidden && !!r.moved;   // (inside the walls once it has set off)
-      if (r.wait > 0) { r.wait -= dt; p.vx = p.vz = p.vy = 0; p.ball = true; return w; }
+      if (r.wait > 0) { r.wait -= dt; p.vx = p.vz = p.vy = 0; p.ball = true; if (r.wait <= 0 && R.clear) w.events.push('liftGo'); return w; }
       if (R.alt && r.i === R.alt.at) {   // Gene Gadget 1's last tube: with the Flickies, the way to the end instead
         const fol = w.flickies.filter(f => f.state === 'follow').length;
         const left = w.flickies.filter(f => f.state === 'free').length + holders(w);
@@ -2968,6 +2993,11 @@ const Sim = (() => {
       if (near) {
         const d = Math.hypot(ex, ez) || 1, st = Math.min(d, P.chaseSpeed * dt);
         nx = en.x + ex / d * st; nz = en.z + ez / d * st;
+      } else if (en.wander) {   // (Panic Puppet 2's 17C)
+        en.wt -= dt;
+        if (en.wt <= 0) { en.wt = (1 + Math.floor(rand(w) * 15)) * P.wanderTurn / 15 / 60; en.wd = [Math.floor(rand(w) * 3) - 1, Math.floor(rand(w) * 3) - 1]; }
+        const [bx, bz, bs] = en.wander;
+        nx = Math.max(bx, Math.min(bx + bs, en.x + en.wd[0] * en.speed * dt)); nz = Math.max(bz, Math.min(bz + bs, en.z + en.wd[1] * en.speed * dt));
       } else if (en.patrol) {
         const [lo, hi] = en.patrol.range, ax = en.patrol.axis, v = (ax === 'x' ? en.x : en.z) + en.pdir * en.speed * dt;
         if (v >= hi) en.pdir = -1; else if (v <= lo) en.pdir = 1;
@@ -3023,6 +3053,15 @@ const Sim = (() => {
       if (ex > 0 && ez > 0 && p.y < c.top - 0.02 && p.y + 0.9 > c.y - 0.3) {
         if (ex < ez) { p.x += (dx < 0 ? -1 : 1) * ex; if (p.vx * dx < 0) p.vx = 0; }
         else { p.z += (dz < 0 ? -1 : 1) * ez; if (p.vz * dz < 0) p.vz = 0; }
+      }
+    }
+    // Panic Puppet 2's beam posts: in their on steps, a shot across every 8 frames
+    for (const b of w.beams) {
+      b.idx = (b.phase + Math.floor(w.tick / P.beamStep)) % P.beamSteps; b.on = b.idx >= P.beamOn[0] && b.idx <= P.beamOn[1];
+      if (b.on && w.tick % P.beamEvery === 0 && Math.hypot(p.x - b.x, p.z - b.z) < P.shootRange) {
+        const U = 1 / 32;
+        w.shots.push({ x: b.x + b.dir[0] * P.beamOut * U, y: b.y, z: b.z + b.dir[1] * P.beamOut * U, vx: b.dir[0] * P.beamV * 60 * U, vz: b.dir[1] * P.beamV * 60 * U, age: 0, life: 2 });
+        w.events.push('beam');
       }
     }
     // monitors break when hit in ball form and pay out ten rings
@@ -3132,6 +3171,7 @@ const Sim = (() => {
         if (R.facing !== null) p.facing = R.facing;
         if (h.key !== null) w.keys.add(h.key);
         if (R.hidden) w.events.push('tubeIn');
+        if (R.clear && !w.clearAt) { w.clearAt = w.time + R.clear; w.events.push('liftUp'); }   // (the act is over that long after)
         w.events.push('ride'); w.warpedAt = w.time; w.inGoal = true;
         break;
       }
@@ -3936,6 +3976,19 @@ const S3D = (() => {
       carryWay: ['f', 'b', 'a'],
       carriers: [[0x480, 0x51F, 0xB60, 0xB9F, null, 0xB80, 0x477, 0x520, null, [0x56, [7, 0, 0], [0x860, 0x100, 0xC40], 0x600, 220, 1]],
         [0x7C0, 0xABF, 0x9A0, 0x9DF, 0xE0, 0x9C0, 0x7B7, 0xAC8, [0x920, 0xA80], null]] },
+    // Panic Puppet 2 (RunLevel 0x13B7E labelled PPz1, InitLevel 0x13B38): no big rings; the act ends 110 frames after
+    // Sonic steps into the lift (x 0x810..0x830, z 0x620..0x628: held at (0x820, 0x390, 0x628) 30 frames, then ride
+    // 0x54); tubes 0x13BCA (Sonic hidden); belt A (x 0x6A0..0x73F, z 0xB00..0xB3F) east into ride 0x52 (vx 7, pad held
+    // 120 frames; watched: it ends on the floor below); belt B (x 0xA20..0xA5F, z 0x720..0x79F) south on x 0xA40, let
+    // go at z 0x7A0; cells raised behind the player: (65, 86..87) from (66, 87), (63..64, 33) from row 34, (67..68, 45)
+    // and (71..72, 45) from row 46 (x 66..72; sound 0xC9), (89, 45) from (89, 46) (sound 0x64); cracked wall (67, 63)
+    // (InitLevel 0x5D00; a fast roll north from (67, 64) breaks it); slides 0xF0 south except in columns 85 and 86
+    19: { roofs: 0x13FFC, slides: [[0xF0, [0, 1], 0, [85, 86]]], cracks: [[[[67, 63]], 744, [0, -1]]], tubes2: [0x13BCA, 6, [], [], 8, 1],
+      carriers: [[0x6A0, 0x73F, 0xB00, 0xB3F, null, 0xB20, null, 0x740, null, [0x52, [7, 0, 0], null, null, 120, null], 'x', 1],
+        [0xA20, 0xA5F, 0x720, 0x79F, null, 0xA40, null, 0x7A0, null, null, 'z', 1]],
+      shuts: [[[[66, 87]], [[65, 86], [65, 87]], 0x55], [[[63, 34], [64, 34]], [[63, 33], [64, 33]], 0x91, 'shut'],
+        [[66, 67, 68, 69, 70, 71, 72].map(cx => [cx, 46]), [[67, 45], [68, 45], [71, 45], [72, 45]], 0x91, 'shut'], [[[89, 46]], [[89, 45]], 0x4D, 'doorShut']],
+      lifts: [[0x810, 0x82F, 0x620, 0x627, [0x820, 0x390, 0x628], 0x54, 30, 110]] },
   };   // units: spike ball circle radius (measured) and height (estimated)
   // Bosses run by the act's own routine. Green Grove 3 (RunLevel_GGz3 0xDDE4): Robotnik's pod starts at [x, y, z],
   // comes down to the cruise height, then loops: follows Sonic (2 units a frame) until close, lets its spiked ball go
@@ -4010,7 +4063,7 @@ const S3D = (() => {
     0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',   // 0DC: Diamond Dust's snowdrift springs
     0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall',
     0x7C: 'sprinkler', 0x6C: 'pylon', 0x78: 'movePlat', 0x70: 'prop', 0x74: 'prop',
-    0x178: 'enemy', 0x19C: 'capsule', 0x194: 'lever', 0x184: 'prop' };
+    0x178: 'enemy', 0x19C: 'capsule', 0x194: 'lever', 0x184: 'prop', 0x17C: 'enemy', 0x180: 'beamPost', 0x18C: 'jetLift' };
   // drawn only: Gene Gadget's doors (070, frame 0x18 / 4 shut) and pads (074); Panic Puppet's door (184, frame 7 shut,
   // opened while the key of the gate beside it is held)
   const PROP_FRAME = { 0x70: 6, 0x74: 0, 0x184: 7 };
@@ -4233,14 +4286,21 @@ const S3D = (() => {
       }
       // a defeated enemy (or a broken capsule) frees a Flicky only when byte +0x19 holds its colour 1..4 (routine 0x192C2);
       // the sprite's palette line is bits 13 and 14 of word +0x16 (written only when not 3, the usual one)
-      if (kind === 'enemy' || kind === 'capsule' || kind === 'lever') {
-        if (kind !== 'lever') { const fb = ob[o + 0x19]; e.flicky = fb >= 1 && fb <= 4 ? fb : 0; }
+      if (kind === 'enemy' || kind === 'capsule' || kind === 'lever' || kind === 'beamPost') {
+        if (kind === 'enemy' || kind === 'capsule') { const fb = ob[o + 0x19]; e.flicky = fb >= 1 && fb <= 4 ? fb : 0; }
         const ln = (ob[o + 0x16] >> 5) & 3;
         if (ln !== 3) e.line = ln;
       }
       // Panic Puppet's 178 (handler 0x15E20): every 32 frames (global count $0B04) a shot from 12 units up and 16 out,
       // 2 units a frame east, south, west and north in turn from the index in word +0x2A / 12, one unit a frame up
       if (t === 0x178) e.shoot = (u16(ob, o + 0x2A) / 12) & 3;
+      // Panic Puppet 2's 17C (handler 0x17346): wanders a unit a call (every other frame) a random way for up to 15 calls,
+      // kept in the 64-unit square from words +0x28, +0x2A
+      if (t === 0x17C) { e.wander = [r3(s16(ob, o + 0x28) / CELL - x0), r3(s16(ob, o + 0x2A) / CELL - z0), 2]; e.speed = r3(30 / CELL); }
+      // Panic Puppet 2's beam posts (180, handler 0x15F60): animation index from word +0x1E / 2 (24 steps of 9 frames; shown
+      // frame 0 in steps 13..20), shooting 2 units a frame along z (x with bit 3 of byte +0x16) from 16 out, 16 under
+      // the record, every 8 frames while on (watched)
+      if (kind === 'beamPost') { e.y = r3((s16(ob, o + 0xA) - 8) / CELL * vscale); e.dir = (ob[o + 0x16] >> 3) & 1 ? [1, 0] : [0, 1]; e.phase = (u16(ob, o + 0x1E) >> 1) % 24; }
       // Panic Puppet's Flicky capsules (19C, handler 0x1680C): a 30 x 30 unit top 32 over the record (Sonic's frame);
       // landing on it throws him 5 units a frame up and breaks it (watched)
       if (kind === 'capsule') { const y = s16(ob, o + 0xA); e.y = r3((y + 8) / CELL * vscale); e.top = r3((y + 40) / CELL * vscale); e.half = r3(15 / CELL); }
@@ -4251,8 +4311,8 @@ const S3D = (() => {
         if (!e.reg) continue;
         e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
       }
-      if (kind === 'jetLift') {
-        const flip = (ob[o + 0x16] >> 3) & 1, sx = flip ? 48 : 32, sz = flip ? 32 : 48;
+      if (kind === 'jetLift') {   // (Panic Puppet 2's lift 18C, handler 0x17606: a 31-unit square)
+        const flip = (ob[o + 0x16] >> 3) & 1, sq = t === 0x18C, sx = sq ? 31 : flip ? 48 : 32, sz = sq ? 31 : flip ? 32 : 48;
         delete e.x; delete e.z;
         Object.assign(e, { x0: r3((x - 1) / CELL - x0), x1: r3((x - 1 + sx) / CELL - x0), z0: r3((z - 1) / CELL - z0), z1: r3((z - 1 + sz) / CELL - z0),
           y0: r3((s16(ob, o + 0x24) + 8) / CELL * vscale), y1: r3((s16(ob, o + 0x26) + 8) / CELL * vscale) });
@@ -4312,9 +4372,9 @@ const S3D = (() => {
       if (link) { cells[0].push(hb(d[o + 12]), hb(link[2])); for (const [lx, lz, top] of link[3]) cells.push([lx - x0, lz - z0, hb(top), null, 1]); }
       ents.push({ type: 'crack', by: 'whirl', cells, top: hb(d[o + 12]) });
     }
-    for (const [mark, dir, zMin] of gm.slides || []) {   // (zMin: Gene Gadget 2's routine looks only at cells from that row on)
+    for (const [mark, dir, zMin, skipX] of gm.slides || []) {   // (zMin: Gene Gadget 2's routine looks only at cells from that row on; skipX: columns left out)
       const cells = [];
-      for (let z = Math.max(z0, zMin || 0); z <= z1; z++) for (let x = x0; x <= x1; x++) { const v = map[z * 128 + x]; if (v && (v & 0xFF) === mark) cells.push([x - x0, z - z0]); }
+      for (let z = Math.max(z0, zMin || 0); z <= z1; z++) for (let x = x0; x <= x1; x++) { const v = map[z * 128 + x]; if (v && (v & 0xFF) === mark && !(skipX || []).includes(x)) cells.push([x - x0, z - z0]); }
       if (cells.length) ents.push({ type: 'slide', cells, dir });
     }
     if (gm.fans !== undefined) {
@@ -4493,16 +4553,32 @@ const S3D = (() => {
     // carriers (Panic Puppet 1's belts): a grounded Sonic in the box (at height y when given) is held and carried a unit
     // a frame along x on the line z, east when the value picked by `way` is 1 ([flag, then, else]: the flag's value
     // picks which), let go past lo or hi; `launch` instead at hi: the ride, with the key, and where it puts him
-    for (const [ax, bx, az, bz, y, lz, lo, hi, hide, launch] of gm.carriers || []) {
+    // ("axis" 'z': along z on the line x; a number for "way": always that way; no lo: never let go at that end)
+    for (const [ax, bx, az, bz, y, lz, lo, hi, hide, launch, axis, way] of gm.carriers || []) {
+      const A = axis === 'z' ? z0 : x0, B = axis === 'z' ? x0 : z0;
       const e = { type: 'carrier', box: [r3(ax / CELL - x0), r3((bx + 1) / CELL - x0), r3(az / CELL - z0), r3((bz + 1) / CELL - z0)], y: y === null ? null : r3((y + 8) / CELL * vscale),
-        line: r3(lz / CELL - z0), lo: r3(lo / CELL - x0), hi: r3(hi / CELL - x0), v: r3(mps), way: gm.carryWay };
-      if (hide) e.hide = [r3(hide[0] / CELL - x0), r3(hide[1] / CELL - x0)];
+        line: r3(lz / CELL - B), lo: lo === null ? null : r3(lo / CELL - A), hi: r3(hi / CELL - A), v: r3(mps), way: way === undefined ? gm.carryWay : way };
+      if (axis === 'z') e.axis = 'z';
+      if (hide) e.hide = [r3(hide[0] / CELL - A), r3(hide[1] / CELL - A)];
       if (launch) {
         const [state, vel, at, facing, frames, key] = launch, { sc, ...rd } = rideOf(state, null, null, vel);
-        e.launch = { ride: { ...rd, end: { at: [r3(at[0] / CELL - x0), r3((at[1] + 8) / CELL * vscale), r3(at[2] / CELL - z0)], facing: compassOf(facing), vel: rd.vel },
+        e.launch = { ride: { ...rd, end: at ? { at: [r3(at[0] / CELL - x0), r3((at[1] + 8) / CELL * vscale), r3(at[2] / CELL - z0)], facing: compassOf(facing), vel: rd.vel } : null,
           force: { t: r3(frames / 60), dir: null } }, key };
       }
       ents.push(e);
+    }
+    // cells that shut behind the player (Panic Puppet 2's routine): stepping into a trigger cell raises them to `top`
+    for (const [trig, cells, hb, ev] of gm.shuts || []) {
+      const gc = cells.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
+      if (gc.length) { const g = { type: 'gate', cells: gc, top: gateTop(hb), opens: 0, shut: trig.map(([cx, cz]) => [cx - x0, cz - z0]) }; if (ev) g.ev = ev; ents.push(g); }
+    }
+    // the act's end without a ring (Panic Puppet 2): grounded in the box [x0, x1, z0, z1], Sonic is held at `at` for
+    // `hold` frames, then the move `state`; the act is over `clear` frames after the box
+    for (const [ax, bx, az, bz, at, state, hold, clear] of gm.lifts || []) {
+      const { sc, ...rd } = rideOf(state, at, null, null);
+      rd.start[1] = r3((at[1] + 8) / CELL * vscale);
+      ents.push({ type: 'hole', x: r3((ax + bx + 1) / 2 / CELL - x0), z: r3((az + bz + 1) / 2 / CELL - z0), half: [r3((bx + 1 - ax) / 2 / CELL), r3((bz + 1 - az) / 2 / CELL)], opens: 0,
+        ride: { ...rd, end: null, wait: r3(hold / 60), clear: r3(clear / 60) } });
     }
     // tubes: taken grounded in the cell, Sonic put at (x, z) at his own height, rolling; the script's own end puts him out
     if (gm.tubes2) {
@@ -4781,7 +4857,8 @@ const S3D = (() => {
       rockBreak: [0x59], ventOut: [0xB6] /* Volcano Valley's helpers */, serpent: [0x4E] /* VV3's routine */,
       iceBreak: [0x59] /* Diamond Dust's ice spikes */, freeze: [0x80], frozenHop: [0x94], thaw: [0x80] /* routines 0x1B9CA, 0x3050 */,
       hover: [0xC1], pyramid: [0xAE], zapArm: [0x42], sprinkle: [0x4D], tubeNo: [0xB2], tubeYes: [0x3C] /* Gene Gadget 1's routine and objects */,
-      lever: [0x76], launch: [0xAB], capsule: [0x3D], pellet: [0x9A], doorShut: [0x64], tubeIn: [0xAD] /* Panic Puppet 1's routine and objects */ },
+      lever: [0x76], launch: [0xAB], capsule: [0x3D], pellet: [0x9A], doorShut: [0x64], tubeIn: [0xAD] /* Panic Puppet 1's routine and objects */,
+      shut: [0xC9], beam: [0x78], liftUp: [0x3C], liftGo: [0xB6], lift: [0xD2] /* Panic Puppet 2's */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {
@@ -6454,7 +6531,9 @@ const Art = (() => {
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
-  let sprinklerObjs = [], pylonObjs = [], zapObjs = [], beamObjs = [], capsuleObjs = [], leverObjs = [];
+  let sprinklerObjs = [], pylonObjs = [], zapObjs = [], beamObjs = [], capsuleObjs = [], leverObjs = [], beamPostObjs = [];
+  // Panic Puppet 2's beam posts (180): the frame shown in each of the 24 animation steps (list 0x16030, frame offsets / 4)
+  const BEAM_FRAMES = [4, 4, 4, 4, 3, 3, 3, 2, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3];
   let rockObjs = [], jetObjs = [], moverObjs = [], spikeBallObjs = [], fireObjs = [], fireballObjs = [], iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
   let doorMeshes = [], jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
@@ -6760,7 +6839,7 @@ const Art = (() => {
       const art = mesh.userData.art && levelArtFor(L), vs = L.rom ? L.rom.vscale : 1;
       const floorOf = (cx, cz) => { const k = (cz * L.width + cx) * 4; return Math.min(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]); };
       let shutter = null;
-      doorMeshes = world.gates.filter(g => g.key !== null).map(g => {
+      doorMeshes = world.gates.filter(g => g.key !== null || g.shut).map(g => {
         const grp = new THREE.Group();
         let hMax = 0;
         for (const [cx, cz] of g.cells) {
@@ -6898,10 +6977,11 @@ const Art = (() => {
       const m = new THREE.Mesh(rockGeo, rockMat); m.scale.y = h; m.position.set(cx + 0.5, f + h / 2, cz + 0.5); m.userData.cell = t; levelGroup.add(m); return m;
     });
     const jetMat = new THREE.MeshLambertMaterial({ color: 0x3a64c8 }), jetGlow = new THREE.MeshBasicMaterial({ color: 0xffa040 });
-    jetObjs = world.jets.map(q => {
-      const g = new THREE.Group(), w = q.x1 - q.x0, d = q.z1 - q.z0;
-      const slab = new THREE.Mesh(new THREE.BoxGeometry(w, 0.22, d), jetMat); slab.position.y = -0.11; g.add(slab);
-      const glow = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, 0.06, d * 0.6), jetGlow); glow.position.y = -0.25; g.add(glow);
+    const liftMat = new THREE.MeshLambertMaterial({ color: 0x9aa4b8, emissive: 0x101820 });
+    jetObjs = world.jets.map(q => {   // (Volcano Valley's jet lifts glow under; Panic Puppet 2's 18C lifts are plain metal)
+      const g = new THREE.Group(), w = q.x1 - q.x0, d = q.z1 - q.z0, pp = q.skin === '18C';
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(w, pp ? 0.3 : 0.22, d), pp ? liftMat : jetMat); slab.position.y = pp ? -0.15 : -0.11; g.add(slab);
+      if (!pp) { const glow = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, 0.06, d * 0.6), jetGlow); glow.position.y = -0.25; g.add(glow); }
       g.position.set((q.x0 + q.x1) / 2, q.top, (q.z0 + q.z1) / 2); levelGroup.add(g); return g;
     });
     const moverMat = new THREE.MeshLambertMaterial({ color: 0x8a6a48, map: stoneTex() }), metalMat = new THREE.MeshLambertMaterial({ color: 0x9aa4b8, emissive: 0x101820 });
@@ -6980,6 +7060,12 @@ const Art = (() => {
       glass.position.y = h * 0.5; base.position.y = h * 0.05; lid.position.y = h * 0.95; glass.renderOrder = 2;
       const bird = new THREE.Sprite(flickyMat(c.flicky > 0 ? (c.flicky - 1) & 3 : 0, 0, false)); bird.scale.set(0.5, 0.5, 1); bird.position.y = h * 0.45;
       g.add(base, glass, lid, bird); g.position.set(c.x, floor, c.z); levelGroup.add(g); return g;
+    });
+    beamPostObjs = world.beams.map(b => {
+      if (rom) { const sp = bottomSprite(romBossMat(0x180, BEAM_FRAMES[b.idx], ROM_CANVAS, 80, b.line), b.x, b.y + 0.5, b.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); sp.userData = { size: ROM_SIZE, rom: true, f: -1 }; return sp; }
+      const g = new THREE.Group(), floor = Sim.floorAt(L, b.x, b.z), y0 = Number.isFinite(floor) ? floor : b.y - 0.9, h = b.y - y0 + 0.2;
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, h, 8), postMat), tip = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), new THREE.MeshBasicMaterial({ color: 0x5a5030 }));
+      post.position.y = h / 2; tip.position.set(b.dir[0] * 0.12, b.y - y0, b.dir[1] * 0.12); g.add(post, tip); g.position.set(b.x, y0, b.z); g.userData = { tip, f: -1 }; levelGroup.add(g); return g;
     });
     leverObjs = world.levers.map(lv => {
       const near = [...world.switchCells.entries()].filter(([, [reg]]) => reg === lv.reg).map(([t]) => [t % L.width + 0.5, Math.floor(t / L.width) + 0.5])
@@ -8032,6 +8118,12 @@ const Art = (() => {
     // Panic Puppet: capsules gone once broken; levers swing a frame every 3 ticks to their value; doors slide into the
     // floor while their gate is open
     capsuleObjs.forEach((o, q) => { o.visible = world.capsules[q].alive; });
+    beamPostObjs.forEach((o, q) => {
+      const b = world.beams[q], f = BEAM_FRAMES[b.idx], u = o.userData;
+      if (u.f === f) return;
+      u.f = f;
+      if (u.rom) o.material = romBossMat(0x180, f, ROM_CANVAS, 80, b.line); else u.tip.material.color.setHex(f === 0 ? 0xfff27a : 0x5a5030);
+    });
     for (const d of doorMeshes) {
       const to = d.userData.gate.open ? -d.userData.h - 0.05 : 0;
       d.position.y += Math.sign(to - d.position.y) * Math.min(Math.abs(to - d.position.y), 4 * dt); d.visible = d.position.y > -d.userData.h;

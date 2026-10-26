@@ -22,7 +22,7 @@ KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 
          0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',
          0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall',
          0x7C: 'sprinkler', 0x6C: 'pylon', 0x78: 'movePlat', 0x70: 'prop', 0x74: 'prop',
-         0x178: 'enemy', 0x19C: 'capsule', 0x194: 'lever', 0x184: 'prop'}
+         0x178: 'enemy', 0x19C: 'capsule', 0x194: 'lever', 0x184: 'prop', 0x17C: 'enemy', 0x180: 'beamPost', 0x18C: 'jetLift'}
 PROP_FRAME = {0x70: 6, 0x74: 0, 0x184: 7}
 PATROL = {0x100, 0x108, 0x5C, 0x178}   # half a unit a frame (measured; see s3d.js)
 MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']
@@ -96,6 +96,12 @@ GIMMICKS = {
          'cracks': [([(59, 55)], 680, [-1, 0]), ([(65, 63)], 584, [-1, 0])]},
     14: {'lava': 0x55},
     18: {'roofs': 0x11482},   # Gene Gadget 3
+    19: {'roofs': 0x13FFC, 'slides': [(0xF0, [0, 1], 0, [85, 86])], 'cracks': [([(67, 63)], 744, [0, -1])], 'tubes2': (0x13BCA, 6, [], [], 8, 1),   # Panic Puppet 2 (see s3d.js)
+         'carriers': [(0x6A0, 0x73F, 0xB00, 0xB3F, None, 0xB20, None, 0x740, None, (0x52, (7, 0, 0), None, None, 120, None), 'x', 1),
+                      (0xA20, 0xA5F, 0x720, 0x79F, None, 0xA40, None, 0x7A0, None, None, 'z', 1)],
+         'shuts': [([(66, 87)], [(65, 86), (65, 87)], 0x55), ([(63, 34), (64, 34)], [(63, 33), (64, 33)], 0x91, 'shut'),
+                   ([(cx, 46) for cx in range(66, 73)], [(67, 45), (68, 45), (71, 45), (72, 45)], 0x91, 'shut'), ([(89, 46)], [(89, 45)], 0x4D, 'doorShut')],
+         'lifts': [(0x810, 0x82F, 0x620, 0x627, (0x820, 0x390, 0x628), 0x54, 30, 110)]},
     20: {'updrafts': 0x55, 'zapCells': 0xAA, 'roofs': 0x13B00, 'slides': [(0xC3, [1, 0]), (0xF0, [0, 1])], 'cracks': [([(48, 48)], 840, [0, -1])],   # Panic Puppet 1 (see s3d.js)
          'gates': [([(68, 97), (68, 98)], 0x41, 0, 0, 1), ([(40, 62)], 0x61, 0, 0, 1)], 'keyOff': [(69, 98, 1, {'f': 1}), (40, 63, 1, {'f': 0})],
          'tubes2': (0x13464, 4, [], [(1, 1)], 8, 1),
@@ -225,11 +231,16 @@ def convert(rom, level_id, vscale=1.0):
             if b > a:
                 e["patrol"] = {"axis": 'x' if along_x else 'z', "range": [jround(a / CELL - x0, 3), jround(b / CELL - x0, 3)] if along_x else [jround(a / CELL - z0, 3), jround(b / CELL - z0, 3)]}
                 e["speed"] = jround(30 / CELL, 3)
-        if kind in ('enemy', 'capsule', 'lever'):   # Flicky colour byte +0x19 (1..4), palette line bits 13-14 of +0x16
-            if kind != 'lever': fb = r[0x19]; e["flicky"] = fb if 1 <= fb <= 4 else 0
+        if kind in ('enemy', 'capsule', 'lever', 'beamPost'):   # Flicky colour byte +0x19 (1..4), palette line bits 13-14 of +0x16
+            if kind in ('enemy', 'capsule'): fb = r[0x19]; e["flicky"] = fb if 1 <= fb <= 4 else 0
             ln = (r[0x16] >> 5) & 3
             if ln != 3: e["line"] = ln
         if t == 0x178: e["shoot"] = (struct.unpack('>H', r[0x2A:0x2C])[0] // 12) & 3
+        if t == 0x17C:   # wanders in the 64-unit square from +0x28, +0x2A (see s3d.js)
+            wx, wz = struct.unpack('>hh', r[0x28:0x2C]); e["wander"] = [jround(wx / CELL - x0, 3), jround(wz / CELL - z0, 3), 2]; e["speed"] = jround(30 / CELL, 3)
+        if kind == 'beamPost':
+            e["y"] = jround((struct.unpack('>h', r[0xA:0xC])[0] - 8) / CELL * vscale, 3); e["dir"] = [1, 0] if (r[0x16] >> 3) & 1 else [0, 1]
+            e["phase"] = (struct.unpack('>H', r[0x1E:0x20])[0] >> 1) % 24
         y_c = struct.unpack('>h', r[0xA:0xC])[0]
         if kind == 'capsule': e["y"] = jround((y_c + 8) / CELL * vscale, 3); e["top"] = jround((y_c + 40) / CELL * vscale, 3); e["half"] = jround(15 / CELL, 3)
         if kind == 'lever':
@@ -240,7 +251,7 @@ def convert(rom, level_id, vscale=1.0):
             if not e.get("reg"): continue
             e["y"] = jround((y_c + 8) / CELL * vscale, 3)
         if kind == 'jetLift':
-            flip = (r[0x16] >> 3) & 1; sx, sz = (48, 32) if flip else (32, 48)
+            flip = (r[0x16] >> 3) & 1; sx, sz = (31, 31) if t == 0x18C else (48, 32) if flip else (32, 48)
             del e["x"], e["z"]
             a, b = struct.unpack('>hh', r[0x24:0x28])
             e.update({"x0": jround((x - 1) / CELL - x0, 3), "x1": jround((x - 1 + sx) / CELL - x0, 3), "z0": jround((z - 1) / CELL - z0, 3), "z1": jround((z - 1 + sz) / CELL - z0, 3),
@@ -307,8 +318,9 @@ def convert(rom, level_id, vscale=1.0):
                 cells[0] += [hb(rom[o + 14 * k + 12]), hb(link[2])]
                 for lx, lz, top in link[3]: cells.append([lx - x0, lz - z0, hb(top), None, 1])
             ents.append({"type": "crack", "by": "whirl", "cells": cells, "top": hb(rom[o + 14 * k + 12])})
-    for mark, dr, *zm in gm.get('slides', []):   # (zMin: see s3d.js)
-        cells = [[x - x0, z - z0] for z in range(max(z0, zm[0] if zm else 0), z1 + 1) for x in range(x0, x1 + 1) if w[z * 128 + x] and (w[z * 128 + x] & 0xFF) == mark]
+    for mark, dr, *zm in gm.get('slides', []):   # (zMin, skipX: see s3d.js)
+        skip = zm[1] if len(zm) > 1 else []
+        cells = [[x - x0, z - z0] for z in range(max(z0, zm[0] if zm else 0), z1 + 1) for x in range(x0, x1 + 1) if w[z * 128 + x] and (w[z * 128 + x] & 0xFF) == mark and x not in skip]
         if cells: ents.append({"type": "slide", "cells": cells, "dir": dr})
     if 'fans' in gm:
         cells = [[x - x0, z - z0] for z in range(z0, z1 + 1) for x in range(x0, x1 + 1) if w[z * 128 + x] and (w[z * 128 + x] & 0xFF) == gm['fans']]
@@ -495,17 +507,30 @@ def convert(rom, level_id, vscale=1.0):
     if 'switches' in gm:   # switch cells and carriers (Panic Puppet 1; see s3d.js)
         cells = [[cx - x0, cz - z0, reg, v] for cx, cz, reg, v in gm['switches'] if floor_cell(cx, cz)]
         if cells: ents.append({"type": "switchCells", "cells": cells})
-    for ax, bx, az, bz, y, lz, lo, hi, hide, launch in gm.get('carriers', []):
+    for ax, bx, az, bz, y, lz, lo, hi, hide, launch, *aw in gm.get('carriers', []):
+        axis = aw[0] if aw else 'x'; way = aw[1] if len(aw) > 1 else gm['carryWay']
+        A, B = (z0, x0) if axis == 'z' else (x0, z0)
         e = {"type": "carrier", "box": [r3(ax / CELL - x0), r3((bx + 1) / CELL - x0), r3(az / CELL - z0), r3((bz + 1) / CELL - z0)], "y": None if y is None else r3((y + 8) / CELL * vscale),
-             "line": r3(lz / CELL - z0), "lo": r3(lo / CELL - x0), "hi": r3(hi / CELL - x0), "v": r3(mps), "way": gm['carryWay']}
-        if hide: e["hide"] = [r3(hide[0] / CELL - x0), r3(hide[1] / CELL - x0)]
+             "line": r3(lz / CELL - B), "lo": None if lo is None else r3(lo / CELL - A), "hi": r3(hi / CELL - A), "v": r3(mps), "way": way}
+        if axis == 'z': e["axis"] = 'z'
+        if hide: e["hide"] = [r3(hide[0] / CELL - A), r3(hide[1] / CELL - A)]
         if launch:
             state, vel, at, facing, frames, key = launch
             rd, _end = ride_of(state, None, None, vel)
-            rd["end"] = {"at": [r3(at[0] / CELL - x0), r3((at[1] + 8) / CELL * vscale), r3(at[2] / CELL - z0)], "facing": compass_of(facing), "vel": rd["vel"]}
+            rd["end"] = {"at": [r3(at[0] / CELL - x0), r3((at[1] + 8) / CELL * vscale), r3(at[2] / CELL - z0)], "facing": compass_of(facing), "vel": rd["vel"]} if at else None
             rd["force"] = {"t": r3(frames / 60), "dir": None}
             e["launch"] = {"ride": rd, "key": key}
         ents.append(e)
+    for trig, cells, hb, *ev in gm.get('shuts', []):   # cells raised behind the player (see s3d.js)
+        gc = [[cx - x0, cz - z0] for cx, cz in cells if floor_cell(cx, cz)]
+        if gc:
+            g = {"type": "gate", "cells": gc, "top": gate_top(hb), "opens": 0, "shut": [[cx - x0, cz - z0] for cx, cz in trig]}
+            if ev and ev[0]: g["ev"] = ev[0]
+            ents.append(g)
+    for ax, bx, az, bz, at, state, hold, clear in gm.get('lifts', []):   # the act's end without a ring (see s3d.js)
+        rd, _end = ride_of(state, at, None, None); rd["start"][1] = r3((at[1] + 8) / CELL * vscale)
+        rd.update({"end": None, "wait": r3(hold / 60), "clear": r3(clear / 60)})
+        ents.append({"type": "hole", "x": r3((ax + bx + 1) / 2 / CELL - x0), "z": r3((az + bz + 1) / 2 / CELL - z0), "half": [r3((bx + 1 - ax) / 2 / CELL), r3((bz + 1 - az) / 2 / CELL)], "opens": 0, "ride": rd})
     if 'tubes2' in gm:   # taken grounded in the cell, put at (x, z) at his own height (see s3d.js)
         tab, n, alts, *more = gm['tubes2']; kys = more[0] if more else []; size = more[1] if len(more) > 1 else 12; hidden = len(more) > 2 and more[2]
         end_of = lambda end: {"at": [r3(end[0] / CELL - x0), r3(end[1] / CELL * vscale), r3(end[2] / CELL - z0)], "facing": compass_of(end[3]),

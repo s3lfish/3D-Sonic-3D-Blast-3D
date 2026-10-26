@@ -195,6 +195,12 @@ serves index.html from main.
   to `top`, walls; landed on: vy 5 units a frame, frees its Flicky; `w.capsules`); 178 enemy `shoot` (every 32 ticks,
   E S W N, `P.shoot*`, shots with `life`). Enemies carry `flicky` (byte +0x19: 1..4 colour, 0 none; holders(w) counts
   for the ring) and `line` (sprite palette, bits 13-14 of +0x16). Patrols move half a unit a frame (measured, all zones).
+- Panic Puppet 2 (`GIMMICKS[19]`, RunLevel 0x13B7E labelled PPz1): no rings; the act ends `clear` seconds after the
+  lift hole is taken (`ride.clear`, `w.clearAt`, 'goal'); `carrier` gains `axis` 'z', a fixed `way` (1/-1), `lo` null
+  and a launch without an end (ride 0x52 lands on the floor below; watched to the unit); gates with `shut` trigger cells
+  (open until stepped into, then raised for good, reopened on respawn; drawn as doors); `beamPost` (180: 24 steps of
+  9 frames, on in 13..20, a shot every 8 frames, `P.beam*`, frames `BEAM_FRAMES`); 17C `wander` [x0, z0, size];
+  18C lifts as `jetLift` (31-unit square, plain metal); slides with `skipX`; cracked wall (67, 63).
 - Converted levels, all zones (watched in GnG1 and GG1): a roll bounces off walls (`rollBounce`, facing turned); corner
   pieces (one corner two steps over three level ones, both neighbours by it without floor; `L.diag`, findDiagonals) are
   diagonal walls (that half solid, rest flat), met as a point (`P.rDiag`); walls keep `P.rOrig` 0.12 m; slope pull
@@ -272,9 +278,11 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
+- 2026-10-27: Panic Puppet 2 (the lift that ends it, belts both ways, cells that shut behind, beam posts, wanderers,
+  lifts); 113 sim tests; flow.py: the lift is reached. Next: PP3 boss (21: Init 0x1258C, Run 0x1268A), Final Fight (22).
 - 2026-10-27: Panic Puppet 1 (belts and levers, the hidden run, doors, capsules, shooting robots, hidden tubes, the
   cracked wall); Flickies only from their holders (byte +0x19); patrols at the measured half a unit a frame; 111 sim
-  tests; flow.py: PP1 can be finished. Next: PP2 (19, RunLevel 0x13B7E), PP3 boss (21), Final Fight (22).
+  tests; flow.py: PP1 can be finished.
 - 2026-10-27: Gene Gadget 3 boss (the belt, its loads, bombs, the pod low to hit); 108 sim tests. Gene Gadget done.
 - 2026-10-27: Gene Gadget 2 (chute, supercharger hop, doors, platforms, slides, spikes); 107 sim tests; all 22 levels
   load in the page (alllevels.probe.js, private). Next: the GnG3 boss (0x11126).

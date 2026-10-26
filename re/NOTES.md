@@ -535,3 +535,26 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - Palette line of an object's sprite: bits 13-14 of word +0x16 (178, 194, 19C: line 0).
 - Ring used: $0A18 = 0x5A, camera to (0xA94, 0x634) (not modelled). Fans: 16 tiles 0xDD8FE at tile 125, speed
   $0ACE up to 0x40 while hovering (here steady).
+
+## Panic Puppet 2 (2026-10-27; pp_b_dis, gngseq.py, emulator)
+- RunLevel 0x13B7E (labelled PPz1) runs level 19; InitLevel 0x13B38 raises (67, 63) to 0x5D00 (cracked wall: map back to
+  0x3D00 when, from (67, 64), z <= 0x810, rolling fast north; sound 0x59) and sets $0A92 = 5. No big rings (start
+  table +0x12 = -1): the act ends ($0A1C = 1: the main loop's act-clear) 110 frames after the lift.
+- Lift: grounded in x 0x810..0x830, z 0x620..0x628: held at (0x820, 0x390, 0x628), pad held 120 frames, $94 = 2,
+  sound 0x3C; 30 frames later ride 0x54 (sound 0xB6), Sonic in a ball.
+- Tubes 0x13BCA: six 8-byte records, states 0x46..0x50, Sonic hidden all the way ($76 = 1), sound 0xAD in, 0x3C out.
+- Belt A: grounded in x 0x6A0..0x73F, z 0xB00..0xB3F: carried a unit a frame east on z 0xB20 (on the floor: it rose
+  33 units up the belt's slope, watched); at x 0x740 ride 0x52 (roll, vx 7, pad 120 frames, sound 0xAB): 224 units
+  down onto the floor below, walking on and stopping at x 2143 (the sim matches). Belt B: x 0xA20..0xA5F, z
+  0x720..0x79F: carried south on x 0xA40, let go at z 0x7A0.
+- Cells raised for good once Sonic steps into a trigger (map writes): (65, 86..87) to 0x5500 from (66, 87); (63..64,
+  33) to 0x9100 from (63..64, 34) (sound 0xC9); (67..68, 45) and (71..72, 45) to 0x9100 from row 46, x 66..72 (0xC9);
+  (89, 45) to 0x4D00 from (89, 46) (0x64). The door objects' +0x1E is set to 6 (closing).
+- Slides: 0xF0 cells only, south (+0.25 a frame to 4, 15 frames after), not in columns 85 and 86 (low byte 0xAA/0xAC).
+- 180 beam posts (handler 0x15F60): animation list 0x16030 (24 steps, 9 frames each, watched; frame offset 0 in steps
+  13..20); while frame 0 shows, a shot every 8 frames (watched) 16 out along z (x with bit 3 of byte +0x16), 16 under
+  the record, 2 a frame, no fall (template 0xD9CA, or 0xDA36), gone in the wall; sound 0x78. +0x1E: starting step x 2.
+- 17C (handler 0x17346): every (random & 15) + 1 calls a random way (bytes: 0 back, 1 on, else still, each axis) plus a
+  random jitter of -2..1, a unit a call, kept in the 64-unit square from +0x28, +0x2A; breakable, holds no Flicky.
+- 18C (handler 0x17606): a 31-unit platform at (x - 1, y - 1, z - 1) rising a unit a call while stood on to +0x26
+  (sound 0xD2), sinking back to +0x24. 188: the cracked wall's sprite (handler 0x18880, as PP1's 198).
