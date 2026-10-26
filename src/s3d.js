@@ -122,9 +122,24 @@ const S3D = (() => {
       dashes: [[65, 101, 0x7FFF, [6, 0], 1, 0, 0], [65, 102, 0x7FFF, [6, 0], 1, 0, 0], [74, 94, 0x7FFF, [0, 6], 1, 0, 0], [75, 94, 0x7FFF, [0, 6], 1, 0, 0]],
       barriers: [[[[58, 117], [59, 117], [60, 117], [61, 117]], 0x2D, [[59, 118], [60, 118]], 'n', 1, [0, 1]],
         [[[117, 93], [117, 94]], 0x45, [[118, 94], [118, 95]], 'w', 2, [1, 0]]],
-      gates: [[[[58, 112], [59, 112]], 0x2D, 0, 1], [[[68, 89], [69, 89]], 0x49, 0, 1], [[[54, 70]], 0x51, 0, 0]],
-      tubes2: [0x120F8, 10, [[0, 3, 0x1A]]],
+      gates: [[[[58, 112], [59, 112]], 0x2D, 0, 1], [[[68, 89], [69, 89]], 0x49, 0, 1], [[[54, 70]], 0x51, 0, 0, 1]], keyOff: [[54, 71, 1]],
+      tubes2: [0x120F8, 10, [[0, 3, 0x1A]], [[0, 1]]],
       rides: [[59, 112, 0, 0x18, null, null, [0, 0, -7.48], undefined, [340, null, 1, 1]]] },
+    // Gene Gadget 2 (RunLevel_GnGdz2 0x115E2, InitLevel 0x11540): as act 1 (hover, zaps, roofs 0x11AAA, a barrier at
+    // cells 0x4664/0x4666 north of z 0x8D0, its wall (49..52, 69) raised to 0x6500 until ring 1, tubes table 0x11998
+    // whose first and last open the doors 0x613E and 0x4088 (raised by InitLevel) until 0x6140 and 0x408A); spikes
+    // (0xFF, grounded); slides from row 75 on (0xC3 east, 0xF0 south, as Rusty Ruin 2's); speed pads (tables 0x11930
+    // south, 0x11942 east); the chute x 50..53, z 83..108 (grounded: rolled south, 0.25 a frame per frame up to 8.19,
+    // steered to x 0x680, the pad let go 200 frames; watched) into a hop at (52, 107) (state 0x20, vy 5.5 up kept); the
+    // supercharger's run hops at (21, 105) (state 0x1E, while the pad is held); platforms 078
+    5: { updrafts: 0x55, zapCells: 0xAA, roofs: 0x11AAA, spikes: 0xFF, slides: [[0xC3, [1, 0], 75], [0xF0, [0, 1], 75]],
+      dashes: [[56, 70], [57, 70], [32, 88], [33, 88], [64, 66], [65, 66], [66, 66], [67, 66]].map(([cx, cz]) => [cx, cz, 0x7FFF, [0, 6], 1, 0, 0])
+        .concat([[59, 103], [59, 104], [59, 111], [59, 112], [59, 113], [59, 114]].map(([cx, cz]) => [cx, cz, 0x7FFF, [6, 0], 1, 0, 0])),
+      barriers: [[[[49, 69], [50, 69], [51, 69], [52, 69]], 0x65, [[50, 70], [51, 70]], 'n', 1, [0, 1]]],
+      gates: [[[[31, 97]], 0x85, 0, 0, 1], [[[68, 64]], 0x89, 0, 0, 2]], keyOff: [[32, 97, 1], [69, 64, 2]],
+      tubes2: [0x11998, 6, [], [[0, 1], [5, 2]]],
+      chutes: [[50, 53, 83, 108, [0, 1], 0.25, 1664, 8.19, 200]],
+      rides: [[52, 107, 0, 0x20, null, null, [0, 5.5, 0], undefined, [40, null]], [21, 105, 0, 0x1E, null, null, [0, 5.5, 0], undefined, [40, null], 1]] },
   };   // units: spike ball circle radius (measured) and height (estimated)
   // Bosses run by the act's own routine. Green Grove 3 (RunLevel_GGz3 0xDDE4): Robotnik's pod starts at [x, y, z],
   // comes down to the cruise height, then loops: follows Sonic (2 units a frame) until close, lets its spiked ball go
@@ -193,7 +208,8 @@ const S3D = (() => {
     0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
     0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',   // 0DC: Diamond Dust's snowdrift springs
     0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall',
-    0x7C: 'sprinkler', 0x6C: 'pylon' };
+    0x7C: 'sprinkler', 0x6C: 'pylon', 0x78: 'movePlat', 0x70: 'prop', 0x74: 'prop' };
+  const PROP_FRAME = { 0x70: 6, 0x74: 0 };   // drawn only: Gene Gadget's doors (070, frame 0x18 / 4 shut) and pads (074)
   // Gene Gadget: sprinklers (07C, handler 0x174B4) turn 0x10 of 0x800 a frame from word +0x24 and, once Sonic has come
   // within 80 units, shoot every 16 frames (watched); pylons (06C, 0x17A1A) are the barriers' electric posts, drawn only
   // moving platform (128, handler 0x176B6, word +0x24 = 0): along x (z with bit 3 of byte +0x16) about word +0x28, 63 units
@@ -416,6 +432,7 @@ const S3D = (() => {
           y0: r3((s16(ob, o + 0x24) + 8) / CELL * vscale), y1: r3((s16(ob, o + 0x26) + 8) / CELL * vscale) });
       }
       if (kind === 'fireSpot') e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
+      if (kind === 'prop') { e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); e.frame = PROP_FRAME[t] || 0; }
       if (kind === 'sprinkler') { e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); e.phase = u16(ob, o + 0x24) & 0x7FE; }
       if (kind === 'pylon') {   // the barrier whose zap cells are nearest turns it off
         e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
@@ -423,7 +440,16 @@ const S3D = (() => {
         (gm.barriers || []).forEach(([, , zap, , ring]) => { for (const [cx, cz] of zap) { const dd = Math.hypot(cx + 0.5 - x / CELL, cz + 0.5 - z / CELL); if (dd < best) { best = dd; e.opens = ring; } } });
         if (!e.opens) continue;
       }
-      if (kind === 'movePlat') {
+      if (t === 0x78) {   // Gene Gadget's platforms (078, handler 0x178D6; see GIMMICKS[4])
+        if (s16(ob, o + 0x2C) < 0) continue;   // (the second half of a long one follows the first)
+        const alongX = (ob[o + 0x16] >> 3) & 1, long = u16(ob, o + 0x2A) !== 0, sx = alongX && long ? 64 : 32, sz = !alongX && long ? 64 : 32;
+        const a = s16(ob, o + 0x24), b = s16(ob, o + 0x26), org = alongX ? x0 : z0;
+        Object.assign(e, { x0: r3((x - 1) / CELL - x0), x1: r3((x - 1 + sx) / CELL - x0), z0: r3((z - 1) / CELL - z0), z1: r3((z - 1 + sz) / CELL - z0),
+          y: r3((s16(ob, o + 0xA) + 8) / CELL * vscale), axis: alongX ? 'x' : 'z',
+          lin: { a: r3((a - 1) / CELL - org), b: r3((b - 1) / CELL - org), v: r3(mps), wait: 1, dir: ob[o + 0x28] ? -1 : 1, t: r3(ob[o + 0x29] / 60) } });
+        delete e.x; delete e.z;
+      }
+      else if (kind === 'movePlat') {
         if (u16(ob, o + 0x24)) continue;   // (the sinking kind is not read yet)
         const alongZ = (ob[o + 0x16] >> 3) & 1, sx = alongZ ? 48 : 32, sz = alongZ ? 32 : 48, T = Math.PI / 1024;
         Object.assign(e, { x0: r3((x - 1) / CELL - x0), x1: r3((x - 1 + sx) / CELL - x0), z0: r3((z - 1) / CELL - z0), z1: r3((z - 1 + sz) / CELL - z0),
@@ -457,9 +483,9 @@ const S3D = (() => {
       if (link) { cells[0].push(hb(d[o + 12]), hb(link[2])); for (const [lx, lz, top] of link[3]) cells.push([lx - x0, lz - z0, hb(top), null, 1]); }
       ents.push({ type: 'crack', by: 'whirl', cells, top: hb(d[o + 12]) });
     }
-    for (const [mark, dir] of gm.slides || []) {
+    for (const [mark, dir, zMin] of gm.slides || []) {   // (zMin: Gene Gadget 2's routine looks only at cells from that row on)
       const cells = [];
-      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) { const v = map[z * 128 + x]; if (v && (v & 0xFF) === mark) cells.push([x - x0, z - z0]); }
+      for (let z = Math.max(z0, zMin || 0); z <= z1; z++) for (let x = x0; x <= x1; x++) { const v = map[z * 128 + x]; if (v && (v & 0xFF) === mark) cells.push([x - x0, z - z0]); }
       if (cells.length) ents.push({ type: 'slide', cells, dir });
     }
     if (gm.fans !== undefined) {
@@ -503,7 +529,7 @@ const S3D = (() => {
         path: path.map(([dx, dy, dz]) => [r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)]),
         turns: sc.turns.map(([i, f]) => [i, compassOf(mir ? (0x200 - f) & 0x7FF : f)]), sc };
     };
-    for (const [cx, cz, after, state, from, facing, vel, maxY, force] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
+    for (const [cx, cz, after, state, from, facing, vel, maxY, force, run] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
       const { sc, ...rd } = rideOf(state, from, facing, vel), ride = { ...rd,
         end: sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3(sc.end[1] / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
           vel: [r3(sc.end[4] * mps), r3(-sc.end[5] * mps * vscale), r3(sc.end[6] * mps)] } : null };
@@ -511,6 +537,7 @@ const S3D = (() => {
       // the routines look only at the cell (and a height), grounded or not
       const e = { type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: after, air: true, ride };
       if (maxY !== undefined) e.maxY = r3(maxY / CELL * vscale);
+      if (run) e.run = 1;   // only in a supercharged run
       ents.push(e);
     }
     for (const [cx, cz, frames] of gm.holds || []) if (floorCell(cx, cz)) ents.push({ type: 'hold', x: cx + 0.5 - x0, z: cz + 0.5 - z0, t: r3(frames / 60) });
@@ -544,8 +571,11 @@ const S3D = (() => {
     // frames, jump at frame, jump speed], sleds [x0, x1, z, z, pulled to, way, speed-up, frames], currents [x0, x1, z0, z1,
     // way, speed-up, top, on leaving], hops [cells, rise in units]
     const box = (a, b, c, e) => [a - x0, b - x0 + 1, c - z0, e - z0 + 1];
-    for (const [ax, bx, az, bz, dir, acc, cx] of gm.chutes || [])
-      ents.push({ type: 'chute', box: box(ax, bx, az, bz), dir, accel: r3(acc * 3600 / CELL), steer: r3(cx / CELL - x0) });
+    for (const [ax, bx, az, bz, dir, acc, cx, top, hold] of gm.chutes || []) {   // (top: units a frame; hold: frames, rolling)
+      const e = { type: 'chute', box: box(ax, bx, az, bz), dir, accel: r3(acc * 3600 / CELL), steer: r3(cx / CELL - x0) };
+      if (top) { e.top = r3(top * mps); e.hold = r3(hold / 60); }
+      ents.push(e);
+    }
     for (const [cx, cz, maxY, v, n, at, jv] of gm.dashes || []) if (floorCell(cx, cz))
       ents.push({ type: 'dash', x: cx + 0.5 - x0, z: cz + 0.5 - z0, maxY: r3((maxY + 8) / CELL * vscale), v: [r3(v[0] * mps), r3(v[1] * mps)], t: r3(n / 60), jumpAt: r3(at / 60), jumpV: r3(jv * mps * vscale) });
     for (const [ax, bx, az, bz, at, dir, acc, n] of gm.sleds || [])
@@ -624,13 +654,14 @@ const S3D = (() => {
       if (wc.length) ents.push({ type: 'gate', cells: wc, top: gateTop(hb), opens: ring });
       if (zc.length) ents.push({ type: 'barrier', cells: zc, half, away, opens: ring });
     }
-    for (const [cells, hb, ring, pass] of gm.gates || []) {
+    for (const [cells, hb, ring, pass, key] of gm.gates || []) {
       const gc = cells.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
-      if (gc.length) { const g = { type: 'gate', cells: gc, top: gateTop(hb), opens: ring }; if (pass) g.pass = 1; ents.push(g); }
+      if (gc.length) { const g = { type: 'gate', cells: gc, top: gateTop(hb), opens: ring }; if (pass) g.pass = 1; if (key) g.key = key; ents.push(g); }
     }
+    for (const [cx, cz, key] of gm.keyOff || []) if (floorCell(cx, cz)) ents.push({ type: 'keyOff', x: cx - x0, z: cz - z0, key });
     // tubes: taken grounded in the cell, Sonic put at (x, z) at his own height, rolling; the script's own end puts him out
     if (gm.tubes2) {
-      const [tab, n, alts] = gm.tubes2;
+      const [tab, n, alts, keys] = gm.tubes2;
       for (let k = 0; k < n; k++) {
         const o = tab + 12 * k, c = u16(d, o) >> 1, cx = c % 128, cz = c >> 7, x = s16(d, o + 2), z = s16(d, o + 4), state = u16(d, o + 6);
         if (!floorCell(cx, cz)) continue;   // (the place is in the tube: no floor there)
@@ -642,7 +673,9 @@ const S3D = (() => {
           const a = rideOf(alt[2], null, null, null);
           ride.alt = { at: sc.starts[alt[1]], ride: { vel: a.vel, path: a.path, turns: a.turns, end: endOf(a.sc) } };
         }
-        ents.push({ type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: 0, ride });
+        const e = { type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: 0, ride }, key = (keys || []).find(q => q[0] === k);
+        if (key) e.key = key[1];   // (the act's routine lets Sonic out through a door after this tube)
+        ents.push(e);
       }
     }
     const bs = BOSSES[id];

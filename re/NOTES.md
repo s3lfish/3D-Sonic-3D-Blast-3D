@@ -476,3 +476,18 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   a wall). Slope pull while rolling: about 0.045 units a frame per frame per unit gradient. The supercharger run keeps
   7.48 units a frame through ride 0x18's hop.
 
+## Gene Gadget 2 (2026-10-27; gng2_dis, gngseq.py)
+- InitLevel 0x11540: raises 0x613E to 0x8500 and 0x4088 to 0x8900 (doors), and at section 0 (49..52, 69) to 0x6500
+  (the barrier's wall; ring 1 lowers it to 0x4500 and turns records 22..24 off).
+- RunLevel 0x115E2: barrier cells 0x4664/0x4666 north of z 0x8D0 (record 22 on; facing 0x400); 0xFF cells hurt a
+  grounded Sonic; from cell offset 0x4B00 on, 0xC3 slides east and 0xF0 south (0.25 a frame per frame up to 4, 15 frames
+  after); the chute (cells x 50..53, z 83..108, no ride): pad 0xFF 200 frames, $56 = 2, facing 0, vz + 0.25 a frame
+  (watched: capped at 8.19), x steered to 0x680; at 0x6B68 ride state 0x20 with vy -5.5 (kept through it, landing on
+  (51..52, 111..112)); speed pads (0x11930: vz 6; 0x11942: vx 6); tubes 0x11998 (6 x 12 bytes as act 1's; 0x5D28 and
+  0x4EA2 also open the doors 0x613E / 0x4088 until 0x6140 / 0x408A); roofs 0x11AAA; with the pad held and record 1
+  (the supercharger) at frame index 0x48, cell 0x692A starts ride 0x1E (vy -5.5 kept): the hop up to the next level;
+  cells 0x11B84 set $7A; zaps and hovers by the helper at 0x122C6.
+- 078 platforms (0x178D6): along z (x with bit 3 of +0x16) between +0x24 and +0x26 a unit a frame, 60 frames' rest at
+  each end (sound 0x92 going again); +0x28 way, +0x29 first rest; +0x2A the second half (+0x20 across, box 32 x 64,
+  else 32 x 32); a negative +0x2C marks the second half.
+

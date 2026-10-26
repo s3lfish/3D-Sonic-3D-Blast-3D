@@ -1160,9 +1160,9 @@
       const glow = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, 0.06, d * 0.6), jetGlow); glow.position.y = -0.25; g.add(glow);
       g.position.set((q.x0 + q.x1) / 2, q.top, (q.z0 + q.z1) / 2); levelGroup.add(g); return g;
     });
-    const moverMat = new THREE.MeshLambertMaterial({ color: 0x8a6a48, map: stoneTex() });
-    moverObjs = world.movers.map(q => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(q.x1 - q.x0, 0.3, q.z1 - q.z0), moverMat); m.position.set((q.x0 + q.x1) / 2, q.top - 0.15, (q.z0 + q.z1) / 2);
+    const moverMat = new THREE.MeshLambertMaterial({ color: 0x8a6a48, map: stoneTex() }), metalMat = new THREE.MeshLambertMaterial({ color: 0x9aa4b8, emissive: 0x101820 });
+    moverObjs = world.movers.map(q => {   // (Gene Gadget's 078: metal plates)
+      const m = new THREE.Mesh(new THREE.BoxGeometry(q.x1 - q.x0, 0.3, q.z1 - q.z0), q.skin === '078' ? metalMat : moverMat); m.position.set((q.x0 + q.x1) / 2, q.top - 0.15, (q.z0 + q.z1) / 2);
       m.userData.base = [m.position.x, m.position.z]; levelGroup.add(m); return m;
     });
     const sbFrames = rom && world.spikeBalls.length ? romTypeFrames(0x118, 3) : [];
@@ -1215,6 +1215,12 @@
       body.position.y = 0.22; nz.rotation.x = Math.PI / 2; nz.position.set(0, 0.5, 0.15); g.add(body, nz); g.position.set(q.x, q.y, q.z); levelGroup.add(g); return g;
     });
     const postMat = new THREE.MeshLambertMaterial({ color: 0x8890a0 }), tipMat = new THREE.MeshBasicMaterial({ color: 0xffe060 });
+    // props (Gene Gadget's doors 070 and pads 074): the original's frame in the ROM look; a grey door of our own
+    for (const q of world.L.entities.filter(e => e.type === 'prop')) {
+      if (rom) { bottomSprite(romBossMat(parseInt(q.skin, 16), q.frame, ROM_CANVAS, 80, 3), q.x, q.y, q.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); continue; }
+      if (q.skin !== '070') continue;
+      const d = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.4, 0.15), postMat); d.position.set(q.x, q.y + 0.7, q.z); levelGroup.add(d);
+    }
     pylonObjs = world.L.entities.filter(e => e.type === 'pylon').map(q => {
       if (rom) { const sp = bottomSprite(romBossMat(0x6C, 0, ROM_CANVAS, 80, 3), q.x, q.y, q.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); sp.userData.opens = q.opens; sp.userData.rom = true; return sp; }
       const g = new THREE.Group(), post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 1.2, 8), postMat), tip = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), tipMat);

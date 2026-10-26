@@ -169,6 +169,12 @@ serves index.html from main.
   segment to state 0x1A with the Flickies, else `tubeNo`); `sprinkler` (07C: within 80 units, a shot every 16 frames
   along its angle, 0x10 a frame; shots in `w.shots` with `g`); `pylon` (06C, drawn, gone with its barrier); 05C patrols.
   Drawn: 07C 17 frames + mirror by angle, 06C five frames, 068 lit/sparks, glass tubes along tube paths.
+- Gene Gadget 2 (`GIMMICKS[5]`, RunLevel_GnGdz2 0x115E2, InitLevel 0x11540): as act 1 plus spikes 0xFF, `slides`
+  with a zMin (row 75 on), the `chute` with `top` and `hold` (x 50..53, z 83..108: rolled, faced down it each frame,
+  8.19 units a frame; watched) into ride 0x20 at (52, 107) (vy 5.5 up kept); the supercharger hop at (21, 105) (ride
+  0x1E, `run`: only while `p.force.pass`); door gates with a `key` given by tubes 0 and 5 (`hole.key`, `w.keys`) and
+  dropped on `keyOff` cells (also act 1's door at (54, 70)); platforms 078 as `movePlat` with `lin` {a, b, v, wait,
+  dir, t} (a unit a frame, 60 frames' rest, drawn as metal plates); props 070 (doors) and 074 (pads), drawn only.
 - Converted levels, all zones (watched in GnG1 and GG1): a roll bounces off walls (`rollBounce`, facing turned); corner
   pieces (one corner two steps over three level ones, both neighbours by it without floor; `L.diag`, findDiagonals) are
   diagonal walls (that half solid, rest flat), met as a point (`P.rDiag`); walls keep `P.rOrig` 0.12 m; slope pull
@@ -246,6 +252,8 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
+- 2026-10-27: Gene Gadget 2 (chute, supercharger hop, doors, platforms, slides, spikes); 107 sim tests; all 22 levels
+  load in the page (alllevels.probe.js, private). Next: the GnG3 boss (0x11126).
 - 2026-10-27: Gene Gadget 1 (hover cells, zap floors, pyramid bumpers, barriers and gates, sprinklers, tubes with the
   Flicky way, the supercharger run round the arch); rolls bounce off walls and corner pieces are diagonal walls in every
   converted level; 105 sim tests. flow.py: GnG1 can be finished. Next: GnG2 (0x115E2), GnG3 boss (0x11126).

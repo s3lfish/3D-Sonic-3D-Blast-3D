@@ -932,5 +932,23 @@ test('a tube with a way for the Flickies takes it only with them following', () 
   w = GNG([tube], { flickies: 1 }); w.flickies.push({ state: 'follow', x: 4, z: 2.5, y: 1 }); place(w, 4.5, 2.5);
   run(w, 20, {}); assert.ok(Math.floor(w.p.x) === 9, `taken the other way: ${w.p.x}`);
 });
+test('Gene Gadget 2: a chute rolls the player down it to its top speed; a platform goes to and fro, resting at the ends', () => {
+  let w = GNG([{ type: 'chute', box: [3, 15, 1, 4], dir: [1, 0], accel: 28.125, steer: null, top: 15.35, hold: 3.33 }]); place(w, 3.5, 2.5); w.p.facing = Math.PI;
+  run(w, 60, {}); near(w.p.vx, 15.35, 0.05, 'top speed'); assert.ok(w.p.rolling, 'rolling');
+  w = GNG([{ type: 'movePlat', x0: 4, x1: 5, z0: 2, z1: 3, y: 1.5, axis: 'x', lin: { a: 4, b: 6, v: 1.875, wait: 1, dir: 1, t: 0 } }]);
+  const xs = []; run(w, 260, (f, ww) => { xs.push(ww.movers[0].off); return {}; });
+  near(Math.max(...xs), 2, 1e-6, 'to b'); near(xs[100], 2, 1e-6, 'resting at b'); assert.ok(xs[200] < 2, 'on its way back');
+});
+test('a door gate opens for the ride that gives its key until its keyOff cell; a run-only ride wants a run', () => {
+  const tube = { type: 'hole', x: 2.5, z: 2.5, size: 0.5, opens: 0, key: 7, ride: { start: [2.5, null, 2.5], path: [[0, 0, 0]], end: { at: [4.5, 1, 2.5], facing: 90, vel: [3, 0, 0] } } };
+  let w = GNG([tube, { type: 'gate', cells: [[6, 1], [6, 2], [6, 3]], top: 3, key: 7 }, { type: 'keyOff', x: 8, z: 2, key: 7 }]); place(w, 1.5, 2.5);
+  run(w, 150, (f) => f < 20 ? { mx: 1 } : f > 60 ? { mx: 1 } : {}); assert.ok(w.p.x > 8 && !w.keys.has(7), `through the door, key gone: ${w.p.x.toFixed(2)}`);
+  run(w, 90, { mx: -1 }); assert.ok(w.p.x > 7, `shut behind: ${w.p.x.toFixed(2)}`);
+  const hop = { type: 'hole', x: 5.5, z: 2.5, size: 0.5, opens: 0, air: true, run: true, ride: { path: [[0, 0.1, 0]], end: null, vel: [0, 0, 0] } };
+  w = GNG([hop]); place(w, 3.5, 2.5); let rode = false;
+  run(w, 60, (f, ww) => { if (ww.events.includes('ride')) rode = true; return { mx: 1 }; }); assert.ok(!rode, 'walked over it');
+  w = GNG([hop, { type: 'booster', x: 3.5, z: 2.5, dir: [1, 0] }]); place(w, 3.5, 2.5);
+  run(w, 150, (f, ww) => { if (ww.events.includes('ride')) rode = true; return {}; }); assert.ok(rode, 'taken in the run');
+});
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

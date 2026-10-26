@@ -1344,10 +1344,16 @@ const Sim = (() => {
           if (!okC || !okG || !(Number.isInteger(opens) && opens >= 0 && opens <= 9)) {
             errs.push(e.type === 'gate' ? 'A gate needs "cells" inside the map, a height "top" and "opens" from 0 to 9.' : 'A barrier needs "cells" inside the map, a "half" (\'n\' or \'w\'), "away" [x, z] and "opens" from 0 to 9.'); break;
           }
-          L.entities.push({ type: e.type, cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]), top: e.top, opens, pass: !!e.pass, half: e.half, away: e.away });
+          // a gate's "key": open while a ride that gives it has been taken and its "keyOff" cell not yet stepped on
+          L.entities.push({ type: e.type, cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]), top: e.top, opens, pass: !!e.pass, key: e.key ?? null, half: e.half, away: e.away });
           break;
         }
-        case 'sprinkler': case 'pylon': {
+        case 'keyOff': {
+          if (!inBounds(e.x, e.z) || e.key === undefined) { errs.push(`A keyOff at (${e.x}, ${e.z}) needs a place on the map and a "key".`); break; }
+          L.entities.push({ type: 'keyOff', x: Math.floor(e.x), z: Math.floor(e.z), key: e.key });
+          break;
+        }
+        case 'sprinkler': case 'pylon': case 'prop': {
           if (!inBounds(e.x, e.z) || !Number.isFinite(e.y)) { errs.push(`A ${e.type} at (${e.x}, ${e.z}) needs a place on the map and a height "y".`); break; }
           L.entities.push({ type: e.type, x: e.x, y: e.y, z: e.z, phase: (e.phase | 0) & 0x7FE, opens: e.opens | 0, frame: e.frame | 0, skin: skinOf(e) });
           break;
@@ -1403,8 +1409,11 @@ const Sim = (() => {
         // `phase`; a swinging spiked ball (object 118): the same motion, hurting on touch
         case 'movePlat': case 'spikeBall': {
           const okB = e.type === 'spikeBall' || [e.x0, e.x1, e.z0, e.z1].every(Number.isFinite);
-          if (!okB || !Number.isFinite(e.y) || !(e.axis === 'x' || e.axis === 'z') || ![e.centre, e.amp, e.w, e.phase].every(Number.isFinite)) { errs.push(`A ${e.type} needs a place, a height "y", an "axis", "centre", "amp", "w" and "phase".`); break; }
-          L.entities.push({ type: e.type, x0: e.x0, x1: e.x1, z0: e.z0, z1: e.z1, x: e.x, z: e.z, y: e.y, axis: e.axis, centre: e.centre, amp: e.amp, w: e.w, phase: e.phase, skin: skinOf(e) });
+          if (!okB || !Number.isFinite(e.y) || !(e.axis === 'x' || e.axis === 'z') || (!e.lin && ![e.centre, e.amp, e.w, e.phase].every(Number.isFinite))) { errs.push(`A ${e.type} needs a place, a height "y", an "axis", "centre", "amp", "w" and "phase".`); break; }
+          // "lin" {a, b, v, wait, dir, t}: to and fro between a and b (m along the axis) at v m/s, resting "wait" s at
+          // each end (Gene Gadget's 078), first resting t s and going dir (1 or -1)
+          const lin = e.lin && [e.lin.a, e.lin.b, e.lin.v].every(Number.isFinite) ? { a: e.lin.a, b: e.lin.b, v: e.lin.v, wait: e.lin.wait || 0, dir: e.lin.dir < 0 ? -1 : 1, t: e.lin.t || 0 } : null;
+          L.entities.push({ type: e.type, x0: e.x0, x1: e.x1, z0: e.z0, z1: e.z1, x: e.x, z: e.z, y: e.y, axis: e.axis, centre: e.centre, amp: e.amp, w: e.w, phase: e.phase, lin, skin: skinOf(e) });
           break;
         }
         case 'fireSpot': {
@@ -1444,7 +1453,8 @@ const Sim = (() => {
           const okBox = Array.isArray(e.box) && e.box.length === 4 && e.box.every(Number.isFinite) && Array.isArray(e.dir) && e.dir.length === 2 && e.accel > 0;
           if (!okBox) { errs.push(`A ${e.type} needs a "box", a "dir" and an "accel".`); break; }
           L.entities.push({ type: e.type, box: e.box, dir: e.dir, accel: e.accel, steer: Number.isFinite(e.steer) ? e.steer : null,
-            at: Array.isArray(e.at) && e.at.length === 3 ? e.at : null, t: e.t > 0 ? e.t : 0, top: e.top > 0 ? e.top : 0, leave: e.leave > 0 ? e.leave : 0 });
+            at: Array.isArray(e.at) && e.at.length === 3 ? e.at : null, t: e.t > 0 ? e.t : 0, top: e.top > 0 ? e.top : 0, leave: e.leave > 0 ? e.leave : 0,
+            hold: e.hold > 0 ? e.hold : 0 });   // (a chute's "top": no faster along it; "hold": the pad let go that long, rolling)
           break;
         }
         case 'dash': {
@@ -1481,8 +1491,9 @@ const Sim = (() => {
           const deg = f => (r => Math.atan2(Math.sin(r), -Math.cos(r)))(f * Math.PI / 180);
           // "half" [x, z]: a box of those half widths instead of the square of "size"
           const half = Array.isArray(e.half) && e.half.length === 2 && e.half.every(v => v > 0 && v <= 1) ? e.half : null;
+          // "run": taken only in a supercharged run; "key": the ride gives that key (see gate)
           L.entities.push({ type: 'hole', x: e.x, z: e.z, y: floorAt(L, e.x, e.z), opens, exit: [ex[0], ex[1]], launch, size, half, push,
-            exitY: Number.isFinite(e.exitY) ? e.exitY : null, air: !!e.air, maxY: Number.isFinite(e.maxY) ? e.maxY : null,
+            exitY: Number.isFinite(e.exitY) ? e.exitY : null, air: !!e.air, maxY: Number.isFinite(e.maxY) ? e.maxY : null, run: !!e.run, key: e.key ?? null,
             pad: e.pad && Number.isFinite(e.pad.sink) ? { sink: e.pad.sink, bury: e.pad.bury || 0, pocket: !!e.pad.pocket } : null,
             ride: ride && { start: Array.isArray(ride.start) ? ride.start : null, facing: Number.isFinite(ride.facing) ? deg(ride.facing) : null,
               vel: Array.isArray(ride.vel) ? ride.vel : [0, 0, 0], path: ride.path, turns: (ride.turns || []).map(([i, f]) => [i, deg(f)]),
@@ -1737,11 +1748,13 @@ const Sim = (() => {
     w.rocks = new Map(w.rockList); for (const [t, top] of w.rocks) L.up.set(t, top);
     w.fireballs = []; w.fireT = 0; w.spoutT = 0;
     w.jets = L.entities.filter(e => e.type === 'jetLift').map(e => ({ ...e, top: e.y0 }));
-    w.movers = L.entities.filter(e => e.type === 'movePlat').map(e => ({ ...e, top: e.y, off: 0 }));
+    w.movers = L.entities.filter(e => e.type === 'movePlat').map(e => ({ ...e, top: e.y, off: 0, lin: e.lin && { ...e.lin, p0: e.axis === 'x' ? e.x0 : e.z0 } }));
+    if (w.movers.some(q => q.lin)) for (const q of w.movers) if (q.lin) q.lin.pos = q.lin.p0;
     w.spikeBalls = L.entities.filter(e => e.type === 'spikeBall').map(e => ({ ...e }));
     // gates stand (raised for the sim only) until their section or a supercharged run opens them
     w.gates = L.entities.filter(e => e.type === 'gate').map(e => ({ ...e, open: false }));
     for (const g of w.gates) for (const [cx, cz] of g.cells) L.up.set(cz * L.width + cx, g.top);
+    w.keys = new Set(); w.keyOff = new Map(L.entities.filter(e => e.type === 'keyOff').map(e => [e.z * L.width + e.x, e.key]));
     w.zaps = []; w.zapLast = -1;
     w.sprinklers = L.entities.filter(e => e.type === 'sprinkler').map(e => ({ ...e, a: e.phase, on: false }));
     initBoss(w);
@@ -2187,7 +2200,7 @@ const Sim = (() => {
     // gates (Gene Gadget's InitLevel raises them): open from their section on, or while a supercharged run lasts (the
     // routine lets the run through cells it lists while the supercharger's flag is up)
     for (const g of w.gates) {
-      const open = (g.opens > 0 && w.section >= g.opens) || (g.pass && !!(p.force && p.force.pass));
+      const open = (g.opens > 0 && w.section >= g.opens) || (g.pass && !!(p.force && p.force.pass)) || (g.key !== null && w.keys.has(g.key));
       if (open !== g.open) { g.open = open; for (const [cx, cz] of g.cells) { const t = cz * L.width + cx; if (open) L.up.delete(t); else L.up.set(t, g.top); } }
     }
     // a pad: held on its middle, sinking, then out of the other pad (or into the ring's pocket) and thrown up
@@ -2517,6 +2530,7 @@ const Sim = (() => {
         }
       }
     }
+    if (w.keyOff.size && w.keyOff.has(cell)) w.keys.delete(w.keyOff.get(cell));
     // Gene Gadget's pyramid bumpers (routine 0x11EB4): a 64-unit box whose surface rises from each edge, by the diagonals,
     // one unit a unit; a player inside under it is thrown out over that edge and up by the speed they came in with
     // (in a ball, the pad let go 10 frames); not again for 2 frames
@@ -2578,11 +2592,16 @@ const Sim = (() => {
     for (const bx of w.boxes) {
       const inside = p.x >= bx.box[0] && p.x < bx.box[1] && p.z >= bx.box[2] && p.z < bx.box[3];
       if (bx.type === 'chute') {
-        if (inside && p.grounded && !p.ride && !p.chute) { p.chute = bx; p.rolling = false; p.charge = 0; w.events.push('chute'); }
+        if (inside && p.grounded && !p.ride && !p.chute) {
+          p.chute = bx; p.rolling = !!bx.hold; p.charge = 0; w.events.push('chute');
+          if (bx.hold) p.force = { t: bx.hold, dir: null, top: 0 };
+        }
         if (p.chute === bx) {
           if (p.ride || !(p.x >= bx.box[0] - 1 && p.x < bx.box[1] + 1 && p.z >= bx.box[2] - 1 && p.z < bx.box[3] + 1)) p.chute = null;
           else {
-            p.vx += bx.dir[0] * bx.accel * dt; p.vz += bx.dir[1] * bx.accel * dt;
+            const along = p.vx * bx.dir[0] + p.vz * bx.dir[1];
+            if (bx.hold) { p.facing = Math.atan2(bx.dir[0], bx.dir[1]); p.rolling = true; }   // (the routine faces him down it each frame)
+            if (!bx.top || along < bx.top) { const add = bx.top ? Math.min(bx.accel * dt, bx.top - along) : bx.accel * dt; p.vx += bx.dir[0] * add; p.vz += bx.dir[1] * add; }
             if (bx.steer !== null && bx.dir[0] === 0) { const d = bx.steer - p.x; if (Math.abs(d) < 0.03) { p.x = bx.steer; p.vx = 0; } else p.vx += Math.sign(d) * bx.accel * dt; }
           }
         }
@@ -2652,7 +2671,14 @@ const Sim = (() => {
     for (const q of w.movers) {
       const dx = q.axis === 'x' ? q.off : 0, dz = q.axis === 'z' ? q.off : 0;
       const on = p.grounded && p.x >= q.x0 + dx && p.x <= q.x1 + dx && p.z >= q.z0 + dz && p.z <= q.z1 + dz && Math.abs(p.y - q.top) < 0.05;
-      const was = q.off; q.off = q.amp * (Math.sin(q.phase + q.w * w.tick) - Math.sin(q.phase));   // (the box is given where it starts)
+      const was = q.off;
+      if (q.lin) {   // (Gene Gadget's 078: a unit a frame, 60 frames' rest at each end; positions of its box's near edge)
+        const l = q.lin;
+        if (l.t > 0) { l.t = Math.max(0, l.t - dt); if (l.t === 0) w.events.push('platGo'); }
+        else { l.pos += l.dir * l.v * dt; const lim = l.dir > 0 ? l.b : l.a; if (l.dir * (l.pos - lim) > 0) { l.pos = lim; l.dir = -l.dir; l.t = l.wait; } }
+        q.off = l.pos - l.p0;
+      }
+      else q.off = q.amp * (Math.sin(q.phase + q.w * w.tick) - Math.sin(q.phase));   // (the box is given where it starts)
       if (on) { if (q.axis === 'x') p.x += q.off - was; else p.z += q.off - was; }
     }
     for (const q of w.spikeBalls) {
@@ -2907,6 +2933,7 @@ const Sim = (() => {
       if (h.opens > w.section || !(p.x >= h.x - hx && p.x < h.x + hx && p.z >= h.z - hz && p.z < h.z + hz)) continue;
       if (!p.grounded && !h.air) continue;
       if (h.maxY !== null && p.y > h.maxY + 0.01) continue;
+      if (h.run && !(p.force && p.force.pass)) continue;
       // a pad takes a slow player only (the original: under 2 units a frame), and not the one just thrown out of it
       // until they have stepped off
       if (h.pad) {
@@ -2920,6 +2947,7 @@ const Sim = (() => {
         p.ride = { ride: R, i: 0, wait: R.wait }; p.auto = null; p.force = null; p.rolling = p.whirl = false; p.whirlHold = 0; p.charge = 0;
         if (R.start) { p.x = R.start[0]; p.z = R.start[2]; if (Number.isFinite(R.start[1])) p.y = R.start[1]; w.events.push('warp'); }   // (no height: kept)
         if (R.facing !== null) p.facing = R.facing;
+        if (h.key !== null) w.keys.add(h.key);
         w.events.push('ride'); w.warpedAt = w.time; w.inGoal = true;
         break;
       }
@@ -3689,9 +3717,24 @@ const S3D = (() => {
       dashes: [[65, 101, 0x7FFF, [6, 0], 1, 0, 0], [65, 102, 0x7FFF, [6, 0], 1, 0, 0], [74, 94, 0x7FFF, [0, 6], 1, 0, 0], [75, 94, 0x7FFF, [0, 6], 1, 0, 0]],
       barriers: [[[[58, 117], [59, 117], [60, 117], [61, 117]], 0x2D, [[59, 118], [60, 118]], 'n', 1, [0, 1]],
         [[[117, 93], [117, 94]], 0x45, [[118, 94], [118, 95]], 'w', 2, [1, 0]]],
-      gates: [[[[58, 112], [59, 112]], 0x2D, 0, 1], [[[68, 89], [69, 89]], 0x49, 0, 1], [[[54, 70]], 0x51, 0, 0]],
-      tubes2: [0x120F8, 10, [[0, 3, 0x1A]]],
+      gates: [[[[58, 112], [59, 112]], 0x2D, 0, 1], [[[68, 89], [69, 89]], 0x49, 0, 1], [[[54, 70]], 0x51, 0, 0, 1]], keyOff: [[54, 71, 1]],
+      tubes2: [0x120F8, 10, [[0, 3, 0x1A]], [[0, 1]]],
       rides: [[59, 112, 0, 0x18, null, null, [0, 0, -7.48], undefined, [340, null, 1, 1]]] },
+    // Gene Gadget 2 (RunLevel_GnGdz2 0x115E2, InitLevel 0x11540): as act 1 (hover, zaps, roofs 0x11AAA, a barrier at
+    // cells 0x4664/0x4666 north of z 0x8D0, its wall (49..52, 69) raised to 0x6500 until ring 1, tubes table 0x11998
+    // whose first and last open the doors 0x613E and 0x4088 (raised by InitLevel) until 0x6140 and 0x408A); spikes
+    // (0xFF, grounded); slides from row 75 on (0xC3 east, 0xF0 south, as Rusty Ruin 2's); speed pads (tables 0x11930
+    // south, 0x11942 east); the chute x 50..53, z 83..108 (grounded: rolled south, 0.25 a frame per frame up to 8.19,
+    // steered to x 0x680, the pad let go 200 frames; watched) into a hop at (52, 107) (state 0x20, vy 5.5 up kept); the
+    // supercharger's run hops at (21, 105) (state 0x1E, while the pad is held); platforms 078
+    5: { updrafts: 0x55, zapCells: 0xAA, roofs: 0x11AAA, spikes: 0xFF, slides: [[0xC3, [1, 0], 75], [0xF0, [0, 1], 75]],
+      dashes: [[56, 70], [57, 70], [32, 88], [33, 88], [64, 66], [65, 66], [66, 66], [67, 66]].map(([cx, cz]) => [cx, cz, 0x7FFF, [0, 6], 1, 0, 0])
+        .concat([[59, 103], [59, 104], [59, 111], [59, 112], [59, 113], [59, 114]].map(([cx, cz]) => [cx, cz, 0x7FFF, [6, 0], 1, 0, 0])),
+      barriers: [[[[49, 69], [50, 69], [51, 69], [52, 69]], 0x65, [[50, 70], [51, 70]], 'n', 1, [0, 1]]],
+      gates: [[[[31, 97]], 0x85, 0, 0, 1], [[[68, 64]], 0x89, 0, 0, 2]], keyOff: [[32, 97, 1], [69, 64, 2]],
+      tubes2: [0x11998, 6, [], [[0, 1], [5, 2]]],
+      chutes: [[50, 53, 83, 108, [0, 1], 0.25, 1664, 8.19, 200]],
+      rides: [[52, 107, 0, 0x20, null, null, [0, 5.5, 0], undefined, [40, null]], [21, 105, 0, 0x1E, null, null, [0, 5.5, 0], undefined, [40, null], 1]] },
   };   // units: spike ball circle radius (measured) and height (estimated)
   // Bosses run by the act's own routine. Green Grove 3 (RunLevel_GGz3 0xDDE4): Robotnik's pod starts at [x, y, z],
   // comes down to the cruise height, then loops: follows Sonic (2 units a frame) until close, lets its spiked ball go
@@ -3760,7 +3803,8 @@ const S3D = (() => {
     0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
     0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',   // 0DC: Diamond Dust's snowdrift springs
     0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall',
-    0x7C: 'sprinkler', 0x6C: 'pylon' };
+    0x7C: 'sprinkler', 0x6C: 'pylon', 0x78: 'movePlat', 0x70: 'prop', 0x74: 'prop' };
+  const PROP_FRAME = { 0x70: 6, 0x74: 0 };   // drawn only: Gene Gadget's doors (070, frame 0x18 / 4 shut) and pads (074)
   // Gene Gadget: sprinklers (07C, handler 0x174B4) turn 0x10 of 0x800 a frame from word +0x24 and, once Sonic has come
   // within 80 units, shoot every 16 frames (watched); pylons (06C, 0x17A1A) are the barriers' electric posts, drawn only
   // moving platform (128, handler 0x176B6, word +0x24 = 0): along x (z with bit 3 of byte +0x16) about word +0x28, 63 units
@@ -3983,6 +4027,7 @@ const S3D = (() => {
           y0: r3((s16(ob, o + 0x24) + 8) / CELL * vscale), y1: r3((s16(ob, o + 0x26) + 8) / CELL * vscale) });
       }
       if (kind === 'fireSpot') e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
+      if (kind === 'prop') { e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); e.frame = PROP_FRAME[t] || 0; }
       if (kind === 'sprinkler') { e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); e.phase = u16(ob, o + 0x24) & 0x7FE; }
       if (kind === 'pylon') {   // the barrier whose zap cells are nearest turns it off
         e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
@@ -3990,7 +4035,16 @@ const S3D = (() => {
         (gm.barriers || []).forEach(([, , zap, , ring]) => { for (const [cx, cz] of zap) { const dd = Math.hypot(cx + 0.5 - x / CELL, cz + 0.5 - z / CELL); if (dd < best) { best = dd; e.opens = ring; } } });
         if (!e.opens) continue;
       }
-      if (kind === 'movePlat') {
+      if (t === 0x78) {   // Gene Gadget's platforms (078, handler 0x178D6; see GIMMICKS[4])
+        if (s16(ob, o + 0x2C) < 0) continue;   // (the second half of a long one follows the first)
+        const alongX = (ob[o + 0x16] >> 3) & 1, long = u16(ob, o + 0x2A) !== 0, sx = alongX && long ? 64 : 32, sz = !alongX && long ? 64 : 32;
+        const a = s16(ob, o + 0x24), b = s16(ob, o + 0x26), org = alongX ? x0 : z0;
+        Object.assign(e, { x0: r3((x - 1) / CELL - x0), x1: r3((x - 1 + sx) / CELL - x0), z0: r3((z - 1) / CELL - z0), z1: r3((z - 1 + sz) / CELL - z0),
+          y: r3((s16(ob, o + 0xA) + 8) / CELL * vscale), axis: alongX ? 'x' : 'z',
+          lin: { a: r3((a - 1) / CELL - org), b: r3((b - 1) / CELL - org), v: r3(mps), wait: 1, dir: ob[o + 0x28] ? -1 : 1, t: r3(ob[o + 0x29] / 60) } });
+        delete e.x; delete e.z;
+      }
+      else if (kind === 'movePlat') {
         if (u16(ob, o + 0x24)) continue;   // (the sinking kind is not read yet)
         const alongZ = (ob[o + 0x16] >> 3) & 1, sx = alongZ ? 48 : 32, sz = alongZ ? 32 : 48, T = Math.PI / 1024;
         Object.assign(e, { x0: r3((x - 1) / CELL - x0), x1: r3((x - 1 + sx) / CELL - x0), z0: r3((z - 1) / CELL - z0), z1: r3((z - 1 + sz) / CELL - z0),
@@ -4024,9 +4078,9 @@ const S3D = (() => {
       if (link) { cells[0].push(hb(d[o + 12]), hb(link[2])); for (const [lx, lz, top] of link[3]) cells.push([lx - x0, lz - z0, hb(top), null, 1]); }
       ents.push({ type: 'crack', by: 'whirl', cells, top: hb(d[o + 12]) });
     }
-    for (const [mark, dir] of gm.slides || []) {
+    for (const [mark, dir, zMin] of gm.slides || []) {   // (zMin: Gene Gadget 2's routine looks only at cells from that row on)
       const cells = [];
-      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) { const v = map[z * 128 + x]; if (v && (v & 0xFF) === mark) cells.push([x - x0, z - z0]); }
+      for (let z = Math.max(z0, zMin || 0); z <= z1; z++) for (let x = x0; x <= x1; x++) { const v = map[z * 128 + x]; if (v && (v & 0xFF) === mark) cells.push([x - x0, z - z0]); }
       if (cells.length) ents.push({ type: 'slide', cells, dir });
     }
     if (gm.fans !== undefined) {
@@ -4070,7 +4124,7 @@ const S3D = (() => {
         path: path.map(([dx, dy, dz]) => [r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)]),
         turns: sc.turns.map(([i, f]) => [i, compassOf(mir ? (0x200 - f) & 0x7FF : f)]), sc };
     };
-    for (const [cx, cz, after, state, from, facing, vel, maxY, force] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
+    for (const [cx, cz, after, state, from, facing, vel, maxY, force, run] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
       const { sc, ...rd } = rideOf(state, from, facing, vel), ride = { ...rd,
         end: sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3(sc.end[1] / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
           vel: [r3(sc.end[4] * mps), r3(-sc.end[5] * mps * vscale), r3(sc.end[6] * mps)] } : null };
@@ -4078,6 +4132,7 @@ const S3D = (() => {
       // the routines look only at the cell (and a height), grounded or not
       const e = { type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: after, air: true, ride };
       if (maxY !== undefined) e.maxY = r3(maxY / CELL * vscale);
+      if (run) e.run = 1;   // only in a supercharged run
       ents.push(e);
     }
     for (const [cx, cz, frames] of gm.holds || []) if (floorCell(cx, cz)) ents.push({ type: 'hold', x: cx + 0.5 - x0, z: cz + 0.5 - z0, t: r3(frames / 60) });
@@ -4111,8 +4166,11 @@ const S3D = (() => {
     // frames, jump at frame, jump speed], sleds [x0, x1, z, z, pulled to, way, speed-up, frames], currents [x0, x1, z0, z1,
     // way, speed-up, top, on leaving], hops [cells, rise in units]
     const box = (a, b, c, e) => [a - x0, b - x0 + 1, c - z0, e - z0 + 1];
-    for (const [ax, bx, az, bz, dir, acc, cx] of gm.chutes || [])
-      ents.push({ type: 'chute', box: box(ax, bx, az, bz), dir, accel: r3(acc * 3600 / CELL), steer: r3(cx / CELL - x0) });
+    for (const [ax, bx, az, bz, dir, acc, cx, top, hold] of gm.chutes || []) {   // (top: units a frame; hold: frames, rolling)
+      const e = { type: 'chute', box: box(ax, bx, az, bz), dir, accel: r3(acc * 3600 / CELL), steer: r3(cx / CELL - x0) };
+      if (top) { e.top = r3(top * mps); e.hold = r3(hold / 60); }
+      ents.push(e);
+    }
     for (const [cx, cz, maxY, v, n, at, jv] of gm.dashes || []) if (floorCell(cx, cz))
       ents.push({ type: 'dash', x: cx + 0.5 - x0, z: cz + 0.5 - z0, maxY: r3((maxY + 8) / CELL * vscale), v: [r3(v[0] * mps), r3(v[1] * mps)], t: r3(n / 60), jumpAt: r3(at / 60), jumpV: r3(jv * mps * vscale) });
     for (const [ax, bx, az, bz, at, dir, acc, n] of gm.sleds || [])
@@ -4191,13 +4249,14 @@ const S3D = (() => {
       if (wc.length) ents.push({ type: 'gate', cells: wc, top: gateTop(hb), opens: ring });
       if (zc.length) ents.push({ type: 'barrier', cells: zc, half, away, opens: ring });
     }
-    for (const [cells, hb, ring, pass] of gm.gates || []) {
+    for (const [cells, hb, ring, pass, key] of gm.gates || []) {
       const gc = cells.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
-      if (gc.length) { const g = { type: 'gate', cells: gc, top: gateTop(hb), opens: ring }; if (pass) g.pass = 1; ents.push(g); }
+      if (gc.length) { const g = { type: 'gate', cells: gc, top: gateTop(hb), opens: ring }; if (pass) g.pass = 1; if (key) g.key = key; ents.push(g); }
     }
+    for (const [cx, cz, key] of gm.keyOff || []) if (floorCell(cx, cz)) ents.push({ type: 'keyOff', x: cx - x0, z: cz - z0, key });
     // tubes: taken grounded in the cell, Sonic put at (x, z) at his own height, rolling; the script's own end puts him out
     if (gm.tubes2) {
-      const [tab, n, alts] = gm.tubes2;
+      const [tab, n, alts, keys] = gm.tubes2;
       for (let k = 0; k < n; k++) {
         const o = tab + 12 * k, c = u16(d, o) >> 1, cx = c % 128, cz = c >> 7, x = s16(d, o + 2), z = s16(d, o + 4), state = u16(d, o + 6);
         if (!floorCell(cx, cz)) continue;   // (the place is in the tube: no floor there)
@@ -4209,7 +4268,9 @@ const S3D = (() => {
           const a = rideOf(alt[2], null, null, null);
           ride.alt = { at: sc.starts[alt[1]], ride: { vel: a.vel, path: a.path, turns: a.turns, end: endOf(a.sc) } };
         }
-        ents.push({ type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: 0, ride });
+        const e = { type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: 0, ride }, key = (keys || []).find(q => q[0] === k);
+        if (key) e.key = key[1];   // (the act's routine lets Sonic out through a door after this tube)
+        ents.push(e);
       }
     }
     const bs = BOSSES[id];
@@ -6518,9 +6579,9 @@ const Art = (() => {
       const glow = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, 0.06, d * 0.6), jetGlow); glow.position.y = -0.25; g.add(glow);
       g.position.set((q.x0 + q.x1) / 2, q.top, (q.z0 + q.z1) / 2); levelGroup.add(g); return g;
     });
-    const moverMat = new THREE.MeshLambertMaterial({ color: 0x8a6a48, map: stoneTex() });
-    moverObjs = world.movers.map(q => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(q.x1 - q.x0, 0.3, q.z1 - q.z0), moverMat); m.position.set((q.x0 + q.x1) / 2, q.top - 0.15, (q.z0 + q.z1) / 2);
+    const moverMat = new THREE.MeshLambertMaterial({ color: 0x8a6a48, map: stoneTex() }), metalMat = new THREE.MeshLambertMaterial({ color: 0x9aa4b8, emissive: 0x101820 });
+    moverObjs = world.movers.map(q => {   // (Gene Gadget's 078: metal plates)
+      const m = new THREE.Mesh(new THREE.BoxGeometry(q.x1 - q.x0, 0.3, q.z1 - q.z0), q.skin === '078' ? metalMat : moverMat); m.position.set((q.x0 + q.x1) / 2, q.top - 0.15, (q.z0 + q.z1) / 2);
       m.userData.base = [m.position.x, m.position.z]; levelGroup.add(m); return m;
     });
     const sbFrames = rom && world.spikeBalls.length ? romTypeFrames(0x118, 3) : [];
@@ -6573,6 +6634,12 @@ const Art = (() => {
       body.position.y = 0.22; nz.rotation.x = Math.PI / 2; nz.position.set(0, 0.5, 0.15); g.add(body, nz); g.position.set(q.x, q.y, q.z); levelGroup.add(g); return g;
     });
     const postMat = new THREE.MeshLambertMaterial({ color: 0x8890a0 }), tipMat = new THREE.MeshBasicMaterial({ color: 0xffe060 });
+    // props (Gene Gadget's doors 070 and pads 074): the original's frame in the ROM look; a grey door of our own
+    for (const q of world.L.entities.filter(e => e.type === 'prop')) {
+      if (rom) { bottomSprite(romBossMat(parseInt(q.skin, 16), q.frame, ROM_CANVAS, 80, 3), q.x, q.y, q.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); continue; }
+      if (q.skin !== '070') continue;
+      const d = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.4, 0.15), postMat); d.position.set(q.x, q.y + 0.7, q.z); levelGroup.add(d);
+    }
     pylonObjs = world.L.entities.filter(e => e.type === 'pylon').map(q => {
       if (rom) { const sp = bottomSprite(romBossMat(0x6C, 0, ROM_CANVAS, 80, 3), q.x, q.y, q.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); sp.userData.opens = q.opens; sp.userData.rom = true; return sp; }
       const g = new THREE.Group(), post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 1.2, 8), postMat), tip = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), tipMat);

@@ -21,7 +21,8 @@ KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 
          0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
          0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',
          0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall',
-         0x7C: 'sprinkler', 0x6C: 'pylon'}
+         0x7C: 'sprinkler', 0x6C: 'pylon', 0x78: 'movePlat', 0x70: 'prop', 0x74: 'prop'}
+PROP_FRAME = {0x70: 6, 0x74: 0}
 PATROL = {0x100, 0x108, 0x5C}
 MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']
 
@@ -48,9 +49,17 @@ GIMMICKS = {
         'dashes': [(65, 101, 0x7FFF, (6, 0), 1, 0, 0), (65, 102, 0x7FFF, (6, 0), 1, 0, 0), (74, 94, 0x7FFF, (0, 6), 1, 0, 0), (75, 94, 0x7FFF, (0, 6), 1, 0, 0)],
         'barriers': [([(58, 117), (59, 117), (60, 117), (61, 117)], 0x2D, [(59, 118), (60, 118)], 'n', 1, (0, 1)),
                      ([(117, 93), (117, 94)], 0x45, [(118, 94), (118, 95)], 'w', 2, (1, 0))],
-        'gates': [([(58, 112), (59, 112)], 0x2D, 0, 1), ([(68, 89), (69, 89)], 0x49, 0, 1), ([(54, 70)], 0x51, 0, 0)],
-        'tubes2': (0x120F8, 10, [(0, 3, 0x1A)]),
+        'gates': [([(58, 112), (59, 112)], 0x2D, 0, 1), ([(68, 89), (69, 89)], 0x49, 0, 1), ([(54, 70)], 0x51, 0, 0, 1)], 'keyOff': [(54, 71, 1)],
+        'tubes2': (0x120F8, 10, [(0, 3, 0x1A)], [(0, 1)]),
         'rides': [(59, 112, 0, 0x18, None, None, (0, 0, -7.48), None, (340, None, 1, 1))]},
+    5: {'updrafts': 0x55, 'zapCells': 0xAA, 'roofs': 0x11AAA, 'spikes': 0xFF, 'slides': [(0xC3, [1, 0], 75), (0xF0, [0, 1], 75)],   # Gene Gadget 2
+        'dashes': [(cx, cz, 0x7FFF, (0, 6), 1, 0, 0) for cx, cz in ((56, 70), (57, 70), (32, 88), (33, 88), (64, 66), (65, 66), (66, 66), (67, 66))]
+                  + [(cx, cz, 0x7FFF, (6, 0), 1, 0, 0) for cx, cz in ((59, 103), (59, 104), (59, 111), (59, 112), (59, 113), (59, 114))],
+        'barriers': [([(49, 69), (50, 69), (51, 69), (52, 69)], 0x65, [(50, 70), (51, 70)], 'n', 1, (0, 1))],
+        'gates': [([(31, 97)], 0x85, 0, 0, 1), ([(68, 64)], 0x89, 0, 0, 2)], 'keyOff': [(32, 97, 1), (69, 64, 2)],
+        'tubes2': (0x11998, 6, [], [(0, 1), (5, 2)]),
+        'chutes': [(50, 53, 83, 108, [0, 1], 0.25, 1664, 8.19, 200)],
+        'rides': [(52, 107, 0, 0x20, None, None, (0, 5.5, 0), None, (40, None)), (21, 105, 0, 0x1E, None, None, (0, 5.5, 0), None, (40, None), 1)]},
     1: {'cannons': [(116, 12, 248, 9, 7.067)], 'cracks': [([(108, 17)], 480, [0, -1])]},
     2: {'cannons': [(21, 48, 576, 9, 6.1)], 'cracks': [([(59, 47)], 784, [-1, 0]), ([(108, 41), (109, 41)], 688, [0, -1])]},
     # Rusty Ruin 1 (see s3d.js GIMMICKS): spike and fan cell marks, door and pillar tables, pockets after rings, rides
@@ -212,6 +221,7 @@ def convert(rom, level_id, vscale=1.0):
             e.update({"x0": jround((x - 1) / CELL - x0, 3), "x1": jround((x - 1 + sx) / CELL - x0, 3), "z0": jround((z - 1) / CELL - z0, 3), "z1": jround((z - 1 + sz) / CELL - z0, 3),
                       "y0": jround((a + 8) / CELL * vscale, 3), "y1": jround((b + 8) / CELL * vscale, 3)})
         if kind == 'fireSpot': e["y"] = jround((y_obj + 8) / CELL * vscale, 3)
+        if kind == 'prop': e["y"] = jround((y_obj + 8) / CELL * vscale, 3); e["frame"] = PROP_FRAME.get(t, 0)
         if kind == 'sprinkler': e["y"] = jround((y_obj + 8) / CELL * vscale, 3); e["phase"] = struct.unpack('>H', r[0x24:0x26])[0] & 0x7FE
         if kind == 'pylon':   # the barrier whose zap cells are nearest turns it off
             e["y"] = jround((y_obj + 8) / CELL * vscale, 3); best = 4
@@ -220,7 +230,16 @@ def convert(rom, level_id, vscale=1.0):
                     dd = math.hypot(zx + 0.5 - x / CELL, zz + 0.5 - z / CELL)
                     if dd < best: best = dd; e["opens"] = ring
             if not e.get("opens"): continue
-        if kind == 'movePlat':
+        if t == 0x78:   # Gene Gadget's platforms (see s3d.js)
+            if struct.unpack('>h', r[0x2C:0x2E])[0] < 0: continue
+            along_x = (r[0x16] >> 3) & 1; long_ = struct.unpack('>H', r[0x2A:0x2C])[0] != 0
+            sx = 64 if along_x and long_ else 32; sz = 64 if (not along_x) and long_ else 32
+            a, b = struct.unpack('>hh', r[0x24:0x28]); org = x0 if along_x else z0
+            del e["x"], e["z"]
+            e.update({"x0": jround((x - 1) / CELL - x0, 3), "x1": jround((x - 1 + sx) / CELL - x0, 3), "z0": jround((z - 1) / CELL - z0, 3), "z1": jround((z - 1 + sz) / CELL - z0, 3),
+                      "y": jround((y_obj + 8) / CELL * vscale, 3), "axis": 'x' if along_x else 'z',
+                      "lin": {"a": jround((a - 1) / CELL - org, 3), "b": jround((b - 1) / CELL - org, 3), "v": jround(mps, 3), "wait": 1, "dir": -1 if r[0x28] else 1, "t": jround(r[0x29] / 60, 3)}})
+        elif kind == 'movePlat':
             if struct.unpack('>H', r[0x24:0x26])[0]: continue
             along_z = (r[0x16] >> 3) & 1; sx, sz = (48, 32) if along_z else (32, 48); T = math.pi / 1024
             e.update({"x0": jround((x - 1) / CELL - x0, 3), "x1": jround((x - 1 + sx) / CELL - x0, 3), "z0": jround((z - 1) / CELL - z0, 3), "z1": jround((z - 1 + sz) / CELL - z0, 3),
@@ -259,8 +278,8 @@ def convert(rom, level_id, vscale=1.0):
                 cells[0] += [hb(rom[o + 14 * k + 12]), hb(link[2])]
                 for lx, lz, top in link[3]: cells.append([lx - x0, lz - z0, hb(top), None, 1])
             ents.append({"type": "crack", "by": "whirl", "cells": cells, "top": hb(rom[o + 14 * k + 12])})
-    for mark, dr in gm.get('slides', []):
-        cells = [[x - x0, z - z0] for z in range(z0, z1 + 1) for x in range(x0, x1 + 1) if w[z * 128 + x] and (w[z * 128 + x] & 0xFF) == mark]
+    for mark, dr, *zm in gm.get('slides', []):   # (zMin: see s3d.js)
+        cells = [[x - x0, z - z0] for z in range(max(z0, zm[0] if zm else 0), z1 + 1) for x in range(x0, x1 + 1) if w[z * 128 + x] and (w[z * 128 + x] & 0xFF) == mark]
         if cells: ents.append({"type": "slide", "cells": cells, "dir": dr})
     if 'fans' in gm:
         cells = [[x - x0, z - z0] for z in range(z0, z1 + 1) for x in range(x0, x1 + 1) if w[z * 128 + x] and (w[z * 128 + x] & 0xFF) == gm['fans']]
@@ -312,6 +331,7 @@ def convert(rom, level_id, vscale=1.0):
                 if len(rest[1]) > 3 and rest[1][3]: ride["force"]["pass"] = 1
             e = {"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": after, "air": True, "ride": ride}
             if rest and rest[0] is not None: e["maxY"] = r3(rest[0] / CELL * vscale)
+            if len(rest) > 2 and rest[2]: e["run"] = 1
             ents.append(e)
     for cx, cz, frames in gm.get('holds', []):
         if floor_cell(cx, cz): ents.append({"type": "hold", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "t": r3(frames / 60)})
@@ -336,8 +356,10 @@ def convert(rom, level_id, vscale=1.0):
         cells = cells_of(gm['spikeField'])
         if cells: ents.append({"type": "spikeField", "cells": cells})
     box = lambda a, b, c, e: [a - x0, b - x0 + 1, c - z0, e - z0 + 1]   # Diamond Dust (see s3d.js)
-    for ax, bx, az, bz, dr, acc, cx in gm.get('chutes', []):
-        ents.append({"type": "chute", "box": box(ax, bx, az, bz), "dir": dr, "accel": r3(acc * 3600 / CELL), "steer": r3(cx / CELL - x0)})
+    for ax, bx, az, bz, dr, acc, cx, *th in gm.get('chutes', []):
+        e = {"type": "chute", "box": box(ax, bx, az, bz), "dir": dr, "accel": r3(acc * 3600 / CELL), "steer": r3(cx / CELL - x0)}
+        if th: e["top"] = r3(th[0] * mps); e["hold"] = r3(th[1] / 60)
+        ents.append(e)
     for cx, cz, max_y, v, n, at, jv in gm.get('dashes', []):
         if floor_cell(cx, cz):
             ents.append({"type": "dash", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "maxY": r3((max_y + 8) / CELL * vscale), "v": [r3(v[0] * mps), r3(v[1] * mps)],
@@ -429,14 +451,17 @@ def convert(rom, level_id, vscale=1.0):
         wc = [[cx - x0, cz - z0] for cx, cz in wall if floor_cell(cx, cz)]; zc = [[cx - x0, cz - z0] for cx, cz in zap if floor_cell(cx, cz)]
         if wc: ents.append({"type": "gate", "cells": wc, "top": gate_top(hb), "opens": ring})
         if zc: ents.append({"type": "barrier", "cells": zc, "half": half, "away": list(away), "opens": ring})
-    for cells, hb, ring, pss in gm.get('gates', []):
+    for cells, hb, ring, pss, *ky in gm.get('gates', []):
         gc = [[cx - x0, cz - z0] for cx, cz in cells if floor_cell(cx, cz)]
         if gc:
             g = {"type": "gate", "cells": gc, "top": gate_top(hb), "opens": ring}
             if pss: g["pass"] = 1
+            if ky and ky[0]: g["key"] = ky[0]
             ents.append(g)
+    for cx, cz, key in gm.get('keyOff', []):
+        if floor_cell(cx, cz): ents.append({"type": "keyOff", "x": cx - x0, "z": cz - z0, "key": key})
     if 'tubes2' in gm:   # taken grounded in the cell, put at (x, z) at his own height (see s3d.js)
-        tab, n, alts = gm['tubes2']
+        tab, n, alts, *kys = gm['tubes2']; kys = kys[0] if kys else []
         end_of = lambda end: {"at": [r3(end[0] / CELL - x0), r3(end[1] / CELL * vscale), r3(end[2] / CELL - z0)], "facing": compass_of(end[3]),
                               "vel": [r3(end[4] * mps), r3(-end[5] * mps * vscale), r3(end[6] * mps)]} if end else None
         for k2 in range(n):
@@ -448,7 +473,10 @@ def convert(rom, level_id, vscale=1.0):
             if alt:
                 a, aend = ride_of(alt[2], None, None, None)
                 ride["alt"] = {"at": ride_of(state, None, None, None, True)[alt[1]], "ride": {"vel": a["vel"], "path": a["path"], "turns": a["turns"], "end": end_of(aend)}}
-            ents.append({"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": 0, "ride": ride})
+            e = {"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": 0, "ride": ride}
+            key = next((q for q in kys if q[0] == k2), None)
+            if key: e["key"] = key[1]
+            ents.append(e)
     bs = BOSSES.get(level_id)
     if bs:
         e = {"type": "boss", "kind": bs['kind'], "x": jround(bs['at'][0] / CELL - x0, 3), "y": jround(bs['at'][1] / CELL * vscale, 3), "z": jround(bs['at'][2] / CELL - z0, 3),
