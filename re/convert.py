@@ -148,7 +148,8 @@ BOSSES = {3: {'kind': 'gg', 'at': (1152, 350, 1152), 'home': (1088, 1088), 'crui
                'script': 0xF2FA, 'hitAt': 0x28, 'diag': 0xD8, 'sum': (0x1000 - 0x110, 0x1000 + 0x118), 'home': (2048, 2048),
                'arena': (0x740, 0x8C0, 0x740, 0x8C0), 'hp': 8},
           14: {'kind': 'vv', 'at': (0x800, 0x1E8 + 8, 0x800), 'cruise': 0x58 + 8, 'low': 0x58 + 8, 'hitBox': (0x7F0, 0x830, 0x7F0, 0x830), 'minY': 0x60 + 8,
-               'rise': (0x834, 0x5C + 8, 0x830), 'spikes': ((63, 64), (65, 64), (64, 63), (64, 65)), 'home': (0x800, 0x800), 'arena': (0x740, 0x8C0, 0x740, 0x8C0), 'hp': 8},
+               'rise': (0x834, 0x5C + 8, 0x830), 'spikes': ((63, 64), (65, 64), (64, 63), (64, 65)), 'home': (0x800, 0x800), 'arena': (0x740, 0x8C0, 0x740, 0x8C0), 'hp': 8,
+          'lava': 0x40 + 8},
           18: {'kind': 'gng', 'at': (0xE04, 0x1D0 + 8, 0x240), 'cruise': 0x40 + 8, 'first': 0x40 + 8, 'high': 0x70 + 8, 'low': 0x20 + 8, 'belt': (0x1C8, 0x378),   # Gene Gadget 3
                'lanes': (0xDD0, 32), 'end': 0x380, 'loads': (456, 408, 360, 312, 264, 216), 'drops': (-7, -18), 'dropZ': 6, 'home': (0xE04, 0x240), 'arena': (0xDC0, 0xE40, 0x200, 0x3A0), 'hp': 8},
           21: {'kind': 'pp', 'at': (0x561, 0x390, 0x540), 'cruise': 0x200, 'home': (0x561, 0x540), 'arena': (0x520, 0x800, 0x500, 0x800), 'hp': 24,   # Panic Puppet 3 (see s3d.js)
@@ -666,6 +667,7 @@ def convert(rom, level_id, vscale=1.0):
             e["hitBox"] = [jround(bs['hitBox'][0] / CELL - x0, 3), jround(bs['hitBox'][1] / CELL - x0, 3), jround(bs['hitBox'][2] / CELL - z0, 3), jround(bs['hitBox'][3] / CELL - z0, 3)]
             e["rise"] = [jround(bs['rise'][0] / CELL - x0, 3), Y(bs['rise'][1]), jround(bs['rise'][2] / CELL - z0, 3)]
             e["spikes"] = [[cx - x0, cz - z0] for cx, cz in bs['spikes'] if floor_cell(cx, cz)]
+            if 'lava' in bs: e["lava"] = Y(bs['lava'])
         if bs['kind'] == 'ff':   # (see s3d.js)
             e["org"] = [x0, z0]; e["doors"] = [[[(o >> 1) % 128 - x0, ((o >> 1) >> 7) - z0] for o in d] for d in bs['doors']]; e["doorTop"] = jround(bs['doorTop'] * 8 / CELL * vscale, 3)
         if bs['kind'] == 'pp':   # (see s3d.js)

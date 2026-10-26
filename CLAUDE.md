@@ -295,7 +295,7 @@ serves index.html from main.
     flag, bit 1 all corners odd; the level mesh splits its cells the same way), height in whole units; slope pull (`origPull`, 0x3540): the triangle's normal
     (1/8 a step, x 0x5A00, cut toward 0), g + g/4 (rolling a quarter) when steep (0x1000) or moving (0x800).
   * Walls (`resolveWallsOrig`, 0x40D6): a point; a cell 9+ whole units over him is a wall, in the air too; stopped at
-    his own cell's edge, x then z, that speed gone, the other kept; a roll comes back 0x4000 slower (stopping if that
+    his own cell's edge, x then z, that speed gone (whichever way it points), the other kept; a roll comes back 0x4000 slower (stopping if that
     crosses zero) with its facing mirrored. Rising into a cell within 8 puts him on its floor, still in the air;
     falling, he lands once his whole-unit height is under the floor (on it, he still falls that frame); a drop over 2
     units leaves the ground (stepUp 8, snapDown 2 units). One move a frame. game.js draws him `WALL_SKIN` 0.15 m off
@@ -408,7 +408,9 @@ serves index.html from main.
   nine movement traces exact, PP1's sprinkler hit included); 0C8. Sine table entry 0x400 is 0 (the formula gave -1).
   138 sim tests. Private exploration traces (one pad script, all 22 acts): position, animation and scroll exact in
   GG1, GG2, GnG2, RR2, RR1, DD1, DD2, VV1, VV2, PP2, PP1, PP3 (low roofs, DD1 chute and ride, ride snap, enemy fractions).
-  VV2 too (its balls' angle at the trace start fitted: 0x348). A hit shows from the next frame (`p.pre` {anim, facing}:
+  VV2 too (its balls' angle at the trace start fitted: 0x348). VV3 (lava: whole-unit feet y exactly 0x40, 0xA2C2) and
+  FF (cannons and fists touch 16 / 24 by their bytes) exact on all three scripts; DD3 to frame 380+ (walls stop the
+  axis part whichever way it points, after a diagonal turn). A hit shows from the next frame (`p.pre` {anim, facing}:
   the original's player ran before it); the knock-back's eighth is taken from the whole facing; 2 s safe is 120
   frames (the timer snaps to 0). SS1 and SS2 too: the jump word $46 (`p.jb`, 0x2E0E: pressed in the air and held,
   he jumps as he lands), floor springs' exact speed, the scroll after springs. A second private script (jumps, rolls,
@@ -420,8 +422,8 @@ serves index.html from main.
   else VV1's [52, 34]); SS spike fields count on the original's 4-frame count ($0AF8, `gZero(w, 4)`); the start
   faces the start table's way, bosses too (SS3's is not toward the boss). Still off: GnG1 after its reload (51 blank frames, VV1 52: not modelled), the 13
   frames after a reload when the original shows frame 0 (its player not yet run), RR3's boss scroll targets
-  ($084A/$084C), GG3, DD3, VV3 and FF in places (boss state at a trace's start; their models), a fall onto a no-floor cell (the original lands at map
-  height 0; the act never lets him there), bosses. 140 sim tests.
+  ($084A/$084C), GG3 and DD3 in places (boss state at a trace's start; their models), a fall onto a no-floor cell (the original lands at map
+  height 0; the act never lets him there). 144 sim tests.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;
   the Jam Flicky body is a flat quad (edge-on from the side).

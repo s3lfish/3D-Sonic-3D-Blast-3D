@@ -375,7 +375,8 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - Touch (armgrid.py, armstand.py): links hurt within about 16 units across and 12 along; the fist's top (one unit under
   its record) holds Sonic over x -4..+20, z -2..+36 of the record and carries him as it lifts and pulls back; a slam
   coming down on him hurts. From a raised fist a jump reaches the pod.
-- Roll bounces: 0x41A0/0x41C0/0x41DE/0x4202 put him at the old cell's edge on the axis met; rolling, 0x42A0 (x) /
+- Roll bounces: 0x41A0/0x41C0/0x41DE/0x4202 put him at the old cell's edge on the axis met and stop (or bounce) that
+  part whichever way it points (after a diagonal piece's turn it may already point away: DD3 trace); rolling, 0x42A0 (x) /
   0x42E8 (z): the part negated and 0x4000 toward 0 (cleared, no turn, if it crosses 0; both 0 ends the roll), facing
   0x800 - f / 0x400 - f. A corner crossing with both ways blocked (0x3F20) puts him at the old cell's corner and
   0x442C: both parts back as above, facing + 0x400 whatever the speeds (PP3 ex3 frame 359); not rolling, both 0.
@@ -591,7 +592,8 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - RunLevel 0x9EBA: pod y comes down 1 a frame to 0x58 (sound 0x9E). With the pod at 0x58 and Sonic's x and z - 0x7F0
   within 0x40: airborne with $56 = 1: hit (speed reversed, vy -5, pad 30 frames, $3C - 1, sound 0x59; pod frames at
   6/4/2 left), else hurt; $38 = 60 between. At 0 left: 240 frames of explosions as the pod rises, then the act ends.
-  Grounded in cells 0x407E, 0x4082, 0x3F80, 0x4180: hurt. Grounded at y 0x40 (the lava): burnt (as 0xB5C8).
+  Grounded in cells 0x407E, 0x4082, 0x3F80, 0x4180: hurt. Grounded at y 0x40 (the lava): burnt (as 0xB5C8); 0xA2C2
+  compares the whole-unit feet-frame y with 0x40 exactly (page: `b.lava`, BOSSES[14] 0x40 + 8).
 - Serpent: counter $1C to 0x1FE; at 0x10E the head is put at (0x834, 0x5C, 0x830) (sound 0x4E); from 0x118 it heads for
   Sonic (table 0xDBEE, turn = random & 0x3F + 0x10 a frame), sine x 4 per frame (2 units), y a unit a frame toward
   Sonic's + 0x10, not under 0x60. Each frame the head goes into the ring buffer; nine segment records (138) read it
@@ -873,8 +875,9 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   cannons (frame 0) and fists (1..4), 1B8 the hatch, 1BC bombs, 1C0 the pod's cannon, 138 serpent links, 02C debris.
   The machine's tiles are RNC packed (0xEFAFE to VRAM 0x520, 0x15D2BA to 0xF20) and streamed each frame (0x15A4BA,
   0xE87FE), so the page draws its own model.
-- Estimated, not measured: the fists' touch box (20 units across, 32 up), the serpent links' (14), the bombs' (16
-  falling, 24 on the floor).
+- Cannons (st 0) and fists (st 4), records 1B4: touch bytes 16 / 24 through the original box test (origTouch, X/Z
+  longs); exact over three private traces with the world pre-run 99 frames (PRE=99). Estimated, not measured: the
+  serpent links' touch (14), the bombs' (16 falling, 24 on the floor).
 - Not done: the floor pads' frames, the hatch's frames and the original's camera.
 
 ## Lives and deaths (2026-10-27; main loop 0x59C..0x918)

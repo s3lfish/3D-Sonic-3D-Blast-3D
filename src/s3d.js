@@ -233,7 +233,8 @@ const S3D = (() => {
     // box x and z 0x7F0..0x830; spiked cells (63, 64), (65, 64), (64, 63), (64, 65); the serpent rises at (0x834, 0x5C,
     // 0x830), never under 0x60
     14: { kind: 'vv', at: [0x800, 0x1E8 + 8, 0x800], cruise: 0x58 + 8, low: 0x58 + 8, hitBox: [0x7F0, 0x830, 0x7F0, 0x830], minY: 0x60 + 8,
-      rise: [0x834, 0x5C + 8, 0x830], spikes: [[63, 64], [65, 64], [64, 63], [64, 65]], home: [0x800, 0x800], arena: [0x740, 0x8C0, 0x740, 0x8C0], hp: 8 },
+      rise: [0x834, 0x5C + 8, 0x830], spikes: [[63, 64], [65, 64], [64, 63], [64, 65]], home: [0x800, 0x800], arena: [0x740, 0x8C0, 0x740, 0x8C0], hp: 8,
+      lava: 0x40 + 8 },   // (0xA2C2: grounded at y 0x40 exactly, the crater's floor, he is hit)
     // Gene Gadget 3 (InitLevel 0x110BA, RunLevel_GnGdz3 0x11126; watched): heights + 8 (the feet frame); the belt's loads
     // (records 8..13: first z of each; four lanes from x 0xDD0, 32 apart) ride from z 0x1C8 to 0x378; the end row from
     // z 0x380 hurts; bombs drop 7 and 18 units west of the pod and 6 south of it
@@ -934,6 +935,7 @@ const S3D = (() => {
         const Y = v => r3(v / CELL * vscale);
         e.low = Y(bs.low); e.minY = Y(bs.minY); e.hitBox = [r3(bs.hitBox[0] / CELL - x0), r3(bs.hitBox[1] / CELL - x0), r3(bs.hitBox[2] / CELL - z0), r3(bs.hitBox[3] / CELL - z0)];
         e.rise = [r3(bs.rise[0] / CELL - x0), Y(bs.rise[1]), r3(bs.rise[2] / CELL - z0)]; e.spikes = bs.spikes.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
+        if (bs.lava) e.lava = Y(bs.lava);
       }
       if (bs.kind === 'pp') {   // (positions in metres, heights of the floor's frame: Sonic's + 8 units)
         const X = v => r3(v / CELL - x0), Y = v => r3((v + 8) / CELL * vscale), Z = v => r3(v / CELL - z0), P3 = q => [X(q[0]), Y(q[1]), Z(q[2])];

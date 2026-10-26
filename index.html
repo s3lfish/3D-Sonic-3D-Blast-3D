@@ -1367,7 +1367,7 @@ const Sim = (() => {
           if (e.kind === 'vv') {
             const four = v => Array.isArray(v) && v.length === 4 && v.every(Number.isFinite);
             if (!Number.isFinite(e.low) || !four(e.hitBox) || !Array.isArray(e.rise) || e.rise.length !== 3 || !e.rise.every(Number.isFinite)) { errs.push('A Volcano Valley boss needs "low", a "hitBox" and the serpent\'s "rise" [x, y, z].'); break; }
-            Object.assign(b, { low: e.low, hitBox: e.hitBox, rise: e.rise, spikes: Array.isArray(e.spikes) ? e.spikes.filter(c => Array.isArray(c) && inBounds(c[0], c[1])) : [], minY: Number.isFinite(e.minY) ? e.minY : e.low });
+            Object.assign(b, { low: e.low, hitBox: e.hitBox, rise: e.rise, spikes: Array.isArray(e.spikes) ? e.spikes.filter(c => Array.isArray(c) && inBounds(c[0], c[1])) : [], minY: Number.isFinite(e.minY) ? e.minY : e.low, lava: Number.isFinite(e.lava) ? e.lava : null });
           }
           // Gene Gadget 3: heights (first, high, low), the belt [z start, z end] its loads ride, the lanes' first x and
           // step, the end row's z (hurts), the loads' first z (off the belt until they come round) and the drops' x offsets
@@ -2487,6 +2487,8 @@ const Sim = (() => {
     }
     const cell = Math.floor(p.z) * L.width + Math.floor(p.x);
     if (p.grounded && !safe && b.spikes.some(([cx, cz]) => cz * L.width + cx === cell)) { hurt(w, p.x - b.x, p.z - b.z); if (w.events.includes('respawn')) return true; }
+    // (the crater's floor: grounded at exactly its height, 0xA2C2)
+    if (b.lava !== null && L.rom && p.grounded && !safe && Math.floor(p.y * 32 / b.vs - 8 + 1e-6) === Math.round(b.lava * 32 / b.vs - 8)) { hurt(w, 0, 0); if (w.events.includes('respawn')) return true; }
     // the serpent
     b.t = b.t >= 0x1FE ? 0 : b.t + 1;
     if (b.t === 0x10E) { b.head = { x: b.rise[0], y: b.rise[1], z: b.rise[2], h: 0 }; b.path = []; w.events.push('serpent'); }
@@ -3002,8 +3004,13 @@ const Sim = (() => {
     if (!safe) {
       // what else hurts: the fists, the serpent's links, a falling bomb and its blast (sizes estimated; a bomb on Sonic's cell
       // hurt him, watched)
+      // (the original's levels: its cannons (fight 0) and fists (fight 4), object 1B4, touch by their bytes, 16 and 24)
+      if (L.rom && L.phys.orig) {
+        const parts = st === 0 ? [b.oA, b.oB].map(o => [b.ux + b.oX, b.uy, b.uz + o]) : st === 4 ? b.fists : [];
+        for (const [x, y, z] of parts) if (origTouch(L, p, { X: x * 65536, Z: z * 65536, touch: [16, 24], win: [0, 0, 0, 0, y], y: 0, y0: 0 })) { hurt(w, p.x - X(x), p.z - Z(z)); if (w.events.includes('respawn')) return true; return false; }
+      }
       const pts = [];
-      if (st === 4) for (const [x, y, z] of b.fistsM) pts.push([x, y, z, 20, 32]);
+      if (st === 4 && !(L.rom && L.phys.orig)) for (const [x, y, z] of b.fistsM) pts.push([x, y, z, 20, 32]);
       if (b.serp) for (const [x, y, z] of b.serp.segs) pts.push([x, y - 8 * V, z, 14, 28]);
       for (const q of b.bombs) if (q.on && q.t > 0 && q.t <= 0x2C) pts.push([X(q.x), Y(q.y), Z(q.z), q.t <= 2 ? 24 : 16, 24]);
       for (const [x, y, z, r, h] of pts) {
@@ -3615,8 +3622,10 @@ const Sim = (() => {
             if (_ax[3] && bounce) {   // (0x442C: a corner met rolling: both parts back 0x4000 slower, the facing turned half round)
               p.vx = back(p.vx); p.vz = back(p.vz); p.facing = turn(p.facing + Math.PI); met = true;
             } else if (_ax[3]) { p.vx = p.vz = 0; met = true; }
-            else if (_ax[0] && p.vx * _ax[0] < 0) { if (bounce) { p.vx = back(p.vx); if (p.vx) p.facing = turn(-p.facing); } else p.vx = 0; met = true; }
-            if (!_ax[3] && _ax[1] && p.vz * _ax[1] < 0) { if (bounce) { p.vz = back(p.vz); if (p.vz) p.facing = turn(-Math.PI - p.facing); } else p.vz = 0; met = true; }
+            // (0x41A0..0x4202: the part on the axis met is stopped (or bounced) whichever way it goes: after a diagonal piece's
+            // turn it may already point away, watched in Diamond Dust 3)
+            else if (_ax[0]) { if (bounce) { p.vx = back(p.vx); if (p.vx) p.facing = turn(-p.facing); } else p.vx = 0; met = true; }
+            if (!_ax[3] && _ax[1]) { if (bounce) { p.vz = back(p.vz); if (p.vz) p.facing = turn(-Math.PI - p.facing); } else p.vz = 0; met = true; }
             if (met && bounce) { if (!p.vx && !p.vz) p.rolling = false; w.events.push('rollBounce'); bouncedO = true; }   // (it moves once a frame: no more this frame)
           }
         } else {
@@ -5829,7 +5838,8 @@ const S3D = (() => {
     // box x and z 0x7F0..0x830; spiked cells (63, 64), (65, 64), (64, 63), (64, 65); the serpent rises at (0x834, 0x5C,
     // 0x830), never under 0x60
     14: { kind: 'vv', at: [0x800, 0x1E8 + 8, 0x800], cruise: 0x58 + 8, low: 0x58 + 8, hitBox: [0x7F0, 0x830, 0x7F0, 0x830], minY: 0x60 + 8,
-      rise: [0x834, 0x5C + 8, 0x830], spikes: [[63, 64], [65, 64], [64, 63], [64, 65]], home: [0x800, 0x800], arena: [0x740, 0x8C0, 0x740, 0x8C0], hp: 8 },
+      rise: [0x834, 0x5C + 8, 0x830], spikes: [[63, 64], [65, 64], [64, 63], [64, 65]], home: [0x800, 0x800], arena: [0x740, 0x8C0, 0x740, 0x8C0], hp: 8,
+      lava: 0x40 + 8 },   // (0xA2C2: grounded at y 0x40 exactly, the crater's floor, he is hit)
     // Gene Gadget 3 (InitLevel 0x110BA, RunLevel_GnGdz3 0x11126; watched): heights + 8 (the feet frame); the belt's loads
     // (records 8..13: first z of each; four lanes from x 0xDD0, 32 apart) ride from z 0x1C8 to 0x378; the end row from
     // z 0x380 hurts; bombs drop 7 and 18 units west of the pod and 6 south of it
@@ -6530,6 +6540,7 @@ const S3D = (() => {
         const Y = v => r3(v / CELL * vscale);
         e.low = Y(bs.low); e.minY = Y(bs.minY); e.hitBox = [r3(bs.hitBox[0] / CELL - x0), r3(bs.hitBox[1] / CELL - x0), r3(bs.hitBox[2] / CELL - z0), r3(bs.hitBox[3] / CELL - z0)];
         e.rise = [r3(bs.rise[0] / CELL - x0), Y(bs.rise[1]), r3(bs.rise[2] / CELL - z0)]; e.spikes = bs.spikes.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
+        if (bs.lava) e.lava = Y(bs.lava);
       }
       if (bs.kind === 'pp') {   // (positions in metres, heights of the floor's frame: Sonic's + 8 units)
         const X = v => r3(v / CELL - x0), Y = v => r3((v + 8) / CELL * vscale), Z = v => r3(v / CELL - z0), P3 = q => [X(q[0]), Y(q[1]), Z(q[2])];
