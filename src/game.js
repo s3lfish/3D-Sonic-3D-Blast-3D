@@ -369,6 +369,7 @@
       spikesUp: () => tone('sawtooth', 180, 420, 0.25, 0.15),
       iceBreak: () => { noise(0.35, 0.8, 5000); tone('triangle', 1800, 600, 0.25, 0.2); },
       rockBreak: () => { noise(0.4, 0.9, 900); tone('square', 160, 70, 0.25, 0.25); },
+      spout: () => noise(0.18, 0.3, 700),
       lava: () => { noise(0.3, 0.7, 1200); tone('sawtooth', 300, 120, 0.3, 0.2); },
       ventIn: () => tone('triangle', 600, 150, 0.45, 0.2),
       ventOut: () => { noise(0.4, 0.8, 1500); tone('square', 200, 900, 0.3, 0.25); },
@@ -759,7 +760,7 @@
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
-  let rockObjs = [], jetObjs = [], fireObjs = [], iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
+  let rockObjs = [], jetObjs = [], moverObjs = [], spikeBallObjs = [], fireObjs = [], fireballObjs = [], iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
   let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
   // spiked ball on a chain, and a burst of fireballs when beaten
@@ -1143,11 +1144,27 @@
       const glow = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, 0.06, d * 0.6), jetGlow); glow.position.y = -0.25; g.add(glow);
       g.position.set((q.x0 + q.x1) / 2, q.top, (q.z0 + q.z1) / 2); levelGroup.add(g); return g;
     });
+    const moverMat = new THREE.MeshLambertMaterial({ color: 0x8a6a48, map: stoneTex() });
+    moverObjs = world.movers.map(q => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(q.x1 - q.x0, 0.3, q.z1 - q.z0), moverMat); m.position.set((q.x0 + q.x1) / 2, q.top - 0.15, (q.z0 + q.z1) / 2);
+      m.userData.base = [m.position.x, m.position.z]; levelGroup.add(m); return m;
+    });
+    const sbFrames = rom && world.spikeBalls.length ? romTypeFrames(0x118, 3) : [];
+    spikeBallObjs = world.spikeBalls.map(q => {
+      const s = sbFrames.length ? bottomSprite(sbFrames[0], q.x, q.y, q.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT) : bottomSprite(mineMat, q.x, q.y, q.z, 0.7, 0.7, 0.04);
+      s.userData.frames = sbFrames; return s;
+    });
     const fireFrames = rom ? romTypeFrames(0x120, 3) : [];
     fireObjs = world.fireSpots.map(q => {
       const sp = fireFrames.length ? bottomSprite(fireFrames[0], q.x, q.y, q.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT) : (() => { const s = new THREE.Sprite(puffMat); s.scale.set(0.7, 0.7, 1); s.position.set(q.x, q.y + 0.35, q.z); levelGroup.add(s); return s; })();
       sp.userData.frames = fireFrames; return sp;
     });
+    // lava spouts' and fire runs' fireballs (ROM look: object 114's frames)
+    const ballFrames = rom && (world.spouts.length || world.fireRuns.length) ? romTypeFrames(0x114, 3) : [];
+    fireballObjs = (world.spouts.length || world.fireRuns.length) ? Array.from({ length: 24 }, () => {
+      const s = ballFrames.length ? bottomSprite(ballFrames[0], 0, 0, 0, ROM_SIZE, ROM_SIZE, 0.5) : (() => { const q = new THREE.Sprite(puffMat); q.scale.set(0.55, 0.55, 1); levelGroup.add(q); return q; })();
+      s.visible = false; s.userData.frames = ballFrames; return s;
+    }) : [];
     // Diamond Dust's ice spikes: the original's object art (type 0E8, palette line 0) on each cell, or pale cones of our own;
     // gone when a roll breaks them
     const iceConeGeo = new THREE.ConeGeometry(0.1, 0.55, 6), iceConeMat = new THREE.MeshLambertMaterial({ color: 0xc8dcff, emissive: 0x203050 });
@@ -2127,7 +2144,15 @@
     }
     for (const o of iceSpikeObjs) o.visible = !!world.iceSpikes.get(o.userData.cell);
     for (const o of rockObjs) o.visible = world.rocks.has(o.userData.cell);
+    for (let q = 0; q < fireballObjs.length; q++) {
+      const o = fireballObjs[q], b = world.fireballs[q]; o.visible = !!b;
+      if (!b) continue;
+      o.position.set(b.x, b.y, b.z); const fr = o.userData.frames;
+      if (fr && fr.length) o.material = fr[(Math.floor(t * 12) + q) % fr.length];
+    }
     for (let q = 0; q < jetObjs.length; q++) { const j = world.jets[q]; jetObjs[q].position.y = j.top; }
+    for (let q = 0; q < moverObjs.length; q++) { const m = moverObjs[q], v = world.movers[q], b = m.userData.base; m.position.x = b[0] + (v.axis === 'x' ? v.off : 0); m.position.z = b[1] + (v.axis === 'z' ? v.off : 0); }
+    for (let q = 0; q < spikeBallObjs.length; q++) { const o = spikeBallObjs[q], v = world.spikeBalls[q]; o.position.set(v.x, v.y, v.z); const fr = o.userData.frames; if (fr && fr.length) o.material = fr[(Math.floor(t * 10) + q) % fr.length]; }
     for (let q = 0; q < fireObjs.length; q++) { const o = fireObjs[q], fr = o.userData.frames; if (fr && fr.length) o.material = fr[(Math.floor(t * 12) + q * 3) % fr.length]; else o.scale.setScalar(0.6 + 0.1 * Math.sin(t * 9 + q)); }
     for (let q = 0; q < crawlerSprites.length; q++) {
       const s = crawlerSprites[q], c = world.crawlers[q];

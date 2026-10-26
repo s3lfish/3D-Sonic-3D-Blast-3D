@@ -52,8 +52,9 @@ untested.
   that rise when you stand still, spears, twisted tunnels, balloons to bounce on, and the boss with its spring fists.
 - Diamond Dust 1 and 2: slippery ice, ice spikes you break with a spin dash, the ice chute, sled runs, currents that
   carry you towards spikes, snowdrift springs, bumpers, dash runs, low roofs, and snowblowers that freeze you.
-- Volcano Valley 1: lava that burns unless you carry the fire shield, rocks to bounce off, vents that throw you
-  out of another, jet lifts, walls of fire, cracked walls, and its scorpions and dragons.
+- Volcano Valley 1 and 2: lava that burns unless you carry the fire shield, lava spouts and running fireballs, rocks
+  to bounce off, vents that throw you out of another, jet lifts, moving platforms, swinging spiked balls, walls of fire,
+  cracked walls, and its scorpions and dragons.
 - On levels from your ROM, Sonic moves by the original's own rules: how fast he speeds up, stops, turns, slides on
   ice, rolls, and how hard each spin dash launches him.
 - Monitors show their icon and give rings, a shield, a gold shield, invincibility, speed shoes or a 1-up.
@@ -68,7 +69,7 @@ untested.
 - With your ROM: the original music and sound effects, played by an emulated Mega Drive sound chip running the
   game's own sound program from your ROM. Without a ROM: simple sound effects made in the browser. M turns sound off.
 
-Not done yet: Spring Stadium's gates, Tails and Knuckles, the rest of Volcano Valley, and the zones after it. See `re/NOTES.md` for what is known and what is not.
+Not done yet: Spring Stadium's gates, Tails and Knuckles, the Volcano Valley boss, and the zones after it. See `re/NOTES.md` for what is known and what is not.
 
 ## Working on it
 

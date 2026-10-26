@@ -828,6 +828,25 @@ test('Volcano Valley: lava hurts unless the fire shield, a rock breaks under a b
   run(w, 20, {}); near(w.jets[0].top, 1 + 20 / 32, 0.05, 'rising a unit a frame'); near(w.p.y, w.jets[0].top, 0.05, 'carried');
   place(w, 2.5, 2.5); run(w, 40, {}); near(w.jets[0].top, 1, 1e-6, 'back down');
 });
+test('Volcano Valley: a lava spout throws fireballs in its window; a fire run shoots on its frames; the fire shield spares', () => {
+  let w = FLAT([{ type: 'spout', x: 6.5, y: 1, z: 2.5, v: [0, 9, 0], phase: 0, window: 16 }]); place(w, 2.5, 2.5);
+  let n = 0; run(w, 257, (f, ww) => { if (ww.events.includes('spout')) n++; return {}; });
+  assert.strictEqual(n, 3, `three in a window of 16 (${n})`);
+  w = FLAT([{ type: 'fireRun', box: [0, 12, 0, 5], shots: [[3.5, 1.2, 2.5, 'x', 0]] }]); w.ringCount = 5; place(w, 5.5, 2.5);
+  let hurtAt = -1; run(w, 120, (f, ww) => { if (hurtAt < 0 && ww.events.includes('hurt')) hurtAt = f; return {}; });
+  assert.ok(hurtAt > 69 && hurtAt < 69 + 42, `burnt at ${hurtAt}`);
+  w = FLAT([{ type: 'fireRun', box: [0, 12, 0, 5], shots: [[3.5, 1.2, 2.5, 'x', 0]] }]); w.ringCount = 5; w.p.shield = 'fire'; place(w, 5.5, 2.5);
+  let hit = false; run(w, 120, (f, ww) => { if (ww.events.includes('hurt')) hit = true; return {}; });
+  assert.ok(!hit, 'spared');
+});
+test('Volcano Valley 2: a moving platform carries the player; a swinging spiked ball hurts', () => {
+  let w = FLAT([{ type: 'movePlat', x0: 4, x1: 5, z0: 2, z1: 3.5, y: 1.5, axis: 'x', centre: 5, amp: 2, w: 0.05, phase: 0 }]); place(w, 4.5, 2.5);
+  Object.assign(w.p, { y: 1.5 }); run(w, 20, {});
+  assert.ok(w.p.x > 5.7 && Math.abs(w.p.y - 1.5) < 0.05, `carried to ${w.p.x.toFixed(2)}`);
+  w = FLAT([{ type: 'spikeBall', x: 6.5, z: 2.5, y: 1, axis: 'x', centre: 6.5, amp: 3, w: 0.05, phase: 0 }]); w.ringCount = 5; place(w, 3.5, 2.5);
+  let hit = false; run(w, 120, (f, ww) => { if (ww.events.includes('hurt')) hit = true; return {}; });
+  assert.ok(hit, 'spiked');
+});
 test('a patrolling enemy walks to and fro between its two values', () => {
   const w = FLAT([{ type: 'enemy', x: 6.5, z: 2.5, patrol: { axis: 'x', range: [5, 8] }, speed: 1.875 }]); place(w, 1.5, 2.5);
   let lo = 9, hi = 0; run(w, 300, (f, ww) => { lo = Math.min(lo, ww.enemies[0].x); hi = Math.max(hi, ww.enemies[0].x); return {}; });

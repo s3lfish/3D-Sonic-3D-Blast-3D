@@ -86,8 +86,13 @@ const S3D = (() => {
     // 110 (tables 0xA826..: record 2 <-> 4 after ring 1, 15 <-> 28 after ring 2); lava = low byte 0x55; rocks: 12-byte
     // records [screen x, y, x, y, z, cell] (top 16 units over the cell); cracked walls at (59, 55) and (65, 63) broken by
     // a roll west at 4 units a frame or more; vents: 30-byte records [cell, x.l, y.l, z.l, ...] in pairs, thrown out at
-    // (-2, 8.5 up, -2) units a frame
-    13: { pads: [[0, 1, 1], [2, 3, 2]], lava: 0x55, rocks: [0xAB42, 42], roofs: 0xAA4A, vents: [0xA8F6, 6],
+    // (-2, 8.5 up, -2) units a frame; lava spouts: 16-byte records [x, z, y, vx, vy, vz (x 16 / 0x10000 units a frame),
+    // phase, window]; fire runs: 0x28-byte records [x0, w, z0, h, then 4 x [x, y, z, flags (0x800: along z)]]
+    // Volcano Valley 2 (RunLevel 0xAE20, labelled VVz1): pads 0xB10C/0xB130 (record 2 <-> 4 after ring 1); cracked walls
+    // at (55, 61) (a roll north) and (94, 114) (west); spiked balls 118 swing about z 0xE80
+    12: { pads: [[0, 1, 1]], lava: 0x55, rocks: [0xB484, 27], roofs: 0xB386, vents: [0xB394, 8], spouts: [0xB286, 16], fireRuns: [0xB194, 5],
+      cracks: [[[[55, 61]], 744, [0, -1]], [[[94, 114]], 424, [-1, 0]]], balls: [0xE80, 56, 8] },
+    13: { pads: [[0, 1, 1], [2, 3, 2]], lava: 0x55, rocks: [0xAB42, 42], roofs: 0xAA4A, vents: [0xA8F6, 6], spouts: [0xA9AA, 10], fireRuns: [0xAA5E, 5],
       cracks: [[[[59, 55]], 680, [-1, 0]], [[[65, 63]], 584, [-1, 0]]] },
     10: { pads: [[0, 1, 1], [2, 3, 2]], rides: [[78, 95, 0, 0x803E, null, null, null, undefined, [400, null]]],
       dashes: [[50, 45, 608, [7.5, 0], 10, 0, 0]], currents: [[96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5]],
@@ -162,7 +167,10 @@ const S3D = (() => {
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
     0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
     0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',   // 0DC: Diamond Dust's snowdrift springs
-    0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot' };
+    0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall' };
+  // moving platform (128, handler 0x176B6, word +0x24 = 0): along x (z with bit 3 of byte +0x16) about word +0x28, 63 units
+  // each way, angle word +0x26 + 4 a frame of 0x800; box as the jet lift's (swapped). Spiked balls (118): moved by the
+  // act's routine (VV2: z = 0xE80 + or - 112 x sine >> 16, alternate records opposite, angle + 8 a frame)
   // Volcano Valley: enemies 100 and 108 walk to and fro along x or z between words +0x24 and +0x26 (along x if that holds
   // x; seen at 1 unit a frame); jet lifts (12C, handler 0x177F6): a box 32 x 48 units from the record (48 x 32 with bit 3
   // of byte +0x16) rising a unit a frame from +0x24 to +0x26 while stood on; fire (120): burns unless the fire shield
@@ -332,6 +340,7 @@ const S3D = (() => {
     // objects: 52-byte records in the packed block at header +0x00; type at +0x22, code address at +0x30, x/y/z at +6/+0xA/+0xE
     const ob = rncUnpack(d, u32(d, h));
     const ents = [], holes = [];
+    let balls = 0;
     // start table (+0x20): [x, z, facing] per section; +0x12 >= 0 when the act has big rings, listed from +0x14
     // as [x, y, z] per section until x is 0. Each ring used moves the act on a section.
     const st = u32(d, h + 0x20), tableRings = s16(d, st + 0x12) >= 0;
@@ -379,6 +388,18 @@ const S3D = (() => {
           y0: r3((s16(ob, o + 0x24) + 8) / CELL * vscale), y1: r3((s16(ob, o + 0x26) + 8) / CELL * vscale) });
       }
       if (kind === 'fireSpot') e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
+      if (kind === 'movePlat') {
+        if (u16(ob, o + 0x24)) continue;   // (the sinking kind is not read yet)
+        const alongZ = (ob[o + 0x16] >> 3) & 1, sx = alongZ ? 48 : 32, sz = alongZ ? 32 : 48, T = Math.PI / 1024;
+        Object.assign(e, { x0: r3((x - 1) / CELL - x0), x1: r3((x - 1 + sx) / CELL - x0), z0: r3((z - 1) / CELL - z0), z1: r3((z - 1 + sz) / CELL - z0),
+          y: r3((s16(ob, o + 0xA) + 8) / CELL * vscale), axis: alongZ ? 'z' : 'x', centre: r3(s16(ob, o + 0x28) / CELL - (alongZ ? z0 : x0)), amp: r3(63 / CELL),
+          w: r3(4 * T * 1e4) / 1e4, phase: r3((u16(ob, o + 0x26) & 0x7FE) * T * 1e4) / 1e4 });
+      }
+      if (kind === 'spikeBall') {
+        if (!gm.balls) continue;
+        const [mid, amp, step] = gm.balls, T = Math.PI / 1024, k = balls++;
+        Object.assign(e, { y: r3((s16(ob, o + 0xA) + 8) / CELL * vscale), axis: 'z', centre: r3(mid / CELL - z0), amp: r3(amp / CELL), w: r3(step * T * 1e4) / 1e4, phase: k % 2 ? r3(Math.PI * 1e4) / 1e4 : 0 });
+      }
       if (kind === 'crawler') {
         const a = s16(ob, o + 0x24), b = s16(ob, o + 0x26), alongX = a <= x && x <= b;
         e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); e.axis = alongX ? 'x' : 'z';
@@ -522,6 +543,20 @@ const S3D = (() => {
         cells.push([cx - x0, cz - z0, r3(top / CELL * vscale)]);
       }
       if (cells.length) ents.push({ type: 'rocks', cells });
+    }
+    if (gm.spouts) for (let k = 0; k < gm.spouts[1]; k++) {
+      const o = gm.spouts[0] + 16 * k, x = s16(d, o), z = s16(d, o + 2), y = s16(d, o + 4), V = i => s16(d, o + 6 + 2 * i) * 16 / 65536;
+      if (!floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) continue;
+      ents.push({ type: 'spout', x: r3(x / CELL - x0), y: r3((y + 8) / CELL * vscale), z: r3(z / CELL - z0), v: [r3(V(0) * mps), r3(-V(1) * mps * vscale), r3(V(2) * mps)],
+        phase: s16(d, o + 12) & 255, window: s16(d, o + 14) });
+    }
+    if (gm.fireRuns) for (let k = 0; k < gm.fireRuns[1]; k++) {
+      const o = gm.fireRuns[0] + 0x28 * k, bx = s16(d, o), bw = s16(d, o + 2), bz = s16(d, o + 4), bh = s16(d, o + 6), shots = [];
+      for (let j = 0; j < 4; j++) {
+        const q = o + 8 + 8 * j, x = s16(d, q);
+        if (x) shots.push([r3(x / CELL - x0), r3((s16(d, q + 2) + 8) / CELL * vscale), r3(s16(d, q + 4) / CELL - z0), u16(d, q + 6) & 0x800 ? 'z' : 'x', j]);
+      }
+      if (shots.length) ents.push({ type: 'fireRun', box: [r3(bx / CELL - x0), r3((bx + bw) / CELL - x0), r3(bz / CELL - z0), r3((bz + bh) / CELL - z0)], shots });
     }
     if (gm.vents) for (let k = 0; k < gm.vents[1]; k++) {
       const o = gm.vents[0] + 30 * k, c = u16(d, o) >> 1, cx = c % 128, cz = c >> 7, tx = s16(d, o + 2), ty = s16(d, o + 6), tz = s16(d, o + 10);

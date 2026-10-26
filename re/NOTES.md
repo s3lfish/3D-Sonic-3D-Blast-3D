@@ -417,4 +417,19 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   +0x26 while Sonic stands on it, else sinks to +0x24; box 0x1F x 0x2F from the record, swapped with bit 3 of +0x16),
   120 fire (box 0x1818, none with the fire shield), 114 fireballs (move 1 or 2 a frame along x or z until their
   animation ends), enemies 100 (to and fro along x), 104, 108 scorpion (along z), 10C.
+- Lava spouts (0xB9C2, 16-byte records [x, z, y, vx, vy, vz, phase, window], velocities x 16 / 0x10000): a fireball
+  particle (template 0xD9DC; 0xDA12 with the fire shield, no touch box) every 8 frames while ((counter + phase) & 255)
+  <= window, for records within 0xC0 of Sonic. Fire runs (0xB900, 0x28-byte records [x0, w, z0, h] + 4 x [x, y, z,
+  flags]; timing table 0xB9A2 [frame, offset] pairs on a 0..150 count): fireballs (object 114) move 1 or 2 a frame
+  (1.5 on average) along x, or z with flag 0x800, until animation frame 0x2A (42 frames); one hurt Sonic about 16 units
+  away (vvfire.py).
+
+## Volcano Valley 2 (2026-10-27; vvae20_dis, mapdiff.py)
+- RunLevel 0xAE20: 0xBA68 (0xB25C, 3), spouts 0xB286 (16), fire runs 0xB194 (5), rocks 0xB484 (27), vents 0xB394 (8,
+  skipped at cell 0x63AC while byte $956F is 0xFF), pads 0xB10C/0xB130, roofs 0xB386. Cracked walls: trigger (95, 114)
+  facing west -> (94, 114) to 0x1500; (55, 62) facing north (0x300..0x500), z <= 0x7D0 -> (55, 61) to 0x3D00.
+- Objects 118 (spiked balls): with Sonic past x 0xB90 and z 0xD10 the routine sets records 10..14's z to 0xE80 +/-
+  (sine x 112 >> 16), alternate signs, angle +8 a frame. Object 128 (handler 0x176B6): +0x24 = 0: along x (z with bit
+  3 of +0x16) at +0x28 + (sine << 7 >> 16) (63 units), angle +0x26 + 4 a frame; else stood on it shakes 64 frames
+  (sound 0xD3) and drops to +0x28 (sound 0x96).
 

@@ -152,7 +152,12 @@ serves index.html from main.
   32 x 48 units, rises a unit a frame from +0x24 to +0x26 while stood on; `w.jets`, read by `platFloor`); `fireSpot`
   (120: burns unless fire shield); cracked walls (11C) at (59, 55), (65, 63); enemies 104/108 (108 and 100 `patrol`
   {axis, range} from +0x24/+0x26). Recipe-less enemies draw their own frames (`romTypeFrames`, line 3, mirrored by
-  scale). Not yet: lava spouts (0xB9C2), fire bursts (0xB900, object 114), 0xBA68's fire bars.
+  scale). `spout` (0xB9C2: fireball every 8 frames while ((frame + phase) & 255) <= window, thrown at `v` with
+  gravity) and `fireRun` (0xB900: in its box, fireballs at slot frames 69/79, 70/80, 139/149, 140/150 of a 151 count,
+  1.5 units a frame for 42 frames; measured) share `w.fireballs`; the fire shield spares. VV2 (`GIMMICKS[12]`, 0xAE20):
+  the same helpers, `movePlat` (128: box swinging 63 units along x/z about +0x28, +4 a frame of 0x800 from +0x26) and
+  `spikeBall` (118: swung by the routine about z 0xE80, 56 units, alternate records opposite). Not yet: 0xBA68 fire
+  wheels, the sinking 128 kind, VV2's 0x63AC vent exception and $7A flag.
 - Original movement (`physics.orig` = 1 on converted levels, `P.orig`, routine 0x3330): velocity split along
   `p.facing` (which is the heading there, turned 0x40/0x800 a frame toward the stick); tables [A, F, G] walk, ball,
   ice, roll; top 5 units a frame; spin dash steps by held frames 14/29/44/59. Measured in GG2 (speedprobe.py): sim
@@ -221,7 +226,8 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
-- 2026-10-27: Volcano Valley 1 gimmicks (lava, rocks, vents, jet lifts, fire, pads, cracked walls, patrols); 95 sim tests.
+- 2026-10-27: Volcano Valley 1 and 2 (lava, rocks, vents, jet lifts, fire, spouts, fire runs, moving platforms, spiked
+  balls, pads, cracked walls, patrols); 97 sim tests. Next: VV3 boss (0x9EBA).
 - 2026-10-27: DD3 boss; freezing as the original's hops; 93 sim tests.
 - 2026-10-27: the original's movement tables on converted levels (run up, stop, turn, ice, jump ball, roll, spin dash
   steps, all measured); Diamond Dust 2 gimmicks; ice, ice spikes, low roofs, spikes and bumpers in both DD acts;

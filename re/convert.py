@@ -20,7 +20,7 @@ KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 
          0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
          0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
          0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',
-         0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot'}
+         0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall'}
 PATROL = {0x100, 0x108}
 MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']
 
@@ -72,7 +72,9 @@ GIMMICKS = {
         'currents': [(110, 113, 55, 89, [0, 1], 0.375, 2, 2.5), (50, 53, 83, 99, [0, 1], 0.375, 3, 4)],
         'hops': ([(94, 39), (90, 39), (80, 39)], 40), 'flames': (0x10976, 7), 'freeze': 1,
         'spikes': 0xFF, 'ice': (0x10B24, 21, 0x10B4E, 25, [(89, 50)], [(86, 74)]), 'iceSpikes': (0x10B80, 27), 'roofs': 0x10AF2, 'bumpers': (0x55, 0, 0)},
-    13: {'pads': [(0, 1, 1), (2, 3, 2)], 'lava': 0x55, 'rocks': (0xAB42, 42), 'roofs': 0xAA4A, 'vents': (0xA8F6, 6),
+    12: {'pads': [(0, 1, 1)], 'lava': 0x55, 'rocks': (0xB484, 27), 'roofs': 0xB386, 'vents': (0xB394, 8), 'spouts': (0xB286, 16), 'fireRuns': (0xB194, 5),
+         'cracks': [([(55, 61)], 744, [0, -1]), ([(94, 114)], 424, [-1, 0])], 'balls': (0xE80, 56, 8)},
+    13: {'pads': [(0, 1, 1), (2, 3, 2)], 'lava': 0x55, 'rocks': (0xAB42, 42), 'roofs': 0xAA4A, 'vents': (0xA8F6, 6), 'spouts': (0xA9AA, 10), 'fireRuns': (0xAA5E, 5),
          'cracks': [([(59, 55)], 680, [-1, 0]), ([(65, 63)], 584, [-1, 0])]},
     10: {'pads': [(0, 1, 1), (2, 3, 2)], 'rides': [(78, 95, 0, 0x803E, None, None, None, None, (400, None))],
          'dashes': [(50, 45, 608, (7.5, 0), 10, 0, 0)], 'currents': [(96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5)],
@@ -150,7 +152,7 @@ def convert(rom, level_id, vscale=1.0):
     ob = rnc.unpack(rom, struct.unpack('>I', rom[h:h + 4])[0])
     st = struct.unpack('>I', rom[h + 0x20:h + 0x24])[0]
     table_rings = struct.unpack('>h', rom[st + 0x12:st + 0x14])[0] >= 0
-    holes = []
+    holes = []; balls = [0]
     start = None
     k = 0
     while (k + 1) * 0x34 <= len(ob):
@@ -199,6 +201,17 @@ def convert(rom, level_id, vscale=1.0):
             e.update({"x0": jround((x - 1) / CELL - x0, 3), "x1": jround((x - 1 + sx) / CELL - x0, 3), "z0": jround((z - 1) / CELL - z0, 3), "z1": jround((z - 1 + sz) / CELL - z0, 3),
                       "y0": jround((a + 8) / CELL * vscale, 3), "y1": jround((b + 8) / CELL * vscale, 3)})
         if kind == 'fireSpot': e["y"] = jround((y_obj + 8) / CELL * vscale, 3)
+        if kind == 'movePlat':
+            if struct.unpack('>H', r[0x24:0x26])[0]: continue
+            along_z = (r[0x16] >> 3) & 1; sx, sz = (48, 32) if along_z else (32, 48); T = math.pi / 1024
+            e.update({"x0": jround((x - 1) / CELL - x0, 3), "x1": jround((x - 1 + sx) / CELL - x0, 3), "z0": jround((z - 1) / CELL - z0, 3), "z1": jround((z - 1 + sz) / CELL - z0, 3),
+                      "y": jround((y_obj + 8) / CELL * vscale, 3), "axis": 'z' if along_z else 'x', "centre": jround(struct.unpack('>h', r[0x28:0x2A])[0] / CELL - (z0 if along_z else x0), 3),
+                      "amp": jround(63 / CELL, 3), "w": jround(4 * T * 1e4, 3) / 1e4, "phase": jround((struct.unpack('>H', r[0x26:0x28])[0] & 0x7FE) * T * 1e4, 3) / 1e4})
+        if kind == 'spikeBall':
+            if 'balls' not in gm: continue
+            mid, amp, step = gm['balls']; T = math.pi / 1024; kb = balls[0]; balls[0] += 1
+            e.update({"y": jround((y_obj + 8) / CELL * vscale, 3), "axis": 'z', "centre": jround(mid / CELL - z0, 3), "amp": jround(amp / CELL, 3), "w": jround(step * T * 1e4, 3) / 1e4,
+                      "phase": jround(math.pi * 1e4, 3) / 1e4 if kb % 2 else 0})
         if kind == 'crawler':   # spiked crawler: 1 unit a frame between +0x24 and +0x26, along x if that holds x
             a, b = struct.unpack('>hh', r[0x24:0x28]); along_x = a <= x <= b
             e["y"] = jround((y_obj + 8) / CELL * vscale, 3); e["axis"] = 'x' if along_x else 'z'
@@ -233,7 +246,6 @@ def convert(rom, level_id, vscale=1.0):
     if 'fans' in gm:
         cells = [[x - x0, z - z0] for z in range(z0, z1 + 1) for x in range(x0, x1 + 1) if w[z * 128 + x] and (w[z * 128 + x] & 0xFF) == gm['fans']]
         if cells: ents.append({"type": "fan", "cells": cells})
-    import math
     if 'maces' in gm:
         o, n = gm['maces']
         for k in range(n):
@@ -343,6 +355,22 @@ def convert(rom, level_id, vscale=1.0):
             top = (v >> 8) * 8 + max((v >> 6) & 3, (v >> 4) & 3, (v >> 2) & 3, v & 3) * 8 + 16
             cells.append([cx - x0, cz - z0, r3(top / CELL * vscale)])
         if cells: ents.append({"type": "rocks", "cells": cells})
+    s16 = lambda o: struct.unpack('>h', rom[o:o + 2])[0]
+    if 'spouts' in gm:
+        o0, n = gm['spouts']
+        for k in range(n):
+            o = o0 + 16 * k; x, z, y = s16(o), s16(o + 2), s16(o + 4); V = lambda i: s16(o + 6 + 2 * i) * 16 / 65536
+            if not floor_cell(x // CELL, z // CELL): continue
+            ents.append({"type": "spout", "x": r3(x / CELL - x0), "y": r3((y + 8) / CELL * vscale), "z": r3(z / CELL - z0), "v": [r3(V(0) * mps), r3(-V(1) * mps * vscale), r3(V(2) * mps)],
+                         "phase": s16(o + 12) & 255, "window": s16(o + 14)})
+    if 'fireRuns' in gm:
+        o0, n = gm['fireRuns']
+        for k in range(n):
+            o = o0 + 0x28 * k; bx, bw, bz, bh = s16(o), s16(o + 2), s16(o + 4), s16(o + 6); shots = []
+            for j in range(4):
+                q = o + 8 + 8 * j; x = s16(q)
+                if x: shots.append([r3(x / CELL - x0), r3((s16(q + 2) + 8) / CELL * vscale), r3(s16(q + 4) / CELL - z0), 'z' if struct.unpack('>H', rom[q + 6:q + 8])[0] & 0x800 else 'x', j])
+            if shots: ents.append({"type": "fireRun", "box": [r3(bx / CELL - x0), r3((bx + bw) / CELL - x0), r3(bz / CELL - z0), r3((bz + bh) / CELL - z0)], "shots": shots})
     if 'vents' in gm:
         o0, n = gm['vents']
         for k in range(n):
