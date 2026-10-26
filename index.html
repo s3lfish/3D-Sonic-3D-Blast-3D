@@ -1261,7 +1261,7 @@ const Sim = (() => {
           L.entities.push({ type: e.type, x: e.x, z: e.z, y: f, radius: e.radius ?? 1.5, speed: e.speed ?? 1.2, skin: skinOf(e),
             kind: MON_KINDS.has(e.kind) ? e.kind : 'rings', chase: e.chase ? 1 : 0, orbit: e.orbit > 0 ? e.orbit : 0, orbitY: e.orbitY ?? 0.6, put, spawn,
             // an enemy may walk to and fro along x or z between two values instead of round its spot
-            patrol: e.patrol && (e.patrol.axis === 'x' || e.patrol.axis === 'z') && Array.isArray(e.patrol.range) && e.patrol.range.length === 2 && e.patrol.range.every(Number.isFinite) && e.patrol.range[1] > e.patrol.range[0] ? { axis: e.patrol.axis, range: e.patrol.range } : null,
+            patrol: e.patrol && (e.patrol.axis === 'x' || e.patrol.axis === 'z') && Array.isArray(e.patrol.range) && e.patrol.range.length === 2 && e.patrol.range.every(Number.isFinite) && e.patrol.range[1] > e.patrol.range[0] ? { axis: e.patrol.axis, range: e.patrol.range, dir: e.patrol.dir === -1 ? -1 : e.patrol.dir === 1 ? 1 : 0 } : null,
             // "flicky": the colour 1..4 of the Flicky it frees, 0 none (default: frees one); "line": its sprite's palette
             // line; "shoot": fires every Sim.P.shootEvery frames, starting east, south, west or north (0..3)
             flicky: Number.isInteger(e.flicky) ? e.flicky : -1, line: Number.isInteger(e.line) ? e.line : 3, shoot: Number.isInteger(e.shoot) ? e.shoot & 3 : -1,
@@ -2671,7 +2671,7 @@ const Sim = (() => {
       if (!p.grounded) { if (b.onBelt) { b.onBelt = false; if (p.vz < 2 * 60 * U) p.vz = 2 * 60 * U; } }
       else if (!p.ride) {
         b.onBelt = true;
-        const f = ((-(p.facing || 0) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) / T, pushing = p.lastStick;
+        const f = Math.round(((-(p.facing || 0) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) / T) & 0x7FF, pushing = p.lastStick;   // (his facing is a whole number)
         if (pushing && f >= 0x300 && f <= 0x500) p.vz = -0.5 * 60 * U;
         else if (p.vz <= 1.5 * 60 * U) p.vz += 0.25 * 60 * U;
       }
@@ -3053,7 +3053,11 @@ const Sim = (() => {
   // a broken wall or pillar: its cells drop to the floor beneath, or to their own floor once broken
   function breakCrack(w, c) {
     c.broken = true; c.brokeAt = w.time; w.events.push('crack');
-    for (const [cx, cz, , after] of c.cells) { const t = cz * w.L.width + cx; if (after === null) w.L.up.delete(t); else w.L.up.set(t, after); }
+    for (const [cx, cz, , after] of c.cells) {
+      const t = cz * w.L.width + cx, sv = w.roofSaved;
+      if (sv && sv.has(t)) { if (after === null) sv.delete(t); else sv.set(t, after); if (w.roofUp) continue; }   // (under a raised roof: its own top comes back with it)
+      if (after === null) w.L.up.delete(t); else w.L.up.set(t, after);
+    }
   }
   // the way out of a pocket: the ride that the ring just used opens
   function autoWalk(w) {
@@ -3165,12 +3169,12 @@ const Sim = (() => {
     let m = Math.hypot(mx, mz);
     if (m > 1) { mx /= m; mz /= m; m = 1; }
     p.lastStick = m > 0.3;
-    const jumpPress = inp.jump && !p.prevJump, dashPress = inp.dash && !p.prevDash, dashRelease = !inp.dash && p.prevDash;
+    let jumpPress = inp.jump && !p.prevJump, dashPress = inp.dash && !p.prevDash, dashRelease = !inp.dash && p.prevDash;
     p.prevJump = !!inp.jump; p.prevDash = !!inp.dash;
     // (the original's jump word $46, 0x2E0E, at the start of his frame: let go 0; pressed anew or still pending, 1 (a
     // jump) if grounded, else 2 (pending while held: he jumps as he lands); held on, -1)
     if (L.rom && L.phys.orig) p.jb = !inp.jump ? 0 : !p.jb || p.jb === 2 ? (p.grounded ? 1 : 2) : -1;
-    const groundJump = L.rom && L.phys.orig ? p.jb === 1 : jumpPress;
+    let groundJump = L.rom && L.phys.orig ? p.jb === 1 : jumpPress;
     let speed = Math.hypot(p.vx, p.vz);
     if (p.inv > 0) p.inv -= dt;
     if (p.fast > 0) p.fast -= dt;
@@ -3307,6 +3311,10 @@ const Sim = (() => {
       // the pad was held from the move's start (the original counts its lock down through the move)
       if (R.force && R.force.t > R.path.length / 60 + R.wait) p.force = { t: R.force.t - R.path.length / 60 - R.wait, dir: R.force.dir, top: Math.hypot(p.vx, p.vz), pass: R.force.pass };
       if (R.force && R.force.roll) p.rolling = true;
+      if (p.force) {   // (and this frame's pad is the held one already: the original locked it as the move began)
+        const d = p.force.dir; mx = d ? d[0] : 0; mz = d ? d[1] : 0; m = Math.hypot(mx, mz); p.lastStick = m > 0.3;
+        jumpPress = dashPress = dashRelease = groundJump = false; p.prevJump = p.prevDash = false; if (L.rom && L.phys.orig) p.jb = 0;
+      }
       p.ride = null; p.ball = false; p.grounded = false; p.jumping = false; w.warpedAt = w.time;
       // a move that ends on (or a unit into) the floor carries on along it
       const fe = floorAt(L, p.x, p.z);
@@ -3357,15 +3365,6 @@ const Sim = (() => {
     if (!p.whirl && p.grounded && w.fans.size && w.fans.has(Math.floor(p.z) * L.width + Math.floor(p.x))) {
       p.whirl = true; p.whirlHold = P.whirlHold; p.rolling = false; p.ball = false; p.charge = 0;
     }
-    // Gene Gadget's hover cells (routine 0x123BC): a grounded player on one floats (steered by the ball table) until they
-    // leave the cells
-    if (w.updrafts.size) {
-      if (!w.updrafts.has(Math.floor(p.z) * L.width + Math.floor(p.x))) p.hover = false;
-      else if (p.grounded && !p.ride) {
-        if (!p.hover) { w.events.push('hover'); p.hoverBelow = true; }
-        p.hover = true; p.grounded = false; p.coyote = 0; p.jumping = false; p.rolling = false; p.charge = 0; p.ball = false;
-      }
-    } else p.hover = false;
     if (p.whirlHold > 0) {
       if (Math.round(p.whirlHold * 60) % 8 === 0) w.events.push('whirl');   // the original's sound, every 8 frames
       p.whirlHold -= dt;
@@ -3552,7 +3551,14 @@ const Sim = (() => {
         else p.vy = Math.min(p.vy, -0.25 * 60 / 32 * vs);
       }
       const up = !p.grounded && here === undefined;
-      if (up !== !!w.roofUp) { w.roofUp = up; for (const [t, top] of w.roofs) if (up) L.up.set(t, top + 8 * vs); else L.up.delete(t); }
+      // (a cell raised for something else too, Rusty Ruin 2's pillar pit, keeps the higher top and gets its own back)
+      if (up !== !!w.roofUp) {
+        w.roofUp = up; const sv = w.roofSaved || (w.roofSaved = new Map());
+        for (const [t, top] of w.roofs) {
+          if (up) { if (L.up.has(t)) sv.set(t, L.up.get(t)); L.up.set(t, Math.max(top + 8 * vs, sv.has(t) ? sv.get(t) : -Infinity)); }
+          else if (sv.has(t)) { L.up.set(t, sv.get(t)); sv.delete(t); } else L.up.delete(t);
+        }
+      }
     }
 
     // move in substeps no longer than half the radius
@@ -3631,6 +3637,18 @@ const Sim = (() => {
       f.top = f.y - f.drop * k * k * (3 - 2 * k); L.up.set(f.cell, f.top);
       if (p.grounded && Math.floor(p.z) * L.width + Math.floor(p.x) === f.cell) p.y = f.top;
     }
+    // Gene Gadget's hover cells (routine 0x123BC): a grounded player on one floats (steered by the ball table) until they
+    // leave the cells (after his move, as the routine: the rise starts the next frame)
+    // (0x123BC: for ten frames from its start it goes on whatever the cell; leaving, the pose is 0xE)
+    if (w.updrafts.size) {
+      const on = w.updrafts.has(Math.floor(p.z) * L.width + Math.floor(p.x)) && !p.ride, O2 = L.rom && L.phys.orig;
+      if (p.hoverT > 0) p.hoverT--;
+      else if (!on) { if (p.hover && O2) { p.anim = 0xE; p.rolling = false; } p.hover = false; }
+      else if (p.grounded) {
+        if (!p.hover) { w.events.push('hover'); p.hoverBelow = true; p.vy = 0; if (O2) { p.anim = 0xC; p.hoverT = 10; } }   // (from standing: no speed up or down; the routine's pose 0xC)
+        p.hover = true; p.grounded = false; p.coyote = 0; p.jumping = false; p.rolling = false; p.charge = 0; p.ball = false;
+      }
+    } else p.hover = false;
     // Spring Stadium's cells (helpers 0x9974, 0x9D44)
     const cell = Math.floor(p.z) * L.width + Math.floor(p.x);
     if (p.grounded && w.springCells.size && w.springCells.has(cell)) {   // a floor spring
@@ -3645,7 +3663,9 @@ const Sim = (() => {
       if (Number.isFinite(f) && p.y - f <= 12 / 32 * (L.rom ? L.rom.vscale : 1)) {
         p.bumpCell = cell;
         if (w.bumpers.has(cell)) {
-          const fx = p.x - Math.floor(p.x), fz = p.z - Math.floor(p.z), k = (fz >= fx ? 1 : 0) | (fz >= 1 - fx ? 2 : 0);
+          // (the original, 0x99BE: whole units in the cell, u = x & 31, v = z & 31: v >= u, then v >= 31 - u)
+          const fx = p.x - Math.floor(p.x), fz = p.z - Math.floor(p.z), wu = L.rom ? Math.floor(fx * 32 + 1e-9) : 0, wv = L.rom ? Math.floor(fz * 32 + 1e-9) : 0;
+          const k = L.rom ? (wv >= wu ? 1 : 0) | (wv >= 31 - wu ? 2 : 0) : (fz >= fx ? 1 : 0) | (fz >= 1 - fx ? 2 : 0);
           if (k === 0) p.vz = -P.bumpSpeed; else if (k === 1) p.vx = -P.bumpSpeed; else if (k === 2) p.vx = P.bumpSpeed; else p.vz = P.bumpSpeed;
           bumped(w, p);
         }
@@ -4061,6 +4081,19 @@ const Sim = (() => {
         if (en.wt <= 0) { en.wt = (1 + Math.floor(rand(w) * 15)) * P.wanderTurn / 15 / 60; en.wd = [Math.floor(rand(w) * 3) - 1, Math.floor(rand(w) * 3) - 1]; }
         const [bx, bz, bs] = en.wander;
         nx = Math.max(bx, Math.min(bx + bs, en.x + en.wd[0] * en.speed * dt)); nz = Math.max(bz, Math.min(bz + bs, en.z + en.wd[1] * en.speed * dt));
+      } else if (en.patrol && en.patrol.dir && O && L.rom) {
+        // (the original's, handlers 0x16528 / 0x15E20 / 0x17E80: the axis word a unit up or down when $0AF4, a count of 2
+        // in step with the others, is 0; past an end, put on it and turned)
+        const S = 65536, o = L.rom.origin, ax = en.patrol.axis, k = ax === 'x' ? 'X' : 'Z', oo = ax === 'x' ? o[0] : o[1];
+        if (en.X === undefined) [en.X, en.Z] = enLong(L, en);
+        if (en.pd === undefined) en.pd = en.patrol.dir;
+        if (gZero(w, 2)) {
+          const lo = Math.round((en.patrol.range[0] + oo) * 32), hi = Math.round((en.patrol.range[1] + oo) * 32), fr = en[k] - Math.floor(en[k] / S) * S;
+          let v = Math.floor(en[k] / S) + en.pd;
+          if (en.pd > 0 ? v > hi : v < lo) { v = en.pd > 0 ? hi : lo; en.pd = -en.pd; }
+          en[k] = v * S + fr;
+        }
+        nx = en.X / S / 32 - o[0]; nz = en.Z / S / 32 - o[1]; en.pdir = en.pd;
       } else if (en.patrol) {
         const [lo, hi] = en.patrol.range, ax = en.patrol.axis, v = (ax === 'x' ? en.x : en.z) + en.pdir * en.speed * dt;
         if (v >= hi) en.pdir = -1; else if (v <= lo) en.pdir = 1;
@@ -4077,7 +4110,17 @@ const Sim = (() => {
       for (const [ox, oz] of [[0, 0], [0.25, 0], [-0.25, 0], [0, 0.25], [0, -0.25]]) { const g = floorAt(L, nx + ox, nz + oz); if (Number.isFinite(g)) f = Math.max(f, g); }
       if (Number.isFinite(f) && Math.abs(f - en.y) < 0.6) { en.x = nx; en.z = nz; en.y = f; }
       // Panic Puppet's 178: on the original's shared count (every 32 frames) a shot east, south, west, north in turn
-      if (en.shoot >= 0 && (L.rom ? gZero(w, 32) : w.tick % P.shootEvery === 0) && Math.hypot(p.x - en.x, p.z - en.z) < P.shootRange) {   // ($0B04)
+      // (the original's, 0x15E84, only while it runs, on the original's screen: when $0B04 is 0, a particle (template
+      // 0xDA24: touch 24/0, gravity 1/16, 112 frames) from table 0x15EE8 [x, z offsets, speeds] at 12 over its record,
+      // 1 a frame up; moved as it is made)
+      if (en.shoot >= 0 && O && L.rom) {
+        if (awake && gZero(w, 32)) {
+          const T = [[16, 0, 0x20000, 0], [0, 16, 0, 0x20000], [-16, 0, -0x20000, 0], [0, -16, 0, -0x20000]][en.shoot], vs = L.rom.vscale;
+          if (en.X === undefined) [en.X, en.Z] = enLong(L, en);
+          shotPart(w, Math.floor(en.X / 65536) + T[0], (en.win ? en.win[4] : Math.round(en.y * 32 / vs) - 8) + 12, Math.floor(en.Z / 65536) + T[1], T[2], -0x10000, T[3], 0x1000, 112, true);
+          en.shoot = (en.shoot + 1) & 3; w.events.push('pellet');
+        }
+      } else if (en.shoot >= 0 && (L.rom ? gZero(w, 32) : w.tick % P.shootEvery === 0) && Math.hypot(p.x - en.x, p.z - en.z) < P.shootRange) {   // ($0B04)
         const [sx, sz] = [[1, 0], [0, 1], [-1, 0], [0, -1]][en.shoot], U = 1 / 32, vs = L.rom ? L.rom.vscale : 1;
         en.shoot = (en.shoot + 1) & 3;
         w.shots.push({ x: en.x + sx * P.shootOut * U, y: en.y + P.shootUp * U * vs, z: en.z + sz * P.shootOut * U, vx: sx * P.shootV * 60 * U, vz: sz * P.shootV * 60 * U,
@@ -4525,6 +4568,7 @@ const Sim = (() => {
     if (r.vx) {
       r.X += r.vx; const ni = Math.floor(r.X / S / 32);
       if (ni !== ci && Yi - edge(ni, cj, ni > ci ? 0 : 1) <= -9) {
+        if (r.type === 5) return false;   // (a shot meeting a wall is gone: watched, Panic Puppet 2's 178)
         r.X = (ci * 32 + (ni > ci ? 31 : 0)) * S + (r.X & 0xFFFF);
         if (r.type !== 2) { r.vx = -r.vx; if (r.type) r.d = (4 - r.d) & 15; }
       }
@@ -4533,6 +4577,7 @@ const Sim = (() => {
     if (r.vz) {
       r.Z += r.vz; const nj = Math.floor(r.Z / S / 32);
       if (nj !== cj && Yi - edge(i2, nj, nj > cj ? 0 : 2) <= -9) {
+        if (r.type === 5) return false;
         r.Z = (cj * 32 + (nj > cj ? 31 : 0)) * S + (r.Z & 0xFFFF);
         if (r.type !== 2) { r.vz = -r.vz; if (r.type) r.d = (12 - r.d) & 15; }
       }
@@ -5618,7 +5663,7 @@ const S3D = (() => {
     // Spring Stadium 2 (InitLevel 0x8DEA, RunLevel_SSz2 0x8EC2): gates (64, 104..105), (76, 102..103), (84..85, 78),
     // (86..87, 71) open while the flag is set (four superchargers), until (77, 103), (87, 70) or (85, 79); (61..62, 110)
     // stands until ring 1, (123..124, 51) until ring 2
-    16: { floorSprings: 0x55, bumpers: [0xFF, 0x94EA, 30],
+    16: { floorSprings: 0x55, bumpers: [0xFF, 0x94EA, 30], spikeField: 0xAA /* its RunLevel 0x8EC2 calls 0x9D44 too */,
       gates: [[[[64, 104], [64, 105]], 0x3F, 0, 1], [[[76, 102], [76, 103]], 0x39, 0, 1], [[[84, 78], [85, 78]], 0x69, 0, 1],
         [[[86, 71], [87, 71]], 0x69, 0, 1], [[[61, 110], [62, 110]], 0x41, 1, 0], [[[123, 51], [124, 51]], 0x65, 2, 0]],
       passOff: [[77, 103], [87, 70], [85, 79]],
@@ -5952,7 +5997,7 @@ const S3D = (() => {
   }
   // [frames the screen stays blank while an act reloads after a death (the level's unpacking time), frames after that
   // before the pad acts]: measured in the emulator; [52, 34] elsewhere as watched in Volcano Valley 1: `rom.blank`
-  const BLANK = { 3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 34], 14: [44, 34], 17: [46, 30] };
+  const BLANK = { 3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 32], 14: [44, 34], 17: [46, 30], 20: [51, 34] };
   const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };
   const springPower = vscale => launchFor(vscale, 140);   // measured: a spring throws Sonic 140 units up
   function convert(d, id, vscale = 1) {
@@ -6025,8 +6070,9 @@ const S3D = (() => {
       if (t === 0x8C) { e.power = launchFor(vscale, 94); e.absY = r3(s16(ob, o + 0xA) / CELL * vscale); }
       if (kind === 'lift') { e.y = r3(s16(ob, o + 0xA) / CELL * vscale); e.drop = r3(84 / CELL * vscale); }
       if (kind === 'enemy' && PATROL.has(t)) {
-        const a = s16(ob, o + 0x24), b = s16(ob, o + 0x26), alongX = a <= x && x <= b;
-        if (b > a) { e.patrol = { axis: alongX ? 'x' : 'z', range: alongX ? [r3(a / CELL - x0), r3(b / CELL - x0)] : [r3(a / CELL - z0), r3(b / CELL - z0)] }; e.speed = r3(30 / CELL); }
+        // (handlers 0x16528, 0x15E20, 0x17E80: along x with bit 3 of byte +0x16, else z; word +0x28 set: going down first)
+        const a = s16(ob, o + 0x24), b = s16(ob, o + 0x26), alongX = !!((ob[o + 0x16] >> 3) & 1);
+        if (b > a) { e.patrol = { axis: alongX ? 'x' : 'z', range: alongX ? [r3(a / CELL - x0), r3(b / CELL - x0)] : [r3(a / CELL - z0), r3(b / CELL - z0)], dir: u16(ob, o + 0x28) ? -1 : 1 }; e.speed = r3(30 / CELL); }
       }
       // a defeated enemy (or a broken capsule) frees a Flicky only when byte +0x19 holds its colour 1..4 (routine 0x192C2);
       // the sprite's palette line is bits 13 and 14 of word +0x16 (written only when not 3, the usual one)

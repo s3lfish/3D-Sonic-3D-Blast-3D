@@ -667,8 +667,11 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   z 0x9A0..0x9DF, on z 0x9C0, let go past 0x7B7 or 0xAC8, hidden in x 0x920..0xA80 (a tunnel through a block).
 - Slides: 0xC3 and 0xF0 cells (grounded, $8A clear): +0.25 a frame up to 4 along x while x <= 0x960, else along z;
   15 frames after leaving. Hover 0x55 and zaps 0xAA as Gene Gadget's (also lifts Flickies over 0x55 cells).
-- 178 (handler 0x15E20): patrols x or z (bit 3 of byte +0x16) between +0x24 and +0x26 a unit a call, every other
-  frame (0.5 a frame, measured; Gene Gadget's 05C and Volcano Valley's 100 too); when $0B04 (31..0) is 0, a shot
+- 178 (handler 0x15E20): patrols x or z (bit 3 of byte +0x16) between +0x24 and +0x26 a unit a call (up while word
+  +0x28 is 0, down otherwise; past an end it is put on it and +0x28 flips), when $0AF4 (2, 1: = the 8-count & 1) is 0,
+  only while on screen (0x16528 and 0x17E80 the same); its shot: template 0xDA24 (touch 24/0, gravity 0x1000, life
+  0x70), vy -1, gone at a wall (watched). Half a unit a frame on average (Gene Gadget's 05C and Volcano Valley's 100
+  too); when $0B04 (31..0) is 0, a shot
   (template 0xDA24) 16 out and 12 up, 2 a frame from table 0x15EE8 (E, S, W, N; index +0x2A += 12), vy -1, gravity
   1/16, gone where the floor rises over it (watched: a slope 2 cells on), sound 0x9A.
 - 19C (handler 0x1680C): Flicky capsule: a platform box at (x - 15, y + 32, z - 15) 30 x 30 ($CC4A list); touched

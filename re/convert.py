@@ -49,7 +49,7 @@ def spring_power(vscale):
     return launch_for(vscale, 140)   # measured: a spring throws Sonic 140 units up
 
 
-BLANK = {3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 34], 14: [44, 34], 17: [46, 30]}   # frames blank while an act reloads (see s3d.js)
+BLANK = {3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 32], 14: [44, 34], 17: [46, 30], 20: [51, 34]}   # frames blank while an act reloads (see s3d.js)
 GIMMICKS = {
     4: {'updrafts': 0x55, 'zapCells': 0xAA, 'roofs': 0x12254, 'pyramids': (0x11EE4, 4),   # Gene Gadget 1 (see s3d.js)
         'dashes': [(65, 101, 0x7FFF, (6, 0), 1, 0, 0), (65, 102, 0x7FFF, (6, 0), 1, 0, 0), (74, 94, 0x7FFF, (0, 6), 1, 0, 0), (75, 94, 0x7FFF, (0, 6), 1, 0, 0)],
@@ -126,7 +126,7 @@ GIMMICKS = {
          'hops': ([(109, 80), (103, 82), (111, 72)], 40), 'flames': (0xFD5E, 7), 'freeze': 1,
          'spikes': 0xFF, 'ice': (0xFE30, 39, 0xFE7E, 40, [(75, 100)], [(70, 105)]), 'iceSpikes': (0xFECE, 17), 'roofs': 0xFE04, 'bumpers': (0x55, 0, 0),
          'gates': [([(77, 95), (78, 95)], 0x41, 0, 1), ([(91, 106), (92, 106)], 0x39, 0, 1)], 'passOff': [(91, 107)]},   # Diamond Dust 2 (see s3d.js)
-    16: {'floorSprings': 0x55, 'bumpers': (0xFF, 0x94EA, 30),   # Spring Stadium 2 (see s3d.js)
+    16: {'floorSprings': 0x55, 'bumpers': (0xFF, 0x94EA, 30), 'spikeField': 0xAA,   # Spring Stadium 2 (see s3d.js)
          'gates': [([(64, 104), (64, 105)], 0x3F, 0, 1), ([(76, 102), (76, 103)], 0x39, 0, 1), ([(84, 78), (85, 78)], 0x69, 0, 1),
                    ([(86, 71), (87, 71)], 0x69, 0, 1), ([(61, 110), (62, 110)], 0x41, 1, 0), ([(123, 51), (124, 51)], 0x65, 2, 0)],
          'passOff': [(77, 103), (87, 70), (85, 79)],
@@ -265,9 +265,10 @@ def convert(rom, level_id, vscale=1.0):
         if t == 0x8C: e["power"] = launch_for(vscale, 94); e["absY"] = jround(y_obj / CELL * vscale, 3)
         if kind == 'lift': e["y"] = jround(y_obj / CELL * vscale, 3); e["drop"] = jround(84 / CELL * vscale, 3)
         if kind == 'enemy' and t in PATROL:   # to and fro between +0x24 and +0x26 (see s3d.js)
-            a, b = struct.unpack('>hh', r[0x24:0x28]); along_x = a <= x <= b
+            a, b = struct.unpack('>hh', r[0x24:0x28]); along_x = bool((r[0x16] >> 3) & 1)
             if b > a:
-                e["patrol"] = {"axis": 'x' if along_x else 'z', "range": [jround(a / CELL - x0, 3), jround(b / CELL - x0, 3)] if along_x else [jround(a / CELL - z0, 3), jround(b / CELL - z0, 3)]}
+                e["patrol"] = {"axis": 'x' if along_x else 'z', "range": [jround(a / CELL - x0, 3), jround(b / CELL - x0, 3)] if along_x else [jround(a / CELL - z0, 3), jround(b / CELL - z0, 3)],
+                               "dir": -1 if struct.unpack('>H', r[0x28:0x2A])[0] else 1}
                 e["speed"] = jround(30 / CELL, 3)
         if kind in ('enemy', 'capsule', 'lever', 'beamPost'):   # Flicky colour byte +0x19 (1..4), palette line bits 13-14 of +0x16
             if kind in ('enemy', 'capsule'): fb = r[0x19]; e["flicky"] = fb if 1 <= fb <= 4 else 0

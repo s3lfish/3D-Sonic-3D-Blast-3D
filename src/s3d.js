@@ -125,7 +125,7 @@ const S3D = (() => {
     // Spring Stadium 2 (InitLevel 0x8DEA, RunLevel_SSz2 0x8EC2): gates (64, 104..105), (76, 102..103), (84..85, 78),
     // (86..87, 71) open while the flag is set (four superchargers), until (77, 103), (87, 70) or (85, 79); (61..62, 110)
     // stands until ring 1, (123..124, 51) until ring 2
-    16: { floorSprings: 0x55, bumpers: [0xFF, 0x94EA, 30],
+    16: { floorSprings: 0x55, bumpers: [0xFF, 0x94EA, 30], spikeField: 0xAA /* its RunLevel 0x8EC2 calls 0x9D44 too */,
       gates: [[[[64, 104], [64, 105]], 0x3F, 0, 1], [[[76, 102], [76, 103]], 0x39, 0, 1], [[[84, 78], [85, 78]], 0x69, 0, 1],
         [[[86, 71], [87, 71]], 0x69, 0, 1], [[[61, 110], [62, 110]], 0x41, 1, 0], [[[123, 51], [124, 51]], 0x65, 2, 0]],
       passOff: [[77, 103], [87, 70], [85, 79]],
@@ -459,7 +459,7 @@ const S3D = (() => {
   }
   // [frames the screen stays blank while an act reloads after a death (the level's unpacking time), frames after that
   // before the pad acts]: measured in the emulator; [52, 34] elsewhere as watched in Volcano Valley 1: `rom.blank`
-  const BLANK = { 3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 34], 14: [44, 34], 17: [46, 30] };
+  const BLANK = { 3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 32], 14: [44, 34], 17: [46, 30], 20: [51, 34] };
   const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };
   const springPower = vscale => launchFor(vscale, 140);   // measured: a spring throws Sonic 140 units up
   function convert(d, id, vscale = 1) {
@@ -532,8 +532,9 @@ const S3D = (() => {
       if (t === 0x8C) { e.power = launchFor(vscale, 94); e.absY = r3(s16(ob, o + 0xA) / CELL * vscale); }
       if (kind === 'lift') { e.y = r3(s16(ob, o + 0xA) / CELL * vscale); e.drop = r3(84 / CELL * vscale); }
       if (kind === 'enemy' && PATROL.has(t)) {
-        const a = s16(ob, o + 0x24), b = s16(ob, o + 0x26), alongX = a <= x && x <= b;
-        if (b > a) { e.patrol = { axis: alongX ? 'x' : 'z', range: alongX ? [r3(a / CELL - x0), r3(b / CELL - x0)] : [r3(a / CELL - z0), r3(b / CELL - z0)] }; e.speed = r3(30 / CELL); }
+        // (handlers 0x16528, 0x15E20, 0x17E80: along x with bit 3 of byte +0x16, else z; word +0x28 set: going down first)
+        const a = s16(ob, o + 0x24), b = s16(ob, o + 0x26), alongX = !!((ob[o + 0x16] >> 3) & 1);
+        if (b > a) { e.patrol = { axis: alongX ? 'x' : 'z', range: alongX ? [r3(a / CELL - x0), r3(b / CELL - x0)] : [r3(a / CELL - z0), r3(b / CELL - z0)], dir: u16(ob, o + 0x28) ? -1 : 1 }; e.speed = r3(30 / CELL); }
       }
       // a defeated enemy (or a broken capsule) frees a Flicky only when byte +0x19 holds its colour 1..4 (routine 0x192C2);
       // the sprite's palette line is bits 13 and 14 of word +0x16 (written only when not 3, the usual one)

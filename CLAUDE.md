@@ -118,7 +118,7 @@ serves index.html from main.
 - Spring Stadium (`GIMMICKS[15]`/`[16]`, RunLevel_SSz1 0x95DA, _SSz2 0x8EC2; helpers 0x9974 bumpers + floor springs,
   0x9D44 spike fields, 0x9B40 tubes): cell marks by low byte (geometry stays the map's): `springCells` (0x55, 124
   units up; `set` 7.875 units a frame: the speed set after his move, no gravity taken, on ROM levels), `bumpers` (0xFF + table cells: entering one near its floor pushes 5 units a frame across the nearest
-  edge, pad taken 20 frames, `p.bumpCell`), `spikeField` (0xAA, act 1: one count `w.spike` +1 every 4 frames while
+  edge (ROM levels: by whole units in the cell, v >= u, v >= 31 - u), pad taken 20 frames, `p.bumpCell`), `spikeField` (0xAA, acts 1 and 2: one count `w.spike` +1 every 4 frames while
   stood on, -1 off; at 5 it hurts; drawn as an InstancedMesh of cones). Rides at cells take `force` [frames, dir]
   (`p.force`: pad held, counted from the move's start, `force.top` keeps the speed); states with bit 15 are mirrored
   (x, z) -> (-z, -x), facing (0x200 - f) & 0x7FF (checked with DD1's 0x8004);
@@ -178,7 +178,8 @@ serves index.html from main.
   line, a turn per 64 frames; `w.barBalls`). VV2's vent at 0x63AC is off while the rock on its partner (84, 86) stands (`offWhileRock`). The sinking 128 kind is in no level's records.
 - Gene Gadget 1 (`GIMMICKS[4]`, RunLevel_GnGdz1 0x11D2A, InitLevel 0x11C78; GnG labels are not swapped): `updraft`
   (0x55: grounded, `p.hover`: 0.125 a frame per frame up under floor + 48, down over it, the climb halved crossing it,
-  ball table steers, pose spring); `zapCells` (0xAA, object 068: armed on stepping on, sparks at 22 frames for 12,
+  ball table steers, pose spring; ROM levels (0x123BC, after his move): from rest, pose 0xC, ten frames before it
+  can end (`p.hoverT`), leaving it pose 0xE); `zapCells` (0xAA, object 068: armed on stepping on, sparks at 22 frames for 12,
   four at a time, blue shield spared); `pyramids` (0x11EE4: 64-unit boxes, surface rises one a unit from each edge by
   the diagonals, thrown 5.5 out and up by the speed in, `pyramid`); `gate` {cells, top, opens, pass} (InitLevel's
   raised cells via `L.up`; pass = open while `p.force.pass`: the supercharger's and ride 0x18's run); `barrier` (the
@@ -235,9 +236,12 @@ serves index.html from main.
   re-aimed every 10), 064 `aim` (0x17BC8, `origAim`: turns 0x10 a frame to Sonic's octant (`octantTo`, table
   0xDBEE), 30 frames after facing him a level shot at a unit a frame, then every 120), 058 `burst` (0x183FE,
   `origBurst`: within 0x30 of Sonic, four shots over four frames along -z, +z, -x, +x, then an empty shell; it does not
-  chase), wanderers 094/144/10C/17C (0x17346), patrols 100/108/148/09C/05C/178; 0C8 `c8` (0x16B46, `origC8`: its
+  chase), wanderers 094/144/10C/17C (0x17346), patrols 100/108/148/09C/05C/178 (ROM levels: along x with bit 3 of
+  +0x16, `patrol.dir` from +0x28; a whole unit when $0AF4 (2-count, `gZero(w, 2)`) is 0, put on an end and turned;
+  178 shoots particles (template 0xDA24, table 0x15EE8) only while it runs); 0C8 `c8` (0x16B46, `origC8`: its
   table, read by the converter, stepped at its rate (+0x20/+0x21), moves it round a square and fires on frames 4 mod 16).
-  Shots of sprinklers, 064, 058 and 0C8 are the original's type-5 particles (`shotPart`, through `origRing`; enemy-made
+  Shots of sprinklers, 064, 058, 0C8 and 178 are the original's type-5 particles (`shotPart`, through `origRing`; gone
+  at a wall; enemy-made
   ones move in their first frame) with its particle touch (`partTouch`: x - z within 20, depth within 8, y -16..32);
   enemies with `touch` [b4, b5] (record +4/+5) use its box (`origTouch`: x - z within 0x2C - b4, depth within 0x20 - b4,
   y within b5; measured); enemies carry `fr` [x, z] (record +8/+0x10, the position's 16-bit fractions; `enLong`) when
@@ -401,7 +405,9 @@ serves index.html from main.
   VV2 too (its balls' angle at the trace start fitted: 0x348). A hit shows from the next frame (`p.pre` {anim, facing}:
   the original's player ran before it); the knock-back's eighth is taken from the whole facing; 2 s safe is 120
   frames (the timer snaps to 0). SS1 and SS2 too: the jump word $46 (`p.jb`, 0x2E0E: pressed in the air and held,
-  he jumps as he lands), floor springs' exact speed, the scroll after springs. GnG1, RR3 and SS3 (positions) too: a
+  he jumps as he lands), floor springs' exact speed, the scroll after springs. A second private script (jumps, rolls,
+  spin dashes) is exact in all 15 regular acts too (ride's last frame takes the locked pad; low roofs keep a cell's
+  other raise; GnG3's belt reads the whole facing). GnG1, RR3 and SS3 (positions) too: a
   reload's blank and pad wait per level (`rom.blank` [frames blank counting the death's last frame, frames after
   until the pad acts]; measured GG3 [44, 30], GnG1 [51, 34], RR3 [49, 33], VV2 [55, 34], VV3 [44, 34], SS3 [46, 30],
   else VV1's [52, 34]); SS spike fields count on the original's 4-frame count ($0AF8, `gZero(w, 4)`); the start

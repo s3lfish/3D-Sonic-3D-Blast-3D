@@ -1067,6 +1067,23 @@ test('a patrolling enemy walks to and fro between its two values', () => {
   let lo = 9, hi = 0; run(w, 300, (f, ww) => { lo = Math.min(lo, ww.enemies[0].x); hi = Math.max(hi, ww.enemies[0].x); return {}; });
   near(lo, 5, 0.05, 'west end'); near(hi, 8, 0.05, 'east end'); near(w.enemies[0].z, 2.5, 1e-9, 'on its line');
 });
+test('the original\'s patrol: a whole unit every other frame, its way first, put on an end and turned; it runs and shoots only on screen', () => {
+  // (ROMLV: origin 0, so units are 1/32 m; the window [w, h, x, y, record y] puts it always on screen)
+  const en = { type: 'enemy', x: 4.125, z: 2.5, patrol: { axis: 'x', range: [4, 4.25], dir: -1 }, speed: 0.9375, win: [0xFFFF, 0xFFFF, 0, 0, 24], skin: '178' };
+  const w = ROMLV(0, 0, [en]); place(w, 1.5, 4.5);
+  const xs = []; run(w, 30, (f, ww) => { if (ww.enemies[0].X !== undefined) xs.push(Math.round(ww.enemies[0].X / 65536)); return {}; });
+  const steps = xs.slice(1).map((v, i) => v - xs[i]), moves = steps.filter(d => d);
+  assert.ok(moves.every(d => Math.abs(d) === 1) && steps.every((d, i) => !d || !steps[i + 1]), `a unit every other frame (${xs.join(' ')})`);
+  assert.strictEqual(moves[0], -1, 'its way first: down');
+  assert.ok(Math.min(...xs) === 128 && moves.includes(1), `put on its end (128) and turned (${xs.join(' ')})`);
+  const v = ROMLV(0, 0, [Object.assign({}, en, { shoot: 0, win: [1, 1, 0, 0, 24] })]); place(v, 1.5, 4.5);   // (a window it is never in)
+  run(v, 70, {}); assert.ok(v.enemies[0].X === undefined && !(v.shots || []).length, 'off screen: still and silent');
+});
+test('the original\'s bumper picks its way in whole units of the cell (30.6, 30.1 is 30, 30: south)', () => {
+  const w = ROMLV(0, 0, [{ type: 'bumpers', cells: [[3, 4]] }]); place(w, 2.5, 4.5);
+  Object.assign(w.p, { x: 3 + 30.6 / 32, z: 4 + 30.1 / 32, vx: 0, vz: 0 }); run(w, 1, {});
+  assert.ok(w.events.includes('bumper') && w.p.vz > 9 && Math.abs(w.p.vx) < 1e-9, `south (${w.p.vx}, ${w.p.vz})`);
+});
 // Gene Gadget 1 (watched in the emulator; see s3d.js GIMMICKS[4])
 const GNG = (ents, extra = {}) => world(grid(W12('c' + row('4', 16) + 'c'), Object.assign({ entities: [{ type: 'start', x: 1.5, z: 2.5 }].concat(ents) },
   { physics: Object.assign({}, ORIG.physics, { orig: 1 }) }, extra)));
