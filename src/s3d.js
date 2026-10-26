@@ -28,7 +28,7 @@ const S3D = (() => {
     // RunLevel shows Tails once ring 1's hole opens (0xE5F4) and Knuckles while the cannon at (116, 12) fires (0xE766)
     1: { cannons: [[116, 12, 248, 9, 7.067]], cracks: [[[[108, 17]], 480, [0, -1]]], friends: { tails: { section: 1 }, knuckles: { cannon: [116, 12] } } },
     2: { cannons: [[21, 48, 576, 9, 6.1]], cracks: [[[[59, 47]], 784, [-1, 0]], [[[108, 41], [109, 41]], 688, [0, -1]]] },
-    7: { spikes: 0xFF, fans: 0x55, doors: [0x7994, 4], pillars: [0x7ACC, 23], maces: [0x75C2, 5], flames: [0x7548, 5],
+    7: { spikes: 0xFF, fans: 0x55, roofs: 0x7AA0 /* the routine's call at 0x74A2 */, doors: [0x7994, 4], pillars: [0x7ACC, 23], maces: [0x75C2, 5], flames: [0x7548, 5],
       links: [[1696, 1840, 90], [2576, 1216, 180]],
       rides: [[60, 48, 1, 0x36, [1888, 392, 768], 0x400, [0, 0, 5]], [80, 50, 2, 0x38, null, null, [0, 0, 0]]],
       pads: [[0, -1, 1], [1, -1, 2]],
@@ -39,7 +39,7 @@ const S3D = (() => {
     // after; rides at four cells, one of them only after the pillar at (85, 101) breaks: the routine then drops that
     // cell to 0x500 and lowers (99, 96) to its map value; it fires below 32 units (Sonic falls through the
   // 0x500 floor to there; ours stops at 40, so the ride here fires at 40). Dash wall (101, 60).
-    6: { friends: { tails: { cell: [85, 101], maxY: 32 } } /* 0x7FBE: the ride from (85, 101) at y 32 or under */, spikes: 0xFF, fans: 0x55, pillars: [0x8266, 23], maces: [0x80B8, 6], flames: [0x7EC4, 9], padRise: 138, pads: [[0, 1, 1], [1, 0, 1], [2, 3, 2], [3, 2, 2]],
+    6: { friends: { tails: { cell: [85, 101], maxY: 32 } } /* 0x7FBE: the ride from (85, 101) at y 32 or under */, spikes: 0xFF, fans: 0x55, roofs: 0x8252 /* 0x7E0C */, pillars: [0x8266, 23], maces: [0x80B8, 6], flames: [0x7EC4, 9], padRise: 138, pads: [[0, 1, 1], [1, 0, 1], [2, 3, 2], [3, 2, 2]],
       slides: [[0xC3, [1, 0]], [0xF0, [0, 1]]], pillarLinks: [[85, 101, 0x05, [[99, 96, 0x22]]]],
       rides: [[98, 96, 0, 0x30, null, null, [0, 0, 0]], [85, 101, 0, 0x2E, null, null, [0, 0, 0], 40],
         [100, 60, 0, 0x32, null, null, [0, 0, 0]], [91, 71, 0, 0x34, null, null, [0, 0, 0]]],
@@ -77,7 +77,7 @@ const S3D = (() => {
     // z 83-99 up to 3, 0.375 a frame per frame, south); snowdrift springs (4.5 a frame) at (94, 39), (90, 39), (80, 39);
     // snowblowers (table 0x10976, as flamethrowers; they freeze)
     9: { pads: [[0, 1, 1], [2, 3, 2]],
-      rides: [[89, 50, 0, 0x8004, null, null, null, undefined, [80, null]], [40, 70, 0, 0x3A, null, null, null, undefined, [80, null, 1]],
+      rides: [[89, 50, 0, 0x8004, null, null, null, undefined, [80, null]], [40, 70, 0, 0x3A, null, null, [0, 0, 7.5], undefined, [80, null, 1], undefined, 2],
         [86, 81, 0, 0x3C, null, null, null]],
       chutes: [[39, 40, 52, 70, [0, 1], 0.25, 1280]], dashes: [[54, 65, 704, [7.5, 0], 24, 14, 6]],
       sleds: [[78, 79, 66, 66, [2528, 672, 2128], [0, 1], 0.0625, 300]],
@@ -599,6 +599,7 @@ const S3D = (() => {
       // its touch bytes (+4, +5; routine 0x1B8FE): touched when x - z is within 0x2C - b4 of Sonic's, (x + z) / 2 within
       // 0x20 - b4, and y within b5
       if (kind === 'enemy' && ob[o + 4]) e.touch = [ob[o + 4], ob[o + 5]];
+      if (kind === 'enemy' && (u16(ob, o + 8) || u16(ob, o + 0x10))) e.fr = [u16(ob, o + 8), u16(ob, o + 0x10)];   // (x and z fractions, +8 / +0x10)
       // 0C8 (handler 0x16B46): steps through its animation table (0x16C7E, a word a frame from offset +0x1E; -1 jumps
       // back), which moves it round a square and fires where the frame says (Sim origC8)
       if (t === 0xC8) {
@@ -696,14 +697,15 @@ const S3D = (() => {
     const rideOf = (state, from, facing, vel) => {
       const sc = rideScript(d, state & 0x7FFF), mir = !!(state & 0x8000), path = mir ? sc.path.map(([a, b, c]) => [-c, b, -a]) : sc.path, last = path[path.length - 1] || [0, 0, 0];
       return { start: from ? [r3(from[0] / CELL - x0), r3(from[1] / CELL * vscale), r3(from[2] / CELL - z0)] : null, facing: facing === null ? null : compassOf(facing),
-        vel: vel ? [r3(vel[0] * mps), r3(vel[1] * mps * vscale), r3(vel[2] * mps)] : [r3(last[0] * mps), 0, r3(last[2] * mps)],
+        vel: vel ? [r6(vel[0] * mps), r6(vel[1] * mps * vscale), r6(vel[2] * mps)] : [r3(last[0] * mps), 0, r3(last[2] * mps)],
         path: path.map(([dx, dy, dz]) => [r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)]),
         turns: sc.turns.map(([i, f]) => [i, compassOf(mir ? (0x200 - f) & 0x7FF : f)]), sc };
     };
-    for (const [cx, cz, after, state, from, facing, vel, maxY, force, run] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
+    for (const [cx, cz, after, state, from, facing, vel, maxY, force, run, anim] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
       const { sc, ...rd } = rideOf(state, from, facing, vel), ride = { ...rd,
         end: sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3(sc.end[1] / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
           vel: [r3(sc.end[4] * mps), r3(-sc.end[5] * mps * vscale), r3(sc.end[6] * mps)] } : null };
+      if (anim !== undefined) ride.anim = anim;   // the animation the routine sets (Diamond Dust 1's 0x3A: 2, with $56 = 2)
       if (force) { ride.force = { t: r3(force[0] / 60), dir: force[1] }; if (force[2]) ride.force.roll = 1; if (force[3]) ride.force.pass = 1; }   // roll: left rolling ($56 = 2); pass: gates let it through
       // the routines look only at the cell (and a height), grounded or not
       const e = { type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: after, air: true, ride };

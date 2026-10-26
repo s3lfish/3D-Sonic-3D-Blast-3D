@@ -433,7 +433,11 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   to pad 4 after ring 2). Ride states with bit 15 are mirrored: (x, z) -> (-z, -x), facing (0x200 - f) & 0x7FF
   (state 0x8004 at (89, 50) watched in the emulator; a plain x/z swap was wrong).
 - Cells: ice chute x 39-40, z 52-70 (grounded: +0.25 units a frame per frame south, steered to x 1280, pad let go)
-  into state 0x3A at (40, 70) (rolling, pad held 80 frames); dash east at (54, 65) under y 704 (7.5 units a frame for
+  into state 0x3A at (40, 70) (0x101FE: cell word 0x4650; $64 = 0x3A, $66/$6A cleared, pad lock $0A18 = 0x50 with
+  $0A1A = 0xFF, $12 = 0, $1A = 0x78000 (7.5 units a frame south, kept through the move and after it), $16 = 0, $44/$48/
+  $4A cleared, $56 = 2, $94 = 2); during the move the scroll follows and the animation player runs on (anim 2); the
+  move's first step drops the position's fractions. Exploration trace expl_9 exact to frame 549 (position, animation,
+  scroll) since 2026-10-27; dash east at (54, 65) under y 704 (7.5 units a frame for
   24 frames, a jump at 6 a frame on frame 14); sled at (78..79, 66) (pulled to (2528, 2128), then +0.0625 a frame per
   frame south for 300 frames) into state 0x3C at (86, 81); currents x 110-113 z 55-89 (up to 2 a frame) and x 50-53
   z 83-99 (up to 3), +0.375 a frame per frame south; snowdrift springs at (94, 39), (90, 39), (80, 39) (rise 40).

@@ -68,13 +68,13 @@ GIMMICKS = {
     1: {'cannons': [(116, 12, 248, 9, 7.067)], 'cracks': [([(108, 17)], 480, [0, -1])], 'friends': {'tails': {'section': 1}, 'knuckles': {'cannon': (116, 12)}}},
     2: {'cannons': [(21, 48, 576, 9, 6.1)], 'cracks': [([(59, 47)], 784, [-1, 0]), ([(108, 41), (109, 41)], 688, [0, -1])]},
     # Rusty Ruin 1 (see s3d.js GIMMICKS): spike and fan cell marks, door and pillar tables, pockets after rings, rides
-    7: {'spikes': 0xFF, 'fans': 0x55, 'doors': (0x7994, 4), 'pillars': (0x7ACC, 23), 'maces': (0x75C2, 5), 'flames': (0x7548, 5),
+    7: {'spikes': 0xFF, 'fans': 0x55, 'roofs': 0x7AA0, 'doors': (0x7994, 4), 'pillars': (0x7ACC, 23), 'maces': (0x75C2, 5), 'flames': (0x7548, 5),
         'links': [(1696, 1840, 90), (2576, 1216, 180)],
         'rides': [(60, 48, 1, 0x36, (1888, 392, 768), 0x400, (0, 0, 5)), (80, 50, 2, 0x38, None, None, (0, 0, 0))],
         'pads': [(0, -1, 1), (1, -1, 2)],
         'cracks': [([(88, 62)], 432, [-1, 0]), ([(100, 41), (100, 15, 560)], 432, [0, -1])]},
     # Rusty Ruin 2 (see s3d.js GIMMICKS)
-    6: {'friends': {'tails': {'cell': (85, 101), 'maxY': 32}}, 'spikes': 0xFF, 'fans': 0x55, 'pillars': (0x8266, 23), 'maces': (0x80B8, 6), 'flames': (0x7EC4, 9), 'padRise': 138, 'pads': [(0, 1, 1), (1, 0, 1), (2, 3, 2), (3, 2, 2)],
+    6: {'friends': {'tails': {'cell': (85, 101), 'maxY': 32}}, 'spikes': 0xFF, 'fans': 0x55, 'roofs': 0x8252, 'pillars': (0x8266, 23), 'maces': (0x80B8, 6), 'flames': (0x7EC4, 9), 'padRise': 138, 'pads': [(0, 1, 1), (1, 0, 1), (2, 3, 2), (3, 2, 2)],
         'slides': [(0xC3, [1, 0]), (0xF0, [0, 1])], 'pillarLinks': [(85, 101, 0x05, [(99, 96, 0x22)])],
         'rides': [(98, 96, 0, 0x30, None, None, (0, 0, 0)), (85, 101, 0, 0x2E, None, None, (0, 0, 0), 40),
                   (100, 60, 0, 0x32, None, None, (0, 0, 0)), (91, 71, 0, 0x34, None, None, (0, 0, 0))],
@@ -90,7 +90,7 @@ GIMMICKS = {
          'tris': [('x', 2432, 1600, 0, -4, 4, 1), ('x', 2432, 1792, 1, -4, -4, 1)]},
     17: {'floorSprings': 0x55, 'spikeField': 0xFF},
     9: {'pads': [(0, 1, 1), (2, 3, 2)],
-        'rides': [(89, 50, 0, 0x8004, None, None, None, None, (80, None)), (40, 70, 0, 0x3A, None, None, None, None, (80, None, 1)),
+        'rides': [(89, 50, 0, 0x8004, None, None, None, None, (80, None)), (40, 70, 0, 0x3A, None, None, (0, 0, 7.5), None, (80, None, 1), None, 2),
                   (86, 81, 0, 0x3C, None, None, None)],
         'chutes': [(39, 40, 52, 70, [0, 1], 0.25, 1280)], 'dashes': [(54, 65, 704, (7.5, 0), 24, 14, 6)],
         'sleds': [(78, 79, 66, 66, (2528, 672, 2128), [0, 1], 0.0625, 300)],
@@ -319,6 +319,9 @@ def convert(rom, level_id, vscale=1.0):
             art = struct.unpack('>I', rom[0x280E8 + t:0x280EC + t])[0]
             if 0 < art and art + 8 <= len(rom): e["win"] = list(struct.unpack('>HHhh', rom[art:art + 8])) + [y_obj]
         if kind == 'enemy' and r[4]: e["touch"] = [r[4], r[5]]   # touch bytes (see s3d.js)
+        if kind == 'enemy':
+            fx, fz = struct.unpack('>H', r[8:10])[0], struct.unpack('>H', r[0x10:0x12])[0]
+            if fx or fz: e["fr"] = [fx, fz]
         if t == 0xC8:   # its animation table (see s3d.js)
             tab = []; a = 0x16C7E
             while len(tab) < 1024:
@@ -420,7 +423,7 @@ def convert(rom, level_id, vscale=1.0):
         last = path[-1] if path else [0, 0, 0]
         return ({"start": [r3(frm[0] / CELL - x0), r3(frm[1] / CELL * vscale), r3(frm[2] / CELL - z0)] if frm else None,
                  "facing": None if facing is None else compass_of(facing),
-                 "vel": [r3(vel[0] * mps), r3(vel[1] * mps * vscale), r3(vel[2] * mps)] if vel else [r3(last[0] * mps), 0, r3(last[2] * mps)],
+                 "vel": [r6(vel[0] * mps), r6(vel[1] * mps * vscale), r6(vel[2] * mps)] if vel else [r3(last[0] * mps), 0, r3(last[2] * mps)],
                  "path": [[r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)] for dx, dy, dz in path],
                  "turns": [[i, compass_of((0x200 - f) & 0x7FF if mir else f)] for i, f in turns]}, end) if not want_starts else starts
     for cx, cz, after, state, frm, facing, vel, *rest in gm.get('rides', []):
@@ -428,6 +431,7 @@ def convert(rom, level_id, vscale=1.0):
             ride, end = ride_of(state, frm, facing, vel)
             ride["end"] = {"at": [r3(end[0] / CELL - x0), r3(end[1] / CELL * vscale), r3(end[2] / CELL - z0)], "facing": compass_of(end[3]),
                            "vel": [r3(end[4] * mps), r3(-end[5] * mps * vscale), r3(end[6] * mps)]} if end else None
+            if len(rest) > 3 and rest[3] is not None: ride["anim"] = rest[3]   # the animation the routine sets
             if len(rest) > 1 and rest[1]:
                 ride["force"] = {"t": r3(rest[1][0] / 60), "dir": rest[1][1]}
                 if len(rest[1]) > 2 and rest[1][2]: ride["force"]["roll"] = 1

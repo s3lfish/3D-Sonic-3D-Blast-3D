@@ -1223,6 +1223,7 @@ const Sim = (() => {
       vel: Array.isArray(ride.vel) ? ride.vel : [0, 0, 0], path: ride.path, turns: (ride.turns || []).map(([i, f]) => [i, deg(f)]),
       end: ride.end && Array.isArray(ride.end.at) ? { at: ride.end.at, facing: deg(ride.end.facing || 0), vel: ride.end.vel || [0, 0, 0] } : null,
       wait: ride.wait > 0 ? ride.wait : 0, hidden: !!ride.hidden, clear: ride.clear > 0 ? ride.clear : 0,
+      anim: Number.isInteger(ride.anim) ? ride.anim : undefined,   // (the original's animation number, set as it starts)
       force: ride.force && ride.force.t > 0 ? { t: ride.force.t, dir: Array.isArray(ride.force.dir) && ride.force.dir.length === 2 ? ride.force.dir : null, roll: !!ride.force.roll, pass: !!ride.force.pass } : null,
       // "alt" {at, ride}: at that frame of the move, with the Flickies a ring would want following, the other move
       // (its path the same up to there) carries on instead
@@ -1271,6 +1272,7 @@ const Sim = (() => {
             aim: e.aim && Number.isFinite(e.aim.a) ? { a: e.aim.a & 0x7FE } : null, burst: e.burst ? 1 : 0, win: winOf(e),
             touch: Array.isArray(e.touch) && e.touch.length === 2 && e.touch.every(v => Number.isInteger(v) && v > 0 && v < 0x20) ? e.touch.slice() : null,
             // converted levels: "c8" {i, t}: the original's 0C8 table walk (see origC8)
+            fr: Array.isArray(e.fr) && e.fr.length === 2 && e.fr.every(v => Number.isInteger(v) && v >= 0 && v < 65536) ? e.fr.slice() : null,
             c8: e.c8 && Number.isInteger(e.c8.i) && Array.isArray(e.c8.t) && e.c8.t.length > 2 && e.c8.t.every(Number.isInteger) ? { i: e.c8.i, r: Array.isArray(e.c8.r) ? [e.c8.r[0] | 0, e.c8.r[1] | 0] : [0, 0], t: e.c8.t.slice() } : null });
           break;
         }
@@ -2009,7 +2011,8 @@ const Sim = (() => {
   function origVelocity(w, L, p, m, minTop, walkNow) {
     const O = P.orig, R = O.raw, S = 65536, U = 60 / 32, sin = O.sin;   // (across: the height scale does not touch it)
     // (a roll keeps its table in the air too: $56 = 2 until it ends, 0x3344)
-    if (p.rolling && (p.fwdWord === undefined ? 0x1000 : p.fwdWord) < 0x1000) p.rolling = false;   // (0x3406: walking this frame)
+    // (0x3406: walking this frame; ended in the air its state is 0: the walk table there, no ball, no attack)
+    if (p.rolling && (p.fwdWord === undefined ? 0x1000 : p.fwdWord) < 0x1000) { p.rolling = false; if (!p.grounded && L.rom) p.ball = false; }
     const roll = p.rolling;
     const tab = p.frozen > 0 ? R.ice : roll ? R.roll : (p.ball || p.hover) && !p.grounded && !walkNow ? R.ball : w.ice ? R.ice : R.walk;
     if (!roll || p.topW === undefined) p.topW = p.fast > 0 ? R.shoes : R.top;
@@ -2115,7 +2118,7 @@ const Sim = (() => {
       orbit: e.orbit || 0, orbitY: e.orbitY || 0, phase: i * 1.7, ball: e.orbit ? { x: e.x, y: e.y, z: e.z } : null, flicky: e.flicky ?? -1, shoot: e.shoot ?? -1, line: e.line ?? 3,
       wander: e.wander || null, wt: 0, wd: [0, 0],
       roam: e.roam ? { box: e.roam.box, A: e.roam.a, T: e.roam.a, chase: false } : null, aim: e.aim ? { A: e.aim.a, cnt: 30 } : null,
-      burst: e.burst ? 0 : -1, win: e.win || null, touch: e.touch || null, y0: e.y, c8: e.c8 ? { i: e.c8.i, rate: e.c8.r[0], n: e.c8.r[1], t: e.c8.t } : null }));
+      burst: e.burst ? 0 : -1, win: e.win || null, touch: e.touch || null, y0: e.y, fr: e.fr || null, c8: e.c8 ? { i: e.c8.i, rate: e.c8.r[0], n: e.c8.r[1], t: e.c8.t } : null }));
     w.capsules = L.entities.filter(e => e.type === 'capsule').map(e => ({ ...e, alive: true, diedAt: -9 }));
     w.monitors = L.entities.filter(e => e.type === 'monitor').map(e => ({ x: e.x, z: e.z, y: e.y, broken: false, skin: e.skin, kind: e.kind || 'rings' }));
     w.mines = L.entities.filter(e => e.type === 'mine').map(e => ({ x: e.x, z: e.z, y: e.y, alive: true, diedAt: -9, skin: e.skin }));
@@ -3270,10 +3273,16 @@ const Sim = (() => {
         w.events.push('tubeNo');
       }
       if (r.i < R.path.length) {
+        if (r.snap) {   // (as watched in Diamond Dust 1)
+          const o = L.rom.origin, vs = L.rom.vscale; r.snap = false;
+          p.x = Math.floor((p.x + o[0]) * 32 + 1e-9) / 32 - o[0]; p.z = Math.floor((p.z + o[1]) * 32 + 1e-9) / 32 - o[1];
+          p.y = (Math.floor(p.y * 32 / vs - 8 + 1e-6) + 8) / 32 * vs;
+        }
         const [dx, dy, dz] = R.path[r.i];
         p.x += dx; p.y += dy; p.z += dz; if (dx || dy || dz) r.moved = true;
         for (const [i, f] of R.turns) if (i === r.i) p.facing = f;
         r.i++; p.ball = true; p.grounded = false; p.vx = p.vz = p.vy = 0;
+        if (O && L.rom) origCamera(w, p);   // (the scroll follows the move)
         return w;
       }
       if (R.end) { [p.x, p.y, p.z] = R.end.at; p.facing = R.end.facing; [p.vx, p.vy, p.vz] = R.end.vel; w.events.push('warp'); }
@@ -3519,7 +3528,12 @@ const Sim = (() => {
     // in the air outside, its cells are walls (the original raises them 256 units while the player is airborne elsewhere)
     if (w.roofs.size) {
       const vs = L.rom ? L.rom.vscale : 1, here = w.roofs.get(Math.floor(p.z) * L.width + Math.floor(p.x));
-      if (here !== undefined && !p.grounded && p.y <= here) p.vy = Math.min(p.vy, -0.25 * 60 / 32 * vs);
+      // (the original, after he moves: at or over the top in whole units, speed exactly 0.25 down, $72 too)
+      if (here !== undefined && !p.grounded && (L.rom && L.phys.orig ? Math.floor(p.y * 32 / vs - 8 + 1e-6) >= Math.round(here * 32 / vs - 8) : p.y <= here)) {
+        // (the original sets it after his move: this frame's gravity on top)
+        if (L.rom && L.phys.orig) { p.vy = -0.25 * 60 / 32 * vs - L.phys.gravity * dt; p.launchJ = 4; }
+        else p.vy = Math.min(p.vy, -0.25 * 60 / 32 * vs);
+      }
       const up = !p.grounded && here === undefined;
       if (up !== !!w.roofUp) { w.roofUp = up; for (const [t, top] of w.roofs) if (up) L.up.set(t, top + 8 * vs); else L.up.delete(t); }
     }
@@ -3700,8 +3714,20 @@ const Sim = (() => {
           p.chute = bx; p.rolling = !!bx.hold; p.charge = 0; w.events.push('chute');
           if (bx.hold) p.force = { t: bx.hold, dir: null, top: 0 };
         }
-        if (p.chute === bx) {
-          if (p.ride || !(p.x >= bx.box[0] - 1 && p.x < bx.box[1] + 1 && p.z >= bx.box[2] - 1 && p.z < bx.box[3] + 1)) p.chute = null;
+        if (p.chute === bx && O && L.rom && !bx.hold && bx.steer !== null && !p.ride) {
+          // (Diamond Dust 1's chute, RunLevel 0x10168, after his move each frame: rolling ($56 = 2), animation 0xF,
+          // facing 0, 0.25 a frame more along it; across, 0.25 a frame toward the steer line until he passes it, then
+          // put on it exactly with no speed across)
+          const o = L.rom.origin, ax = bx.dir[0] === 0 ? 'x' : 'z', v = ax === 'x' ? 'vx' : 'vz', oo = ax === 'x' ? o[0] : o[1];
+          p.rolling = true; p.anim = 0xF; p.facing = Math.atan2(bx.dir[0], bx.dir[1]); p.turnTgt = undefined;
+          p.vx += bx.dir[0] * bx.accel * dt; p.vz += bx.dir[1] * bx.accel * dt;
+          const T = Math.round((bx.steer + oo) * 32), Xi = Math.floor((p[ax] + oo) * 32 + 1e-9), snap = () => { p[ax] = T / 32 - oo; p[v] = 0; };
+          if (Xi === T) snap();
+          else if (Xi > T) { if (bx.st === 3) snap(); else { p[v] -= bx.accel * dt; bx.st = 2; } }
+          else { if (bx.st === 2) snap(); else { p[v] += bx.accel * dt; bx.st = 3; } }
+          if (!(p.x >= bx.box[0] - 1 && p.x < bx.box[1] + 1 && p.z >= bx.box[2] - 1 && p.z < bx.box[3] + 1)) { p.chute = null; bx.st = 0; }
+        } else if (p.chute === bx) {
+          if (p.ride || !(p.x >= bx.box[0] - 1 && p.x < bx.box[1] + 1 && p.z >= bx.box[2] - 1 && p.z < bx.box[3] + 1)) { p.chute = null; bx.st = 0; }
           else {
             const along = p.vx * bx.dir[0] + p.vz * bx.dir[1];
             if (bx.hold) { p.facing = Math.atan2(bx.dir[0], bx.dir[1]); p.rolling = true; }   // (the routine faces him down it each frame)
@@ -3983,13 +4009,13 @@ const Sim = (() => {
       }
       else if (en.c8 && L.rom) {
         const o = L.rom.origin, S = 65536;
-        if (en.X === undefined) { en.X = Math.round((en.x + o[0]) * 32 * S); en.Z = Math.round((en.z + o[1]) * 32 * S); }
+        if (en.X === undefined) [en.X, en.Z] = enLong(L, en);
         origC8(w, en);
         nx = en.X / S / 32 - o[0]; nz = en.Z / S / 32 - o[1];
       }
       else if (en.roam || en.aim) {
         const o = L.rom.origin, S = 65536, SX = Math.floor((p.x + o[0]) * 32 + 1e-6), SZ = Math.floor((p.z + o[1]) * 32 + 1e-6);
-        if (en.X === undefined) { en.X = Math.round((en.x + o[0]) * 32 * S); en.Z = Math.round((en.z + o[1]) * 32 * S); }
+        if (en.X === undefined) [en.X, en.Z] = enLong(L, en);
         if (en.roam) origRoam(w, en, SX, SZ); else origAim(w, en, SX, SZ);
         nx = en.X / S / 32 - o[0]; nz = en.Z / S / 32 - o[1];
       }
@@ -4184,7 +4210,9 @@ const Sim = (() => {
       }
       if (h.ride) {
         const R = h.ride;
-        p.ride = { ride: R, i: 0, wait: R.wait }; p.auto = null; p.force = null; p.sled = null; p.rolling = p.whirl = false; p.whirlHold = 0; p.charge = 0;   // (a ride ends a sled's push: Diamond Dust 1's jump at (86, 81))
+        p.ride = { ride: R, i: 0, wait: R.wait }; p.auto = null; p.force = null; p.sled = null; if (p.chute) { p.chute.st = 0; p.chute = null; } p.rolling = p.whirl = false; p.whirlHold = 0; p.charge = 0;   // (a ride ends a sled's push, Diamond Dust 1's jump at (86, 81), and the chute that led to it)
+        if (L.rom && L.phys.orig) p.ride.snap = true;   // (the original's ride moves whole units: its first step drops the fractions)
+        if (R.anim !== undefined) p.anim = R.anim;   // (the routine sets the animation itself: Diamond Dust 1's 0x3A, 2)
         if (R.start) { p.x = R.start[0]; p.z = R.start[2]; if (Number.isFinite(R.start[1])) p.y = R.start[1]; w.events.push('warp'); }   // (no height: kept)
         if (R.facing !== null) p.facing = R.facing;
         if (h.key !== null) w.keys.add(h.key);
@@ -4340,6 +4368,7 @@ const Sim = (() => {
   }
   function pickAnim(w, p) {
     let a = p.anim || 0;
+    if (p.ride) return;   // (a scripted move keeps its animation; the routine that starts one may set it)
     if ([8, 9, 0xA, 0xC, 0xF, 0x11, 0x12].includes(a) && (a !== 8 || !p.grounded)) return;
     if (a === 0xD && p.vy <= 0) a = 1;
     const s56 = p.revN >= 0 ? 3 : p.rolling ? 2 : (p.ball && !p.grounded) || (p.grounded && w.fBall) ? 1 : 0;
@@ -4568,11 +4597,17 @@ const Sim = (() => {
   }
   // An enemy's touch as the original's (0x1B846 / 0x1B8FE, measured on a Green Grove enemy): picture x (x - z) within
   // 0x2C - b4, depth ((x + z) / 2) within 0x20 - b4 and y within b5 of its record's (moved with it), in whole units
+  // (its position in the original's 16.16 units: the roamers' own, else its record's with the fractions `fr`)
+  const enLong = (L, en) => {
+    if (en.X !== undefined) return [en.X, en.Z];
+    const o = L.rom.origin, S = 65536, f = en.fr || [0, 0];
+    return [Math.round((en.x + o[0]) * 32) * S + f[0], Math.round((en.z + o[1]) * 32) * S + f[1]];
+  };
   function origTouch(L, p, en) {
     const o = L.rom.origin, vs = L.rom.vscale, S = 65536, [b4, b5] = en.touch;
-    const X = Math.floor(Math.round((p.x + o[0]) * 32 * S) / S), Z = Math.floor(Math.round((p.z + o[1]) * 32 * S) / S), Y = Math.floor(p.y * 32 / vs - 8 + 1e-6);
-    const EX = Math.round((en.x + o[0]) * 32), EZ = Math.round((en.z + o[1]) * 32), EY = en.win[4] + Math.round((en.y - en.y0) * 32 / vs);
-    return Math.abs((X - Z) - (EX - EZ)) <= 0x2C - b4 && Math.abs(((X + Z) >> 1) - ((EX + EZ) >> 1)) <= 0x20 - b4 && Math.abs(Y - EY) <= b5;
+    const X = Math.round((p.x + o[0]) * 32 * S), Z = Math.round((p.z + o[1]) * 32 * S), Y = Math.floor(p.y * 32 / vs - 8 + 1e-6);
+    const [EX, EZ] = enLong(L, en), EY = en.win[4] + Math.round((en.y - en.y0) * 32 / vs);
+    return Math.abs(Math.floor((X - Z) / S) - Math.floor((EX - EZ) / S)) <= 0x2C - b4 && Math.abs(Math.floor((X + Z) / 2 / S) - Math.floor((EX + EZ) / 2 / S)) <= 0x20 - b4 && Math.abs(Y - EY) <= b5;
   }
   // The original's scroll (0x19A4, each frame after Sonic moves): a lead ($0866, $0868) from his facing ((sin, cos)
   // high bytes of -(facing + 0x100): x / 2 - 160 stepping 2 a frame, y / 4 - 124 stepping 1) added to his picture point
@@ -5444,7 +5479,7 @@ const S3D = (() => {
     // RunLevel shows Tails once ring 1's hole opens (0xE5F4) and Knuckles while the cannon at (116, 12) fires (0xE766)
     1: { cannons: [[116, 12, 248, 9, 7.067]], cracks: [[[[108, 17]], 480, [0, -1]]], friends: { tails: { section: 1 }, knuckles: { cannon: [116, 12] } } },
     2: { cannons: [[21, 48, 576, 9, 6.1]], cracks: [[[[59, 47]], 784, [-1, 0]], [[[108, 41], [109, 41]], 688, [0, -1]]] },
-    7: { spikes: 0xFF, fans: 0x55, doors: [0x7994, 4], pillars: [0x7ACC, 23], maces: [0x75C2, 5], flames: [0x7548, 5],
+    7: { spikes: 0xFF, fans: 0x55, roofs: 0x7AA0 /* the routine's call at 0x74A2 */, doors: [0x7994, 4], pillars: [0x7ACC, 23], maces: [0x75C2, 5], flames: [0x7548, 5],
       links: [[1696, 1840, 90], [2576, 1216, 180]],
       rides: [[60, 48, 1, 0x36, [1888, 392, 768], 0x400, [0, 0, 5]], [80, 50, 2, 0x38, null, null, [0, 0, 0]]],
       pads: [[0, -1, 1], [1, -1, 2]],
@@ -5455,7 +5490,7 @@ const S3D = (() => {
     // after; rides at four cells, one of them only after the pillar at (85, 101) breaks: the routine then drops that
     // cell to 0x500 and lowers (99, 96) to its map value; it fires below 32 units (Sonic falls through the
   // 0x500 floor to there; ours stops at 40, so the ride here fires at 40). Dash wall (101, 60).
-    6: { friends: { tails: { cell: [85, 101], maxY: 32 } } /* 0x7FBE: the ride from (85, 101) at y 32 or under */, spikes: 0xFF, fans: 0x55, pillars: [0x8266, 23], maces: [0x80B8, 6], flames: [0x7EC4, 9], padRise: 138, pads: [[0, 1, 1], [1, 0, 1], [2, 3, 2], [3, 2, 2]],
+    6: { friends: { tails: { cell: [85, 101], maxY: 32 } } /* 0x7FBE: the ride from (85, 101) at y 32 or under */, spikes: 0xFF, fans: 0x55, roofs: 0x8252 /* 0x7E0C */, pillars: [0x8266, 23], maces: [0x80B8, 6], flames: [0x7EC4, 9], padRise: 138, pads: [[0, 1, 1], [1, 0, 1], [2, 3, 2], [3, 2, 2]],
       slides: [[0xC3, [1, 0]], [0xF0, [0, 1]]], pillarLinks: [[85, 101, 0x05, [[99, 96, 0x22]]]],
       rides: [[98, 96, 0, 0x30, null, null, [0, 0, 0]], [85, 101, 0, 0x2E, null, null, [0, 0, 0], 40],
         [100, 60, 0, 0x32, null, null, [0, 0, 0]], [91, 71, 0, 0x34, null, null, [0, 0, 0]]],
@@ -5493,7 +5528,7 @@ const S3D = (() => {
     // z 83-99 up to 3, 0.375 a frame per frame, south); snowdrift springs (4.5 a frame) at (94, 39), (90, 39), (80, 39);
     // snowblowers (table 0x10976, as flamethrowers; they freeze)
     9: { pads: [[0, 1, 1], [2, 3, 2]],
-      rides: [[89, 50, 0, 0x8004, null, null, null, undefined, [80, null]], [40, 70, 0, 0x3A, null, null, null, undefined, [80, null, 1]],
+      rides: [[89, 50, 0, 0x8004, null, null, null, undefined, [80, null]], [40, 70, 0, 0x3A, null, null, [0, 0, 7.5], undefined, [80, null, 1], undefined, 2],
         [86, 81, 0, 0x3C, null, null, null]],
       chutes: [[39, 40, 52, 70, [0, 1], 0.25, 1280]], dashes: [[54, 65, 704, [7.5, 0], 24, 14, 6]],
       sleds: [[78, 79, 66, 66, [2528, 672, 2128], [0, 1], 0.0625, 300]],
@@ -6015,6 +6050,7 @@ const S3D = (() => {
       // its touch bytes (+4, +5; routine 0x1B8FE): touched when x - z is within 0x2C - b4 of Sonic's, (x + z) / 2 within
       // 0x20 - b4, and y within b5
       if (kind === 'enemy' && ob[o + 4]) e.touch = [ob[o + 4], ob[o + 5]];
+      if (kind === 'enemy' && (u16(ob, o + 8) || u16(ob, o + 0x10))) e.fr = [u16(ob, o + 8), u16(ob, o + 0x10)];   // (x and z fractions, +8 / +0x10)
       // 0C8 (handler 0x16B46): steps through its animation table (0x16C7E, a word a frame from offset +0x1E; -1 jumps
       // back), which moves it round a square and fires where the frame says (Sim origC8)
       if (t === 0xC8) {
@@ -6112,14 +6148,15 @@ const S3D = (() => {
     const rideOf = (state, from, facing, vel) => {
       const sc = rideScript(d, state & 0x7FFF), mir = !!(state & 0x8000), path = mir ? sc.path.map(([a, b, c]) => [-c, b, -a]) : sc.path, last = path[path.length - 1] || [0, 0, 0];
       return { start: from ? [r3(from[0] / CELL - x0), r3(from[1] / CELL * vscale), r3(from[2] / CELL - z0)] : null, facing: facing === null ? null : compassOf(facing),
-        vel: vel ? [r3(vel[0] * mps), r3(vel[1] * mps * vscale), r3(vel[2] * mps)] : [r3(last[0] * mps), 0, r3(last[2] * mps)],
+        vel: vel ? [r6(vel[0] * mps), r6(vel[1] * mps * vscale), r6(vel[2] * mps)] : [r3(last[0] * mps), 0, r3(last[2] * mps)],
         path: path.map(([dx, dy, dz]) => [r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)]),
         turns: sc.turns.map(([i, f]) => [i, compassOf(mir ? (0x200 - f) & 0x7FF : f)]), sc };
     };
-    for (const [cx, cz, after, state, from, facing, vel, maxY, force, run] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
+    for (const [cx, cz, after, state, from, facing, vel, maxY, force, run, anim] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
       const { sc, ...rd } = rideOf(state, from, facing, vel), ride = { ...rd,
         end: sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3(sc.end[1] / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
           vel: [r3(sc.end[4] * mps), r3(-sc.end[5] * mps * vscale), r3(sc.end[6] * mps)] } : null };
+      if (anim !== undefined) ride.anim = anim;   // the animation the routine sets (Diamond Dust 1's 0x3A: 2, with $56 = 2)
       if (force) { ride.force = { t: r3(force[0] / 60), dir: force[1] }; if (force[2]) ride.force.roll = 1; if (force[3]) ride.force.pass = 1; }   // roll: left rolling ($56 = 2); pass: gates let it through
       // the routines look only at the cell (and a height), grounded or not
       const e = { type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: after, air: true, ride };

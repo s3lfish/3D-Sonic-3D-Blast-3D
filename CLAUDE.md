@@ -92,7 +92,10 @@ serves index.html from main.
   him on: the pocket walks him out itself (`p.auto`, after `P.autoWait`), and the ride plays the original's scripted
   move (`rideScript`: RunSonic's interpreter 0x2EFC, scripts at 0x25DF2 per player state; hole `ride` {start, facing,
   vel, path, turns, end}; `p.ride`), checked to the unit against the emulator. Cuts fade from black (`fadeCut`); while
-  a ride is under the ground the hero is hidden and the camera stays on the ground above. Crock (9C) is an enemy. Crack cells may carry their own height ([x, z, top]). Holes with `opens` 0 are open.
+  a ride is under the ground the hero is hidden and the camera stays on the ground above. On ROM levels a ride's first
+  step drops the fractions (x, z whole units, y whole units from the feet frame: `p.ride.snap`); the scroll
+  (`origCamera`) follows it; the animation is kept (`ride.anim`, if given, is set as it starts: DD1's 0x3A is 2); a
+  ride clears a chute. Low roofs also in RR1 (table 0x7AA0) and RR2 (0x8252). Crock (9C) is an enemy. Crack cells may carry their own height ([x, z, top]). Holes with `opens` 0 are open.
 - Rusty Ruin 2 (`GIMMICKS[6]`, RunLevel 0x7CFC): pads both ways after each ring (rise 138); slides (low byte 0xC3 east,
   0xF0 south: `slide` entity, `P.slide*`); trampolines 08C (spring with `absY`, rise 94, drawn as slabs); sinking slabs
   098 (`lift`: raised cell in `L.up`, sinks 84 units 1 s after landing); pillar (85, 101) breaks into a pit (crack
@@ -137,12 +140,16 @@ serves index.html from main.
   (`p.frozen` = hops left: the original's routine 0x3050, 4 counts, a 2-unit hop at each landing, ice table, no input,
   50 frames safe after; no rings lost; game.js draws an ice block `iceBlock`). On the original's levels (`L.rom`) an airborne player
   within stepUp of a ledge top is lifted onto it (measured in DD1). The game starts Sonic at the start table (header
-  +0x20), not the 030 object (both converters).
+  +0x20), not the 030 object (both converters). The chute (RunLevel 0x10168): each frame rolling, animation 0xF, facing
+  down it, +0.25 a frame along, 0.25 a frame across toward x 1280 until past it, then put on it (`bx.st`). Its ride
+  0x3A sets $1A = 7.5 units a frame (kept to the end: rides' vel rounded to 6 places), $56 = 2, $94 = 2. A roll that
+  ends in the air (speed under 0x1000) ends the ball too.
 - Diamond Dust 2 (`GIMMICKS[10]`, RunLevel_DDz2 0xFA06) and both acts' helpers 0x10E78 (ice lists), 0x10EA6 (ice
   spikes), 0x10CC4 (roofs, 0xFF spikes, 0x55 bumpers): `ice` {on, off} cells toggle `w.ice` (the original's $0ACA:
   P.orig.ice table; pads into the icy part count as on/off cells); `iceSpikes` {cells} (object 0E8, ROM art palette
   line 0; map lowered 3 steps + 0xFF at start, so at floor height; a grounded roll breaks one, `iceBreak`, else hurt);
-  `lowRoof` {cells, top} (no rising above top in them; walls via `L.up` while airborne outside, `w.roofUp`); 0xFF map
+  `lowRoof` {cells, top} (no rising above top in them; ROM levels: at or over the top in whole units, vy = exactly
+  0.25 units a frame down plus this frame's gravity, set after the move; walls via `L.up` while airborne outside, `w.roofUp`); 0xFF map
   cells = 'H' spikes; 0x55 = `bumpers`. DD2: ride 0x803E at (78, 95), dash (50, 45), current east into spikes.
 - DD3 boss `dd` (`ddStep`, InitLevel 0xF1CA, RunLevel_DDz3 0xF280): heights in the feet frame (+8 units); script
   0xF2FA [0 chase / 1 wait / 2 drop, frames], [-1, entry] loops, hit entry 10; at 400 frames left of a chase it goes
@@ -230,7 +237,8 @@ serves index.html from main.
   Shots of sprinklers, 064, 058 and 0C8 are the original's type-5 particles (`shotPart`, through `origRing`; enemy-made
   ones move in their first frame) with its particle touch (`partTouch`: x - z within 20, depth within 8, y -16..32);
   enemies with `touch` [b4, b5] (record +4/+5) use its box (`origTouch`: x - z within 0x2C - b4, depth within 0x20 - b4,
-  y within b5; measured). A defeated enemy throws an airborne Sonic exactly 5 up. Not modelled: objects and shots keep
+  y within b5; measured); enemies carry `fr` [x, z] (record +8/+0x10, the position's 16-bit fractions; `enLong`) when
+  not zero, used by their moves and touch. A defeated enemy throws an airborne Sonic exactly 5 up. Not modelled: objects and shots keep
   running while he rises dying (the sim waits; the reload puts them back anyway).
 - Converted levels, all zones: corner pieces (one corner two steps over three level ones, both neighbours by it without
   floor; `L.diag`, findDiagonals) are diagonal walls (that half solid, rest flat), met as a point (`P.rDiag`). Walls,
@@ -384,7 +392,9 @@ serves index.html from main.
   turn); Sonic's sprite animation from the ROM's scripts; screen speed limit; pad after a reload; the original's
   scroll (exact over a GG1 trace) wakes objects and drives the iso view; shots and touches as the original's (all
   nine movement traces exact, PP1's sprinkler hit included); 0C8. Sine table entry 0x400 is 0 (the formula gave -1).
-  138 sim tests.
+  138 sim tests. Private exploration traces (one pad script, all 22 acts): position, animation and scroll exact in
+  GG1, GG2, GnG2, RR2, RR1, DD1, DD2, VV1, PP2, PP1, PP3 (low roofs, DD1 chute and ride, ride snap, enemy fractions).
+  Still off: GnG1 after its reload (51 blank frames, VV1 52: not modelled), VV2 (227), SS1 (466), SS2 (301), bosses.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;
   the Jam Flicky body is a flat quad (edge-on from the side).
