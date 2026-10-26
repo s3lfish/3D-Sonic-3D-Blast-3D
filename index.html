@@ -1313,6 +1313,15 @@ const Sim = (() => {
             if (!Number.isFinite(e.low) || !four(e.hitBox) || !Array.isArray(e.rise) || e.rise.length !== 3 || !e.rise.every(Number.isFinite)) { errs.push('A Volcano Valley boss needs "low", a "hitBox" and the serpent\'s "rise" [x, y, z].'); break; }
             Object.assign(b, { low: e.low, hitBox: e.hitBox, rise: e.rise, spikes: Array.isArray(e.spikes) ? e.spikes.filter(c => Array.isArray(c) && inBounds(c[0], c[1])) : [], minY: Number.isFinite(e.minY) ? e.minY : e.low });
           }
+          // Gene Gadget 3: heights (first, high, low), the belt [z start, z end] its loads ride, the lanes' first x and
+          // step, the end row's z (hurts), the loads' first z (off the belt until they come round) and the drops' x offsets
+          if (e.kind === 'gng') {
+            const two = v => Array.isArray(v) && v.length === 2 && v.every(Number.isFinite);
+            if (![e.first, e.high, e.low, e.end].every(Number.isFinite) || !two(e.belt) || !two(e.lanes) || !Array.isArray(e.loads) || !two(e.drops)) {
+              errs.push('A Gene Gadget boss needs "first", "high", "low", the "belt", its "lanes", the "end" and "loads" and "drops".'); break;
+            }
+            Object.assign(b, { first: e.first, high: e.high, low: e.low, belt: e.belt, lanes: e.lanes, end: e.end, loads: e.loads.filter(Number.isFinite), drops: e.drops, dropZ: e.dropZ || 0 });
+          }
           L.entities.push(b);
           break;
         }
@@ -1558,7 +1567,7 @@ const Sim = (() => {
     }
     return out;
   }
-  const BOSS_KINDS = new Set(['gg', 'rr', 'ss', 'dd', 'vv']);
+  const BOSS_KINDS = new Set(['gg', 'rr', 'ss', 'dd', 'vv', 'gng']);
   function importLevel(raw) {
     const errs = [];
     if (!raw || typeof raw !== 'object') throw new LevelError(['The level data is not a JSON object.']);
@@ -1779,6 +1788,8 @@ const Sim = (() => {
     if (w.boss && b.kind === 'dd') Object.assign(w.boss, { ball: null, t: 0, si: 0, fresh: true, act: 1, h: 0, target: b.low, blowA: 0, blowT: 0, dropT: 0,
       snowmen: [], balls: [], puffs: [], puffK: 7, puffWait: 0 });
     if (w.boss && b.kind === 'vv') Object.assign(w.boss, { ball: null, t: 0, head: null, path: [], segs: [], seed: 7 });
+    if (w.boss && b.kind === 'gng') Object.assign(w.boss, { ball: null, t: 0, ph: 0, target: b.first, belt0: false, lanesOn: false, onBelt: false, seed: 11,
+      objs: b.loads.map(z => ({ x: 0, z, on: false })), bombs: [] });
     if (w.boss && b.kind === 'rr') Object.assign(w.boss, { armX: b.arms, arms: [[32, 0], [32, 0]], cur: 0, si: 0, act: 2, par: false, boxes: [null, null], ball: null });
     w.plats = [];
   }
@@ -2058,7 +2069,71 @@ const Sim = (() => {
     } else b.segs = [];
     return false;
   }
+  // Gene Gadget 3 (InitLevel 0x110BA, RunLevel_GnGdz3 0x11126; watched): the pod comes down, the belt starts at frame
+  // 0x1B8 and carries the player south (pushed to 1.5 units a frame and more; facing north and pushing, held at 0.5 a
+  // frame north; off it, at least 2 south); the end row hurts. Loads ride the belt a unit a frame in four lanes and blow
+  // up at its end; the pod sways 32 units (0xA a frame of 0x800), goes high at 0x1E0, low at 0x370, drops two bombs
+  // twice (4 units a frame south, 80 frames), and loops at 0x500. The generic check (0xF794): within 32 units, from
+  // 32 under to 64 over it; 8 over it in a jump ball is a hit (thrown back, up 5, the pad let go 30 frames; the loop
+  // starts again high), else the player is hurt. Eight.
+  function gngStep(w) {
+    const b = w.boss, p = w.p, L = w.L, U = 1 / 32, V = b.vs / 32, T = Math.PI / 1024, safe = p.inv > 0 || p.invuln > 0;
+    const rnd = () => { b.seed = (b.seed * 16807) % 2147483647; return b.seed; };
+    if (b.dead >= 0) {
+      b.dead += P.dt; b.y += V; b.objs.forEach(o => { o.on = false; }); b.bombs.length = 0;
+      if (b.dead > 4 && !w.cleared) { w.cleared = true; w.events.push('goal'); }
+      return false;
+    }
+    if (b.cool > 0) b.cool -= P.dt;
+    if (Math.hypot(p.x - b.x, p.z - b.z) <= 32 * U && p.y >= b.y - 32 * V && p.y <= b.y + 64 * V && (!safe || (p.ball && p.y >= b.y + 8 * V))) {
+      if (p.ball && p.y >= b.y + 8 * V && b.cool <= 0) {
+        p.vx = -p.vx; p.vz = -p.vz; p.vy = 5 * 60 / 32 * b.vs; p.grounded = false; p.jumping = false; p.lock = 30 / 60;
+        b.hits++; b.cool = 0.25; b.t = 0x1DF; b.lanesOn = true; w.events.push('bossHit');
+        if (b.hits >= b.hp) { b.dead = 0; w.events.push('bossDown'); return false; }
+      } else if (!(p.ball && p.y >= b.y + 8 * V)) { hurt(w, p.x - b.x, p.z - b.z); return w.events.includes('respawn'); }
+    }
+    // the belt
+    if (b.belt0) {
+      if (!p.grounded) { if (b.onBelt) { b.onBelt = false; if (p.vz < 2 * 60 * U) p.vz = 2 * 60 * U; } }
+      else if (!p.ride) {
+        b.onBelt = true;
+        const f = ((-(p.facing || 0) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) / T, pushing = p.lastStick;
+        if (pushing && f >= 0x300 && f <= 0x500) p.vz = -0.5 * 60 * U;
+        else if (p.vz <= 1.5 * 60 * U) p.vz += 0.25 * 60 * U;
+      }
+      if (p.grounded && p.z >= b.end && !safe) { w.events.push('beltEnd'); hurt(w, 0, -1); return w.events.includes('respawn'); }
+    }
+    b.t++;
+    const t = b.t;
+    if (t === 0x190) w.events.push('bossHorn');
+    if (t === 0x1B8) { b.belt0 = true; b.lanesOn = true; }
+    if (t === 0x1E0) b.target = b.high;
+    if (t === 0x30C) b.lanesOn = false;
+    if (t === 0x370) b.target = b.low;
+    if (t === 0x3D4 || t === 0x46A || t === 0x3E8 || t === 0x47E) { b.bombs.push({ x: b.x + b.drops[t === 0x3D4 || t === 0x46A ? 0 : 1], z: b.z + b.dropZ, t: 80 }); w.events.push('bossDrop'); }
+    if (t === 0x406) b.lanesOn = true;
+    if (t >= 0x500) { b.t = 0x1E0; b.target = b.high; }
+    b.y += Math.abs(b.target - b.y) <= V ? b.target - b.y : Math.sign(b.target - b.y) * V;
+    if (b.t >= 0x1E0) { b.x = b.home[0] + Math.sin(b.ph * T) * 32 * U; b.ph = (b.ph + 0xA) & 0x7FE; }
+    // the loads and the bombs
+    const hitBox = (x, z) => Math.abs(p.x - x) < 16 * U && Math.abs(p.z - z) < 16 * U && p.y < floorAt(L, x, z) + 32 * V;
+    for (const o of b.objs) {
+      o.z += U;
+      if (o.z >= b.belt[1]) {
+        if (o.on) w.events.push('boom');
+        o.z = b.belt[0]; o.on = b.lanesOn; o.x = b.lanes[0] + (rnd() & 3) * b.lanes[1];
+      }
+      if (o.on && !safe && hitBox(o.x, o.z) && !(p.invuln > 0)) { hurt(w, p.x - o.x, p.z - o.z); if (w.events.includes('respawn')) return true; }
+    }
+    for (let i = b.bombs.length - 1; i >= 0; i--) {
+      const q = b.bombs[i]; q.z += 4 * U; q.t--;
+      if (q.t <= 0) { b.bombs.splice(i, 1); w.events.push('boom'); continue; }
+      if (!safe && hitBox(q.x, q.z) && !(p.invuln > 0)) { hurt(w, p.x - q.x, p.z - q.z); if (w.events.includes('respawn')) return true; }
+    }
+    return false;
+  }
   function bossStep(w, pcy) {
+    if (w.boss.kind === 'gng') return gngStep(w);
     if (w.boss.kind === 'vv') return vvStep(w);
     if (w.boss.kind === 'dd') return ddStep(w);
     if (w.boss.kind === 'ss') return ssStep(w);
@@ -2178,6 +2253,7 @@ const Sim = (() => {
     let mx = inp.mx || 0, mz = inp.mz || 0;
     let m = Math.hypot(mx, mz);
     if (m > 1) { mx /= m; mz /= m; m = 1; }
+    p.lastStick = m > 0.3;
     const jumpPress = inp.jump && !p.prevJump, dashPress = inp.dash && !p.prevDash, dashRelease = !inp.dash && p.prevDash;
     p.prevJump = !!inp.jump; p.prevDash = !!inp.dash;
     let speed = Math.hypot(p.vx, p.vz);
@@ -3690,6 +3766,7 @@ const S3D = (() => {
     13: { pads: [[0, 1, 1], [2, 3, 2]], lava: 0x55, rocks: [0xAB42, 42], roofs: 0xAA4A, vents: [0xA8F6, 6], spouts: [0xA9AA, 10], fireRuns: [0xAA5E, 5],
       cracks: [[[[59, 55]], 680, [-1, 0]], [[[65, 63]], 584, [-1, 0]]] },
     14: { lava: 0x55 },   // Volcano Valley 3: the crater's lava
+    18: { roofs: 0x11482 },   // Gene Gadget 3: the row under the pod
     10: { pads: [[0, 1, 1], [2, 3, 2]], rides: [[78, 95, 0, 0x803E, null, null, null, undefined, [400, null]]],
       dashes: [[50, 45, 608, [7.5, 0], 10, 0, 0]], currents: [[96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5]],
       hops: [[[109, 80], [103, 82], [111, 72]], 40], flames: [0xFD5E, 7], freeze: 1,
@@ -3768,7 +3845,12 @@ const S3D = (() => {
     // box x and z 0x7F0..0x830; spiked cells (63, 64), (65, 64), (64, 63), (64, 65); the serpent rises at (0x834, 0x5C,
     // 0x830), never under 0x60
     14: { kind: 'vv', at: [0x800, 0x1E8 + 8, 0x800], cruise: 0x58 + 8, low: 0x58 + 8, hitBox: [0x7F0, 0x830, 0x7F0, 0x830], minY: 0x60 + 8,
-      rise: [0x834, 0x5C + 8, 0x830], spikes: [[63, 64], [65, 64], [64, 63], [64, 65]], home: [0x800, 0x800], arena: [0x740, 0x8C0, 0x740, 0x8C0], hp: 8 } };
+      rise: [0x834, 0x5C + 8, 0x830], spikes: [[63, 64], [65, 64], [64, 63], [64, 65]], home: [0x800, 0x800], arena: [0x740, 0x8C0, 0x740, 0x8C0], hp: 8 },
+    // Gene Gadget 3 (InitLevel 0x110BA, RunLevel_GnGdz3 0x11126; watched): heights + 8 (the feet frame); the belt's loads
+    // (records 8..13: first z of each; four lanes from x 0xDD0, 32 apart) ride from z 0x1C8 to 0x378; the end row from
+    // z 0x380 hurts; bombs drop 7 and 18 units west of the pod and 6 south of it
+    18: { kind: 'gng', at: [0xE04, 0x1D0 + 8, 0x240], cruise: 0x40 + 8, first: 0x40 + 8, high: 0x70 + 8, low: 0x20 + 8, belt: [0x1C8, 0x378],
+      lanes: [0xDD0, 32], end: 0x380, loads: [456, 408, 360, 312, 264, 216], drops: [-7, -18], dropZ: 6, home: [0xE04, 0x240], arena: [0xDC0, 0xE40, 0x200, 0x3A0], hp: 8 } };
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
   // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
@@ -4295,6 +4377,11 @@ const S3D = (() => {
         e.low = Y(bs.low); e.minY = Y(bs.minY); e.hitBox = [r3(bs.hitBox[0] / CELL - x0), r3(bs.hitBox[1] / CELL - x0), r3(bs.hitBox[2] / CELL - z0), r3(bs.hitBox[3] / CELL - z0)];
         e.rise = [r3(bs.rise[0] / CELL - x0), Y(bs.rise[1]), r3(bs.rise[2] / CELL - z0)]; e.spikes = bs.spikes.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
       }
+      if (bs.kind === 'gng') {
+        const Y = v => r3(v / CELL * vscale), Z = v => r3(v / CELL - z0);
+        e.first = Y(bs.first); e.high = Y(bs.high); e.low = Y(bs.low); e.belt = bs.belt.map(Z); e.lanes = [r3(bs.lanes[0] / CELL - x0), r3(bs.lanes[1] / CELL)];
+        e.end = Z(bs.end); e.loads = bs.loads.map(Z); e.drops = bs.drops.map(v => r3(v / CELL)); e.dropZ = r3(bs.dropZ / CELL);
+      }
       if (bs.kind === 'dd') {
         const Y = v => r3(v / CELL * vscale);
         e.low = Y(bs.low); e.high = Y(bs.high); e.dropY = Y(bs.dropY);
@@ -4629,6 +4716,11 @@ const S3D = (() => {
     10: [[99, 16, [0xE0CFE, 0xE11FE, 0xE16FE, 0xE1BFE, 0xE20FE, 0xE25FE, 0xE2AFE, 0xE2FFE, 0xE34FE, 0xDFDFE, 0xE02FE, 0xE07FE], 2]],
     12: [[125, 40, [0xE71FE, 0xE76FE, 0xE3FFE, 0xE44FE, 0xE49FE, 0xE4EFE, 0xE53FE, 0xE58FE, 0xE5DFE, 0xE62FE, 0xE67FE, 0xE6CFE], 3]],
     13: [[69, 40, [0xE71FE, 0xE76FE, 0xE3FFE, 0xE44FE, 0xE49FE, 0xE4EFE, 0xE53FE, 0xE58FE, 0xE5DFE, 0xE62FE, 0xE67FE, 0xE6CFE], 3]],
+    // Gene Gadget's fans (helper 0x12506: 16 tiles from 0xDD8FE, 8 frames; the original turns them faster while Sonic
+    // hovers, here a steady rate) and act 3's belt (0x40 bytes from 0xDE8FE a frame, 8 frames)
+    4: [[67, 16, [0xDD8FE, 0xDDAFE, 0xDDCFE, 0xDDEFE, 0xDE0FE, 0xDE2FE, 0xDE4FE, 0xDE6FE], 2]],
+    5: [[138, 16, [0xDD8FE, 0xDDAFE, 0xDDCFE, 0xDDEFE, 0xDE0FE, 0xDE2FE, 0xDE4FE, 0xDE6FE], 2]],
+    18: [[1, 2, [0xDE8FE, 0xDE93E, 0xDE97E, 0xDE9BE, 0xDE9FE, 0xDEA3E, 0xDEA7E, 0xDEABE], 1]],
     19: [[110, 2, [0xDEA7E, 0xDEABE, 0xDE8FE, 0xDE93E, 0xDE97E, 0xDE9BE, 0xDE9FE, 0xDEA3E], 1]],
     20: [[153, 2, [0xDEA7E, 0xDEA3E, 0xDE9FE, 0xDE9BE, 0xDE97E, 0xDE93E, 0xDE8FE, 0xDEABE], 1]],
     22: [[1, 4, [0xEBEFE, 0xE87FE, 0xE8CFE, 0xE91FE, 0xE96FE, 0xE9BFE, 0xEA0FE, 0xEA5FE, 0xEAAFE, 0xEAFFE, 0xEB4FE, 0xEB9FE], 4], [7, 3, [0xEBFBE, 0xE88BE, 0xE8DBE, 0xEABBE, 0xEB0BE, 0xEB5BE, 0xEBABE], [4, 4, 24, 4, 4, 4, 4]], [12, 9, [0xEC05E, 0xE895E, 0xE8E5E, 0xE935E, 0xE985E, 0xE9D5E, 0xEA25E, 0xEA75E, 0xEAC5E, 0xEB15E, 0xEB65E, 0xEBB5E], 4], [22, 15, [0xEC19E, 0xE8A9E, 0xE8F9E, 0xE949E, 0xE999E, 0xE9E9E, 0xEA39E, 0xEA89E, 0xEAD9E, 0xEB29E, 0xEB79E, 0xEBC9E], 4]]
@@ -6190,6 +6282,16 @@ const Art = (() => {
     if (b.kind === 'rr') { o.rr = buildRrStatue(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
     if (b.kind === 'ss') { o.ss = buildSsArms(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
     if (b.kind === 'dd') { o.dd = buildDdParts(b, o.rom); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
+    if (b.kind === 'gng') {   // Gene Gadget 3: the belt's loads (object 16C), the bombs (164) and the pod's lower part (168)
+      o.ball.visible = false; o.links.forEach(l => { l.visible = false; });
+      const crate = new THREE.MeshLambertMaterial({ color: 0x8a7a68, map: stoneTex() }), mk = (type, crude) => {
+        if (o.rom) { const sp = new THREE.Sprite(romBossMat(type, 0, ROM_CANVAS, 80, 3)); sp.center.set(0.5, OBJ_FOOT); sp.scale.set(ROM_SIZE, ROM_SIZE, 1); levelGroup.add(sp); sp.visible = false; return sp; }
+        const m = crude(); levelGroup.add(m); m.visible = false; return m;
+      };
+      o.gng = { loads: b.objs.map(() => mk(0x16C, () => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), crate); m.userData.lift = 0.4; return m; })),
+        bombs: [0, 1, 2, 3].map(() => mk(0x164, () => { const m = new THREE.Sprite(mineMat); m.scale.set(0.7, 0.7, 1); m.userData.lift = 0.35; return m; })),
+        lower: o.rom ? mk(0x168, null) : null };
+    }
     if (b.kind === 'vv') {   // the fire serpent: the original's flame frames (object 138, line 3) or our own fireballs
       o.ball.visible = false; o.links.forEach(l => { l.visible = false; });
       const fr = o.rom ? romTypeFrames(0x138, 3) : [];
@@ -6377,6 +6479,13 @@ const Art = (() => {
       });
     }
     if (o.dd) { updateDdParts(b, o.dd, t); if (o.rom) o.g.position.y = b.y - 8 * b.vs / 32; }
+    if (o.gng) {
+      if (o.rom) o.g.position.y = b.y - 8 * b.vs / 32;
+      const put = (m, x, z, on) => { m.visible = on; if (on) m.position.set(x, Sim.floorAt(L, x, z) + (m.userData.lift || 0), z); };
+      o.gng.loads.forEach((m, k) => { const q = b.objs[k]; put(m, q.x, q.z, q.on && b.dead < 0); });
+      o.gng.bombs.forEach((m, k) => { const q = b.bombs[k]; put(m, q ? q.x : 0, q ? q.z : 0, !!q); });
+      if (o.gng.lower) { o.gng.lower.visible = o.g.visible; o.gng.lower.position.set(b.x - 2 / 32, b.y - 24 * b.vs / 32, b.z - 2 / 32); }
+    }
     if (o.vv) {
       if (o.rom) o.g.position.y = b.y - 8 * b.vs / 32;
       o.vv.forEach((sp, k) => { const q = b.segs[k]; sp.visible = !!q && b.dead < 0; if (q) sp.position.set(q[0], q[1], q[2]); });

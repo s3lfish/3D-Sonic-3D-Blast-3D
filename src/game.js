@@ -771,6 +771,16 @@
     if (b.kind === 'rr') { o.rr = buildRrStatue(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
     if (b.kind === 'ss') { o.ss = buildSsArms(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
     if (b.kind === 'dd') { o.dd = buildDdParts(b, o.rom); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
+    if (b.kind === 'gng') {   // Gene Gadget 3: the belt's loads (object 16C), the bombs (164) and the pod's lower part (168)
+      o.ball.visible = false; o.links.forEach(l => { l.visible = false; });
+      const crate = new THREE.MeshLambertMaterial({ color: 0x8a7a68, map: stoneTex() }), mk = (type, crude) => {
+        if (o.rom) { const sp = new THREE.Sprite(romBossMat(type, 0, ROM_CANVAS, 80, 3)); sp.center.set(0.5, OBJ_FOOT); sp.scale.set(ROM_SIZE, ROM_SIZE, 1); levelGroup.add(sp); sp.visible = false; return sp; }
+        const m = crude(); levelGroup.add(m); m.visible = false; return m;
+      };
+      o.gng = { loads: b.objs.map(() => mk(0x16C, () => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), crate); m.userData.lift = 0.4; return m; })),
+        bombs: [0, 1, 2, 3].map(() => mk(0x164, () => { const m = new THREE.Sprite(mineMat); m.scale.set(0.7, 0.7, 1); m.userData.lift = 0.35; return m; })),
+        lower: o.rom ? mk(0x168, null) : null };
+    }
     if (b.kind === 'vv') {   // the fire serpent: the original's flame frames (object 138, line 3) or our own fireballs
       o.ball.visible = false; o.links.forEach(l => { l.visible = false; });
       const fr = o.rom ? romTypeFrames(0x138, 3) : [];
@@ -958,6 +968,13 @@
       });
     }
     if (o.dd) { updateDdParts(b, o.dd, t); if (o.rom) o.g.position.y = b.y - 8 * b.vs / 32; }
+    if (o.gng) {
+      if (o.rom) o.g.position.y = b.y - 8 * b.vs / 32;
+      const put = (m, x, z, on) => { m.visible = on; if (on) m.position.set(x, Sim.floorAt(L, x, z) + (m.userData.lift || 0), z); };
+      o.gng.loads.forEach((m, k) => { const q = b.objs[k]; put(m, q.x, q.z, q.on && b.dead < 0); });
+      o.gng.bombs.forEach((m, k) => { const q = b.bombs[k]; put(m, q ? q.x : 0, q ? q.z : 0, !!q); });
+      if (o.gng.lower) { o.gng.lower.visible = o.g.visible; o.gng.lower.position.set(b.x - 2 / 32, b.y - 24 * b.vs / 32, b.z - 2 / 32); }
+    }
     if (o.vv) {
       if (o.rom) o.g.position.y = b.y - 8 * b.vs / 32;
       o.vv.forEach((sp, k) => { const q = b.segs[k]; sp.visible = !!q && b.dead < 0; if (q) sp.position.set(q[0], q[1], q[2]); });

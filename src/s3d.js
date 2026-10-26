@@ -95,6 +95,7 @@ const S3D = (() => {
     13: { pads: [[0, 1, 1], [2, 3, 2]], lava: 0x55, rocks: [0xAB42, 42], roofs: 0xAA4A, vents: [0xA8F6, 6], spouts: [0xA9AA, 10], fireRuns: [0xAA5E, 5],
       cracks: [[[[59, 55]], 680, [-1, 0]], [[[65, 63]], 584, [-1, 0]]] },
     14: { lava: 0x55 },   // Volcano Valley 3: the crater's lava
+    18: { roofs: 0x11482 },   // Gene Gadget 3: the row under the pod
     10: { pads: [[0, 1, 1], [2, 3, 2]], rides: [[78, 95, 0, 0x803E, null, null, null, undefined, [400, null]]],
       dashes: [[50, 45, 608, [7.5, 0], 10, 0, 0]], currents: [[96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5]],
       hops: [[[109, 80], [103, 82], [111, 72]], 40], flames: [0xFD5E, 7], freeze: 1,
@@ -173,7 +174,12 @@ const S3D = (() => {
     // box x and z 0x7F0..0x830; spiked cells (63, 64), (65, 64), (64, 63), (64, 65); the serpent rises at (0x834, 0x5C,
     // 0x830), never under 0x60
     14: { kind: 'vv', at: [0x800, 0x1E8 + 8, 0x800], cruise: 0x58 + 8, low: 0x58 + 8, hitBox: [0x7F0, 0x830, 0x7F0, 0x830], minY: 0x60 + 8,
-      rise: [0x834, 0x5C + 8, 0x830], spikes: [[63, 64], [65, 64], [64, 63], [64, 65]], home: [0x800, 0x800], arena: [0x740, 0x8C0, 0x740, 0x8C0], hp: 8 } };
+      rise: [0x834, 0x5C + 8, 0x830], spikes: [[63, 64], [65, 64], [64, 63], [64, 65]], home: [0x800, 0x800], arena: [0x740, 0x8C0, 0x740, 0x8C0], hp: 8 },
+    // Gene Gadget 3 (InitLevel 0x110BA, RunLevel_GnGdz3 0x11126; watched): heights + 8 (the feet frame); the belt's loads
+    // (records 8..13: first z of each; four lanes from x 0xDD0, 32 apart) ride from z 0x1C8 to 0x378; the end row from
+    // z 0x380 hurts; bombs drop 7 and 18 units west of the pod and 6 south of it
+    18: { kind: 'gng', at: [0xE04, 0x1D0 + 8, 0x240], cruise: 0x40 + 8, first: 0x40 + 8, high: 0x70 + 8, low: 0x20 + 8, belt: [0x1C8, 0x378],
+      lanes: [0xDD0, 32], end: 0x380, loads: [456, 408, 360, 312, 264, 216], drops: [-7, -18], dropZ: 6, home: [0xE04, 0x240], arena: [0xDC0, 0xE40, 0x200, 0x3A0], hp: 8 } };
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
   // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
@@ -700,6 +706,11 @@ const S3D = (() => {
         e.low = Y(bs.low); e.minY = Y(bs.minY); e.hitBox = [r3(bs.hitBox[0] / CELL - x0), r3(bs.hitBox[1] / CELL - x0), r3(bs.hitBox[2] / CELL - z0), r3(bs.hitBox[3] / CELL - z0)];
         e.rise = [r3(bs.rise[0] / CELL - x0), Y(bs.rise[1]), r3(bs.rise[2] / CELL - z0)]; e.spikes = bs.spikes.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
       }
+      if (bs.kind === 'gng') {
+        const Y = v => r3(v / CELL * vscale), Z = v => r3(v / CELL - z0);
+        e.first = Y(bs.first); e.high = Y(bs.high); e.low = Y(bs.low); e.belt = bs.belt.map(Z); e.lanes = [r3(bs.lanes[0] / CELL - x0), r3(bs.lanes[1] / CELL)];
+        e.end = Z(bs.end); e.loads = bs.loads.map(Z); e.drops = bs.drops.map(v => r3(v / CELL)); e.dropZ = r3(bs.dropZ / CELL);
+      }
       if (bs.kind === 'dd') {
         const Y = v => r3(v / CELL * vscale);
         e.low = Y(bs.low); e.high = Y(bs.high); e.dropY = Y(bs.dropY);
@@ -1034,6 +1045,11 @@ const S3D = (() => {
     10: [[99, 16, [0xE0CFE, 0xE11FE, 0xE16FE, 0xE1BFE, 0xE20FE, 0xE25FE, 0xE2AFE, 0xE2FFE, 0xE34FE, 0xDFDFE, 0xE02FE, 0xE07FE], 2]],
     12: [[125, 40, [0xE71FE, 0xE76FE, 0xE3FFE, 0xE44FE, 0xE49FE, 0xE4EFE, 0xE53FE, 0xE58FE, 0xE5DFE, 0xE62FE, 0xE67FE, 0xE6CFE], 3]],
     13: [[69, 40, [0xE71FE, 0xE76FE, 0xE3FFE, 0xE44FE, 0xE49FE, 0xE4EFE, 0xE53FE, 0xE58FE, 0xE5DFE, 0xE62FE, 0xE67FE, 0xE6CFE], 3]],
+    // Gene Gadget's fans (helper 0x12506: 16 tiles from 0xDD8FE, 8 frames; the original turns them faster while Sonic
+    // hovers, here a steady rate) and act 3's belt (0x40 bytes from 0xDE8FE a frame, 8 frames)
+    4: [[67, 16, [0xDD8FE, 0xDDAFE, 0xDDCFE, 0xDDEFE, 0xDE0FE, 0xDE2FE, 0xDE4FE, 0xDE6FE], 2]],
+    5: [[138, 16, [0xDD8FE, 0xDDAFE, 0xDDCFE, 0xDDEFE, 0xDE0FE, 0xDE2FE, 0xDE4FE, 0xDE6FE], 2]],
+    18: [[1, 2, [0xDE8FE, 0xDE93E, 0xDE97E, 0xDE9BE, 0xDE9FE, 0xDEA3E, 0xDEA7E, 0xDEABE], 1]],
     19: [[110, 2, [0xDEA7E, 0xDEABE, 0xDE8FE, 0xDE93E, 0xDE97E, 0xDE9BE, 0xDE9FE, 0xDEA3E], 1]],
     20: [[153, 2, [0xDEA7E, 0xDEA3E, 0xDE9FE, 0xDE9BE, 0xDE97E, 0xDE93E, 0xDE8FE, 0xDEABE], 1]],
     22: [[1, 4, [0xEBEFE, 0xE87FE, 0xE8CFE, 0xE91FE, 0xE96FE, 0xE9BFE, 0xEA0FE, 0xEA5FE, 0xEAAFE, 0xEAFFE, 0xEB4FE, 0xEB9FE], 4], [7, 3, [0xEBFBE, 0xE88BE, 0xE8DBE, 0xEABBE, 0xEB0BE, 0xEB5BE, 0xEBABE], [4, 4, 24, 4, 4, 4, 4]], [12, 9, [0xEC05E, 0xE895E, 0xE8E5E, 0xE935E, 0xE985E, 0xE9D5E, 0xEA25E, 0xEA75E, 0xEAC5E, 0xEB15E, 0xEB65E, 0xEBB5E], 4], [22, 15, [0xEC19E, 0xE8A9E, 0xE8F9E, 0xE949E, 0xE999E, 0xE9E9E, 0xEA39E, 0xEA89E, 0xEAD9E, 0xEB29E, 0xEB79E, 0xEBC9E], 4]]

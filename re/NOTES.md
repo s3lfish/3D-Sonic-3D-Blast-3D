@@ -491,3 +491,15 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   each end (sound 0x92 going again); +0x28 way, +0x29 first rest; +0x2A the second half (+0x20 across, box 32 x 64,
   else 32 x 32); a negative +0x2C marks the second half.
 
+## Gene Gadget 3 boss (2026-10-27; gng3_dis, gngseq.py)
+- InitLevel 0x110BA: pod (record 0, 048) x 0xE04, y 0x1D0, z 0x240; target y 0x40; lanes base 0x10 (off); hits 8.
+- RunLevel 0x11126 per frame: generic check 0xF794 (a hit sets t = 0x1DF, lanes 0xDD0); belt (once on): grounded:
+  facing 0x300..0x500 with the pad pushed: vz = -0.5; else vz + 0.25 while <= 1.5; leaving it: vz at least 2;
+  z >= 0x380 grounded: hurt. Timer t: 0x190 sound 0x93; 0x1B8 belt on, lanes 0xDD0; 0x1E0 target 0x70; 0x30C lanes off
+  (0x10); 0x370 target 0x20; 0x3D4 and 0x46A record 5 (164) dropped at (x - 7, 0, z + 6), 0x3E8 and 0x47E record 6 at
+  (x - 0x12, 0, z + 6) (sound 0xA0): z + 4 a frame for 80 frames, then blown up (0x114EA, sound 0x59); 0x406 lanes on;
+  0x500 back to 0x1E0. Records 8..13 (16C): z + 1 a frame; at 0x378 blown up and put at x = (random & 3) * 32 + lanes,
+  z 0x1C8 (watched: they hurt). Pod y toward the target a unit a frame; from 0x1E0 x = 0xE04 + sin * 32, + 0xA a frame.
+  Record 7 (168) at (x - 2, y - 16, z - 2). Roofs 0x11482 (the row under the pod, top 32). Belt tiles: 0x40 bytes from
+  0xDE8FE + 0x40k to VRAM 0x20 a frame while on.
+

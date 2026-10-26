@@ -950,5 +950,21 @@ test('a door gate opens for the ride that gives its key until its keyOff cell; a
   w = GNG([hop, { type: 'booster', x: 3.5, z: 2.5, dir: [1, 0] }]); place(w, 3.5, 2.5);
   run(w, 150, (f, ww) => { if (ww.events.includes('ride')) rode = true; return {}; }); assert.ok(rode, 'taken in the run');
 });
+test('the Gene Gadget boss: the belt carries the player to the hurting end, loads ride it, the pod is hit while low; eight', () => {
+  const boss = { type: 'boss', kind: 'gng', x: 3, y: 14.75, z: 3, home: [3, 3], cruise: 2.25, arena: [1, 5, 1, 14], hp: 8, vs: 1,
+    first: 2.25, high: 3.75, low: 1.25, belt: [-0.75, 12.75], lanes: [1.5, 1], end: 13, loads: [-0.75, -2.25], drops: [-0.22, -0.56], dropZ: 0.19 };
+  const lvl = grid(Array.from({ length: 15 }, (_, z) => z === 0 || z === 14 ? 'cccccc' : 'c1111c'), { entities: [{ type: 'start', x: 3, z: 5 }, boss], physics: Object.assign({}, ORIG.physics, { orig: 1 }) });
+  let w = world(lvl); w.ringCount = 5;
+  run(w, 0x1B8 + 120, {}); assert.ok(w.p.vz > UF(1.4), `carried south: ${(w.p.vz / UF(1)).toFixed(2)}`);
+  let end = false; run(w, 400, (f, ww) => { if (ww.events.includes('beltEnd')) end = true; return {}; }); assert.ok(end, 'the end row hurts');
+  w = world(lvl); w.ringCount = 50; let hits = 0;
+  for (let f = 0; f < 20000 && w.boss.dead < 0; f++) {
+    const b = w.boss, low = b.y < b.low + 0.05;
+    w.ringCount = 50; w.p.invuln = 1;
+    if (low && w.p.grounded) Object.assign(w.p, { x: b.x, z: b.z + 0.1, vx: 0, vz: 0 });
+    Sim.step(w, low ? { jump: true } : {}); if (w.events.includes('bossHit')) hits++;
+  }
+  assert.strictEqual(hits, 8, 'eight hits'); assert.ok(w.boss.dead >= 0, 'beaten');
+});
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

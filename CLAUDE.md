@@ -175,6 +175,15 @@ serves index.html from main.
   0x1E, `run`: only while `p.force.pass`); door gates with a `key` given by tubes 0 and 5 (`hole.key`, `w.keys`) and
   dropped on `keyOff` cells (also act 1's door at (54, 70)); platforms 078 as `movePlat` with `lin` {a, b, v, wait,
   dir, t} (a unit a frame, 60 frames' rest, drawn as metal plates); props 070 (doors) and 074 (pads), drawn only.
+- GnG3 boss `gng` (`gngStep`, InitLevel 0x110BA, RunLevel_GnGdz3 0x11126; heights + 8): timer t: 0x190 horn, 0x1B8 the belt
+  starts (grounded: pushed south to 1.5+ units a frame; stick pushed with facing within 45 degrees of north: vz -0.5;
+  leaving it: vz at least 2), 0x1E0 high (0x70), 0x30C lanes off, 0x370 low (0x20), bombs (164: 4 a frame south, 80
+  frames) at 0x3D4/0x46A (x - 7) and 0x3E8/0x47E (x - 18), 0x406 lanes on, 0x500 back to 0x1E0; sway 32 units, 0xA a
+  frame from 0x1E0; six loads (16C) a unit a frame from z 0x1C8 to 0x378 in lanes 0xDD0 + 32k (random), hurt; end row
+  (z 0x380) hurts; generic hit check (0xF794: 32 units, -32..+64, ball 8 over it: hit, else hurt; hits allowed while
+  invulnerable); hit: t = 0x1DF, lanes on. Roofs 0x11482. Drawn: pod 048, lower part 168, loads 16C, bombs 164 (ROM) or
+  crates and mines. ANIM_FRAMES: GnG fans (16 tiles 0xDD8FE, steady rate; the original spins them with the hover) and the
+  belt (2 tiles 0xDE8FE).
 - Converted levels, all zones (watched in GnG1 and GG1): a roll bounces off walls (`rollBounce`, facing turned); corner
   pieces (one corner two steps over three level ones, both neighbours by it without floor; `L.diag`, findDiagonals) are
   diagonal walls (that half solid, rest flat), met as a point (`P.rDiag`); walls keep `P.rOrig` 0.12 m; slope pull
@@ -252,6 +261,8 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
+- 2026-10-27: Gene Gadget 3 boss (the belt, its loads, bombs, the pod low to hit); 108 sim tests. Gene Gadget done.
+  Next: Panic Puppet (20, 19, 21), then Final Fight (22).
 - 2026-10-27: Gene Gadget 2 (chute, supercharger hop, doors, platforms, slides, spikes); 107 sim tests; all 22 levels
   load in the page (alllevels.probe.js, private). Next: the GnG3 boss (0x11126).
 - 2026-10-27: Gene Gadget 1 (hover cells, zap floors, pyramid bumpers, barriers and gates, sprinklers, tubes with the

@@ -94,6 +94,7 @@ GIMMICKS = {
     13: {'pads': [(0, 1, 1), (2, 3, 2)], 'lava': 0x55, 'rocks': (0xAB42, 42), 'roofs': 0xAA4A, 'vents': (0xA8F6, 6), 'spouts': (0xA9AA, 10), 'fireRuns': (0xAA5E, 5),
          'cracks': [([(59, 55)], 680, [-1, 0]), ([(65, 63)], 584, [-1, 0])]},
     14: {'lava': 0x55},
+    18: {'roofs': 0x11482},   # Gene Gadget 3
     10: {'pads': [(0, 1, 1), (2, 3, 2)], 'rides': [(78, 95, 0, 0x803E, None, None, None, None, (400, None))],
          'dashes': [(50, 45, 608, (7.5, 0), 10, 0, 0)], 'currents': [(96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5)],
          'hops': ([(109, 80), (103, 82), (111, 72)], 40), 'flames': (0xFD5E, 7), 'freeze': 1,
@@ -116,7 +117,9 @@ BOSSES = {3: {'kind': 'gg', 'at': (1152, 350, 1152), 'home': (1088, 1088), 'crui
                'script': 0xF2FA, 'hitAt': 0x28, 'diag': 0xD8, 'sum': (0x1000 - 0x110, 0x1000 + 0x118), 'home': (2048, 2048),
                'arena': (0x740, 0x8C0, 0x740, 0x8C0), 'hp': 8},
           14: {'kind': 'vv', 'at': (0x800, 0x1E8 + 8, 0x800), 'cruise': 0x58 + 8, 'low': 0x58 + 8, 'hitBox': (0x7F0, 0x830, 0x7F0, 0x830), 'minY': 0x60 + 8,
-               'rise': (0x834, 0x5C + 8, 0x830), 'spikes': ((63, 64), (65, 64), (64, 63), (64, 65)), 'home': (0x800, 0x800), 'arena': (0x740, 0x8C0, 0x740, 0x8C0), 'hp': 8}}
+               'rise': (0x834, 0x5C + 8, 0x830), 'spikes': ((63, 64), (65, 64), (64, 63), (64, 65)), 'home': (0x800, 0x800), 'arena': (0x740, 0x8C0, 0x740, 0x8C0), 'hp': 8},
+          18: {'kind': 'gng', 'at': (0xE04, 0x1D0 + 8, 0x240), 'cruise': 0x40 + 8, 'first': 0x40 + 8, 'high': 0x70 + 8, 'low': 0x20 + 8, 'belt': (0x1C8, 0x378),   # Gene Gadget 3
+               'lanes': (0xDD0, 32), 'end': 0x380, 'loads': (456, 408, 360, 312, 264, 216), 'drops': (-7, -18), 'dropZ': 6, 'home': (0xE04, 0x240), 'arena': (0xDC0, 0xE40, 0x200, 0x3A0), 'hp': 8}}
 SCRIPTS = 0x25DF2
 
 
@@ -501,6 +504,11 @@ def convert(rom, level_id, vscale=1.0):
             e["hitBox"] = [jround(bs['hitBox'][0] / CELL - x0, 3), jround(bs['hitBox'][1] / CELL - x0, 3), jround(bs['hitBox'][2] / CELL - z0, 3), jround(bs['hitBox'][3] / CELL - z0, 3)]
             e["rise"] = [jround(bs['rise'][0] / CELL - x0, 3), Y(bs['rise'][1]), jround(bs['rise'][2] / CELL - z0, 3)]
             e["spikes"] = [[cx - x0, cz - z0] for cx, cz in bs['spikes'] if floor_cell(cx, cz)]
+        if bs['kind'] == 'gng':
+            Y = lambda v: r3(v / CELL * vscale); Z = lambda v: r3(v / CELL - z0)
+            e["first"] = Y(bs['first']); e["high"] = Y(bs['high']); e["low"] = Y(bs['low']); e["belt"] = [Z(v) for v in bs['belt']]
+            e["lanes"] = [r3(bs['lanes'][0] / CELL - x0), r3(bs['lanes'][1] / CELL)]; e["end"] = Z(bs['end']); e["loads"] = [Z(v) for v in bs['loads']]
+            e["drops"] = [r3(v / CELL) for v in bs['drops']]; e["dropZ"] = r3(bs['dropZ'] / CELL)
         if bs['kind'] == 'dd':
             Y = lambda v: jround(v / CELL * vscale, 3)
             e["low"] = Y(bs['low']); e["high"] = Y(bs['high']); e["dropY"] = Y(bs['dropY'])
