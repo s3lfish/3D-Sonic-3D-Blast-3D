@@ -872,6 +872,11 @@ test('the original\'s death: thrown 8 up, held at the top, the act again 57 fram
   assert.ok(hit >= 0 && back - hit === 57, `back ${back - hit} frames after the hit`);
   near((top - 1) * 32, 124, 1, 'rose 124 units');
 });
+test('058 bursts into four shots when Sonic comes near, then is gone', () => {
+  const w = ROMLV(0, 0, [{ type: 'enemy', x: 5.5, z: 4.5, radius: 1, burst: 1, flicky: 0 }]); place(w, 2.5, 4.5); w.p.facing = Math.PI / 2;
+  let first = -1; run(w, 40, (f, x) => { if (first < 0 && x.shots.length) first = f; return { mx: 1 }; });
+  assert.ok(first > 0 && !w.enemies[0].alive, `burst at frame ${first}`);
+});
 test('the original\'s monitors are solid boxes: walking stops at a side, a roll or the ball onto it breaks it', () => {
   const mon = [{ type: 'monitor', x: 4.5, z: 4.5, kind: 'rings' }];
   let w = ROMLV(0, 0, mon); place(w, 3.2, 4.5); w.p.facing = Math.PI / 2;

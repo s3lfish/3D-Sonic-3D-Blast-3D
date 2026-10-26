@@ -174,7 +174,10 @@ original art. The browser code carries reading rules only.
   0..15 calls, a random -1/0/+1 jitter, its 0x40 square). 0x16528 (108, 148): to and fro along x (bit 3 of $16) or z
   between $24 and $26. 0x174B4 (07C sprinkler): armed within 80 units, turns 0x10 a frame, a shot when $0B02 is 0 (from
   (sin, cos) >> 11 out, + 1 in x, 0x11 up, (sin, cos) x 4, 0.25 up, gravity 1/32); a 16 x 16 solid box, not breakable.
-  0x16B40 (0C8): shoots at animation frames (not ported).
+  0x16B40 (0C8): shoots at animation frames (not ported). 0x183FE (058): Sonic within 0x30 on both axes: $24 = 40, then
+  each frame a particle (template 0xD9B8: type 5, gravity 1/8, 512 frames) from table 0x184C0 + $26 + $24 ((0, -1),
+  (0, 1), (-1, 0), (1, 0) a frame for 40, 30, 20, 10), speed up 4 - $24 / 16, $24 - 10; at 0 it becomes type 0x30
+  (inert art 0x3A71C), sound 0x59. 0x17294 (09C): the same to and fro as 0x16528.
 - Monitors (0x18674): a box in the solid list $CC02 (one entry for all), x - 14, top y + 24, z - 6, 0x1B x 0x15, its
   break flag $2A; broken: an airborne Sonic is thrown 5 up in the ball, sound 0x3D, the power 40 frames later.
 - Solid boxes (0x3788; 8 entries of 0x12 at $CC02): Sonic inside the footprint and between top - 48 and top: from a

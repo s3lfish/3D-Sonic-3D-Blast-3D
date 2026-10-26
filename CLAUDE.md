@@ -65,6 +65,7 @@ serves index.html from main.
   (supercharger: jump on it, held `P.boostWait`, fired at `P.boostSpeed`); monitor `kind` (rings, shield, gold, invincible,
   speed, oneup, fire); enemy `chase` (Scouter 58) and radius 0 (Hunter 0C stands still, turns to face the player;
   `orbit`/`orbitY`: spike ball circling at 23.5 units, one turn per 256 frames, `P.ballR`, hurts, cannot be broken;
+  converted levels: 058 bursts instead of chasing, see Enemy handlers;
   ROM sprite recipe 'SPK', Hunter recipe 00C without the ball). Player: `shield`, `inv`, `fast`
   timers; shields take a hit without losing rings; gold shield dashes on a second jump press in the air.
 - Spin dash (built-in level): hold dash to brake and rev (any speed), release to launch; a tap under 0.12 s while running
@@ -216,8 +217,10 @@ serves index.html from main.
 - Enemy handlers ported (converters mark them): roamers `roam` (handler 0x17CB6: 060, 14C, 104, 0C4; `origRoam`:
   half a unit a frame in their 0x7C square, a random eighth every 60 frames, chasing within 0x40 at a unit a frame,
   re-aimed every 10), 064 `aim` (0x17BC8, `origAim`: turns 0x10 a frame to Sonic's octant (`octantTo`, table
-  0xDBEE), 30 frames after facing him a level shot at a unit a frame, then every 120), wanderers 094/144/10C/17C
-  (0x17346), patrols 100/108/148/05C/178. Open: 0C8 (shots timed by its animation), 09C, 058's exact chase.
+  0xDBEE), 30 frames after facing him a level shot at a unit a frame, then every 120), 058 `burst` (0x183FE,
+  `origBurst`: within 0x30 of Sonic, four shots over four frames along -z, +z, -x, +x, then an empty shell; it does not
+  chase), wanderers 094/144/10C/17C (0x17346), patrols 100/108/148/09C/05C/178. Open: 0C8 (shots timed by its
+  animation).
 - Converted levels, all zones: corner pieces (one corner two steps over three level ones, both neighbours by it without
   floor; `L.diag`, findDiagonals) are diagonal walls (that half solid, rest flat), met as a point (`P.rDiag`). Walls,
   floors, slopes and bounces are the original's: see Original movement.

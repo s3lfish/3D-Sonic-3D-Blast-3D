@@ -317,7 +317,7 @@ const S3D = (() => {
   // x; measured at half a unit a frame, as Gene Gadget's 05C and Panic Puppet's 178: the handlers add one every other
   // frame); jet lifts (12C, handler 0x177F6): a box 32 x 48 units from the record (48 x 32 with bit 3
   // of byte +0x16) rising a unit a frame from +0x24 to +0x26 while stood on; fire (120): burns unless the fire shield
-  const PATROL = new Set([0x100, 0x108, 0x148, 0x5C, 0x178]);   // (0x108 and Spring Stadium's 0x148 share handler 0x16528)
+  const PATROL = new Set([0x100, 0x108, 0x148, 0x9C, 0x5C, 0x178]);   // (0x108 and Spring Stadium's 0x148 share handler 0x16528; Rusty Ruin's 09C, 0x17294, is the same)
   // handler 0x17346 (094, 144, 10C, 17C): wanders; 0x17CB6 (060, 14C, 104; 0C4 joins it): roams and chases
   const WANDER = new Set([0x94, 0x144, 0x10C, 0x17C]), ROAM = new Set([0x60, 0x14C, 0x104, 0xC4]);   // (Gene Gadget's 05C: handler 0x17E80; Panic Puppet's 178: 0x15E20)
   // Spring Stadium's balloons (150, handler 0x164B0): bob 8 units about word +0x26 (phase +0x24, 16 a frame of 2048);
@@ -513,7 +513,7 @@ const S3D = (() => {
       // the ROM); a supercharger fires along z, towards +z when bit 0x800 of word +0x16 is set
       if (kind === 'enemy') {
         e.radius = t === 0x0C ? 0 : 1.0;
-        if (t === 0x58) e.chase = 1;
+        if (t === 0x58) e.burst = 1;   // (handler 0x183FE: bursts into four shots when Sonic comes near; Sim `burst`)
         if (t === 0x0C) { e.orbit = r3(HUNTER_ORBIT / CELL); e.orbitY = r3(HUNTER_BALL_Y / CELL * vscale); }
       }
       if (kind === 'monitor') e.kind = MONITOR_KINDS[u16(ob, o + 0x26) >> 7] || 'rings';
@@ -1185,7 +1185,7 @@ const S3D = (() => {
     sfx: { jump: [0x62], charge: [0xAB], dash: [0xB6], ring: [0x33], spring: [0x68], enemy: [0x3D, 0x38], monitor: [0x3D],
       hurt: [0xB9], shot: [0x4D], boom: [0x9A], goal: [0x6A], boostIn: [0xAB], boost: [0xB6], goldDash: [0xB6],
       shieldLost: [0x35], dying: [0x35] /* 0x1B6F0, 0x1B744 */, section: [0xAC] /* near the big ring routine */,
-      cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */,
+      cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, burst: [0x59] /* 058 */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */,
       bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */,
       bossSlam: [0x5F], bossCap: [0x9E] /* RR3's routine */,
       bumper: [0xB7], balloon: [0x77], spikesUp: [0x52], spear: [0x8C] /* Spring Stadium's routines */,

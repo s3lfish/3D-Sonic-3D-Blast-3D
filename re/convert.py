@@ -27,7 +27,7 @@ KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 
          0x178: 'enemy', 0x19C: 'capsule', 0x194: 'lever', 0x184: 'prop', 0x17C: 'enemy', 0x180: 'beamPost', 0x18C: 'jetLift',
          0x15C: 'friend', 0x160: 'friend', 0x44: 'head'}
 PROP_FRAME = {0x70: 6, 0x74: 0, 0x184: 7}
-PATROL = {0x100, 0x108, 0x148, 0x5C, 0x178}   # half a unit a frame (measured; see s3d.js)
+PATROL = {0x100, 0x108, 0x148, 0x9C, 0x5C, 0x178}   # half a unit a frame (measured; see s3d.js)
 WANDER, ROAM = {0x94, 0x144, 0x10C, 0x17C}, {0x60, 0x14C, 0x104, 0xC4}   # handlers 0x17346 and 0x17CB6 (see s3d.js)
 MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']
 
@@ -246,7 +246,7 @@ def convert(rom, level_id, vscale=1.0):
         e = {"type": kind, "x": jround(x / CELL - x0, 3), "z": jround(z / CELL - z0, 3)}
         if kind == 'enemy':
             e["radius"] = 0 if t == 0x0C else 1.0
-            if t == 0x58: e["chase"] = 1
+            if t == 0x58: e["burst"] = 1   # bursts into four shots (see s3d.js)
             if t == 0x0C:   # spike ball: circle radius 23.5 units (measured), about 20 units up (estimated)
                 e["orbit"] = jround(23.5 / CELL, 3); e["orbitY"] = jround(20 / CELL * vscale, 3)
         if kind == 'monitor':
