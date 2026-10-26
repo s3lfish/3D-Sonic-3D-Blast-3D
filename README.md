@@ -58,9 +58,10 @@ untested.
 - On levels from your ROM, Sonic moves by the original's own rules: how fast he speeds up, stops, turns, slides on
   ice, rolls, and how hard each spin dash launches him.
 - Monitors show their icon and give rings, a shield, a gold shield, invincibility, speed shoes or a 1-up.
-- The Green Grove, Rusty Ruin, Spring Stadium and Diamond Dust bosses, moving as the original's routines move them: in Rusty Ruin, ride a stone
+- The Green Grove, Rusty Ruin, Spring Stadium, Diamond Dust and Volcano Valley bosses, moving as the original's routines move them: in Rusty Ruin, ride a stone
   fist up after it slams and jump at the pod; in Diamond Dust, keep clear of the snow its blowers puff (it freezes
-  you) and of its snowmen, and jump on it while it is low.
+  you) and of its snowmen, and jump on it while it is low; in Volcano Valley, land on the pod in the crater and
+  outrun the fire serpent.
 - Mines, Turrets, chasing enemies, Hunters with their circling spike balls, and superchargers (stand on one and press jump).
 - The original's act results screen, then the next act.
 - With your own Sonic Jam (Saturn) disc image (.chd, .iso, .bin, .img, .mdf, .nrg, .ecm, or zipped): a 3D Sonic using the Saturn game's own model, textures and moves
@@ -69,7 +70,7 @@ untested.
 - With your ROM: the original music and sound effects, played by an emulated Mega Drive sound chip running the
   game's own sound program from your ROM. Without a ROM: simple sound effects made in the browser. M turns sound off.
 
-Not done yet: Spring Stadium's gates, Tails and Knuckles, the Volcano Valley boss, and the zones after it. See `re/NOTES.md` for what is known and what is not.
+Not done yet: Spring Stadium's gates, Tails and Knuckles, and the zones after Volcano Valley. See `re/NOTES.md` for what is known and what is not.
 
 ## Working on it
 

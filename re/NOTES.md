@@ -433,3 +433,17 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   3 of +0x16) at +0x28 + (sine << 7 >> 16) (63 units), angle +0x26 + 4 a frame; else stood on it shakes 64 frames
   (sound 0xD3) and drops to +0x28 (sound 0x96).
 
+## Volcano Valley 3 boss (2026-10-27; vv3_dis, vv3watch.py)
+- Init 0x9DF8 writes a path buffer of 37 [x.l, y, z.l] entries over map RAM (row 0); pod record y ($CCDC) 0x1E8.
+- RunLevel 0x9EBA: pod y comes down 1 a frame to 0x58 (sound 0x9E). With the pod at 0x58 and Sonic's x and z - 0x7F0
+  within 0x40: airborne with $56 = 1: hit (speed reversed, vy -5, pad 30 frames, $3C - 1, sound 0x59; pod frames at
+  6/4/2 left), else hurt; $38 = 60 between. At 0 left: 240 frames of explosions as the pod rises, then the act ends.
+  Grounded in cells 0x407E, 0x4082, 0x3F80, 0x4180: hurt. Grounded at y 0x40 (the lava): burnt (as 0xB5C8).
+- Serpent: counter $1C to 0x1FE; at 0x10E the head is put at (0x834, 0x5C, 0x830) (sound 0x4E); from 0x118 it heads for
+  Sonic (table 0xDBEE, turn = random & 0x3F + 0x10 a frame), sine x 4 per frame (2 units), y a unit a frame toward
+  Sonic's + 0x10, not under 0x60. Each frame the head goes into the ring buffer; nine segment records (138) read it
+  back 4 entries apart (12 more after the fifth). At 0x1FE all are put away (x 1).
+- Every 10 frames record 9 (134) is put at the next of eight vent places (table 0xA3B2: [record offset, x, y, z], or
+  (0x10, 0x60, 0x800) if that vent record is off); if a serpent segment comes within 0x20 of it while $4(a4) is 1..4,
+  the vent is put out (sound 0x83).
+

@@ -1299,6 +1299,12 @@ const Sim = (() => {
             }
             Object.assign(b, { low: e.low, high: e.high, dropY: Number.isFinite(e.dropY) ? e.dropY : e.low, script: e.script, hitAt: Math.max(0, Math.min(e.script.length - 1, e.hitAt || 0)), oct: e.oct });
           }
+          // Volcano Valley 3: the pod's low height, its hit box [x0, x1, z0, z1], spiked cells and the serpent's rising point
+          if (e.kind === 'vv') {
+            const four = v => Array.isArray(v) && v.length === 4 && v.every(Number.isFinite);
+            if (!Number.isFinite(e.low) || !four(e.hitBox) || !Array.isArray(e.rise) || e.rise.length !== 3 || !e.rise.every(Number.isFinite)) { errs.push('A Volcano Valley boss needs "low", a "hitBox" and the serpent\'s "rise" [x, y, z].'); break; }
+            Object.assign(b, { low: e.low, hitBox: e.hitBox, rise: e.rise, spikes: Array.isArray(e.spikes) ? e.spikes.filter(c => Array.isArray(c) && inBounds(c[0], c[1])) : [], minY: Number.isFinite(e.minY) ? e.minY : e.low });
+          }
           L.entities.push(b);
           break;
         }
@@ -1497,7 +1503,7 @@ const Sim = (() => {
     }
     return out;
   }
-  const BOSS_KINDS = new Set(['gg', 'rr', 'ss', 'dd']);
+  const BOSS_KINDS = new Set(['gg', 'rr', 'ss', 'dd', 'vv']);
   function importLevel(raw) {
     const errs = [];
     if (!raw || typeof raw !== 'object') throw new LevelError(['The level data is not a JSON object.']);
@@ -1674,6 +1680,7 @@ const Sim = (() => {
       fistAt: b.fists.map(() => [b.x, b.y, b.z]), slam: b.fists.map(() => 0) });
     if (w.boss && b.kind === 'dd') Object.assign(w.boss, { ball: null, t: 0, si: 0, fresh: true, act: 1, h: 0, target: b.low, blowA: 0, blowT: 0, dropT: 0,
       snowmen: [], balls: [], puffs: [], puffK: 7, puffWait: 0 });
+    if (w.boss && b.kind === 'vv') Object.assign(w.boss, { ball: null, t: 0, head: null, path: [], segs: [], seed: 7 });
     if (w.boss && b.kind === 'rr') Object.assign(w.boss, { armX: b.arms, arms: [[32, 0], [32, 0]], cur: 0, si: 0, act: 2, par: false, boxes: [null, null], ball: null });
     w.plats = [];
   }
@@ -1905,7 +1912,56 @@ const Sim = (() => {
     }
     return false;
   }
+  // Volcano Valley 3 (InitLevel 0x9DF8, RunLevel_VVz3 0x9EBA): the pod comes down into the crater (1 unit a frame) to its
+  // low height; there, a ball landing on it inside its box is a hit (bounce 5 up, pad 30 frames, 60 frames apart), on
+  // the ground there it hurts; 8 hits. The four cells round the crater's mouth hurt. Every 510 frames a fire serpent
+  // rises at frame 270 and for 240 frames heads for Sonic (octant table 0xDBEE, a random turn of 16..79 a frame, 2 units
+  // a frame, up or down a unit a frame toward his height + 16, not under its floor); nine segments follow its path.
+  function vvStep(w) {
+    const b = w.boss, p = w.p, L = w.L, U = 1 / 32, V = b.vs / 32, T = Math.PI / 1024, safe = p.inv > 0 || p.invuln > 0;
+    if (b.cool > 0) b.cool -= P.dt;
+    if (b.dead >= 0) {
+      b.dead += P.dt; b.y += V; b.segs.length = 0;
+      if (b.dead > 4 && !w.cleared) { w.cleared = true; w.events.push('goal'); }
+      return false;
+    }
+    if (b.y > b.low + 1e-6) { b.y = Math.max(b.low, b.y - V); if (b.y <= b.low + 1e-6) w.events.push('bossDrop'); }
+    else {
+      const [x0, x1, z0, z1] = b.hitBox;
+      if (b.cool <= 0 && p.x >= x0 && p.x <= x1 && p.z >= z0 && p.z <= z1) {
+        if (!p.grounded && p.ball && p.vy <= 0) {   // (coming down on it: a bounce does not count twice)
+          p.vx = -p.vx; p.vz = -p.vz; p.vy = 5 * 60 / 32 * b.vs; p.lock = 30 / 60; p.jumping = false;
+          b.hits++; b.cool = 1; w.events.push('bossHit');
+          if (b.hits >= b.hp) { b.dead = 0; w.events.push('bossDown'); }
+        } else if (p.grounded && !safe) { hurt(w, p.x - b.x, p.z - b.z); if (w.events.includes('respawn')) return true; b.cool = 1; }
+      }
+    }
+    const cell = Math.floor(p.z) * L.width + Math.floor(p.x);
+    if (p.grounded && !safe && b.spikes.some(([cx, cz]) => cz * L.width + cx === cell)) { hurt(w, p.x - b.x, p.z - b.z); if (w.events.includes('respawn')) return true; }
+    // the serpent
+    b.t = b.t >= 0x1FE ? 0 : b.t + 1;
+    if (b.t === 0x10E) { b.head = { x: b.rise[0], y: b.rise[1], z: b.rise[2], h: 0 }; b.path = []; w.events.push('serpent'); }
+    else if (b.t === 0) { b.head = null; b.path = []; }
+    if (b.head) {
+      const hd = b.head;
+      if (b.t >= 0x118) {
+        const dx = p.x - hd.x, dz = p.z - hd.z, ax = Math.abs(dx), az = Math.abs(dz);
+        const diag = az >= ax ? az / 2 < ax : az > ax / 2, along = az >= ax ? 0 : 0x200, sx = dx < 0 ? -1 : 1, sz = dz < 0 ? -1 : 1;
+        const want = diag ? (sx > 0 ? (sz > 0 ? 0x100 : 0x300) : (sz > 0 ? 0x700 : 0x500)) : along ? (sx > 0 ? 0x200 : 0x600) : (sz > 0 ? 0 : 0x400);
+        b.seed = (b.seed * 16807) % 2147483647; const turn = 16 + (b.seed & 63), d = (hd.h - want) & 0x7FE;
+        if (d) hd.h = (hd.h + (d <= 0x400 ? -turn : turn)) & 0x7FE;
+        hd.x += Math.sin(hd.h * T) * 2 * U; hd.z += Math.cos(hd.h * T) * 2 * U;
+        const ty = Math.max(b.minY, p.y + 16 * V);
+        hd.y += Math.abs(ty - hd.y) <= V ? ty - hd.y : Math.sign(ty - hd.y) * V;
+      }
+      b.path.push([hd.x, hd.y, hd.z]); if (b.path.length > 37) b.path.shift();
+      b.segs = []; for (let k = 0; k < 9; k++) { const q = b.path[b.path.length - 1 - 4 * k]; if (q) b.segs.push(q); }
+      if (!safe) for (const [x, y, z] of b.segs) if (Math.hypot(p.x - x, p.z - z) < 16 * U + P.r && Math.abs(p.y + 0.4 - y) < 0.7) { hurt(w, p.x - x, p.z - z); if (w.events.includes('respawn')) return true; break; }
+    } else b.segs = [];
+    return false;
+  }
   function bossStep(w, pcy) {
+    if (w.boss.kind === 'vv') return vvStep(w);
     if (w.boss.kind === 'dd') return ddStep(w);
     if (w.boss.kind === 'ss') return ssStep(w);
     if (w.boss.kind === 'rr') return rrStep(w);
@@ -3432,6 +3488,7 @@ const S3D = (() => {
       cracks: [[[[55, 61]], 744, [0, -1]], [[[94, 114]], 424, [-1, 0]]], balls: [0xE80, 56, 8] },
     13: { pads: [[0, 1, 1], [2, 3, 2]], lava: 0x55, rocks: [0xAB42, 42], roofs: 0xAA4A, vents: [0xA8F6, 6], spouts: [0xA9AA, 10], fireRuns: [0xAA5E, 5],
       cracks: [[[[59, 55]], 680, [-1, 0]], [[[65, 63]], 584, [-1, 0]]] },
+    14: { lava: 0x55 },   // Volcano Valley 3: the crater's lava
     10: { pads: [[0, 1, 1], [2, 3, 2]], rides: [[78, 95, 0, 0x803E, null, null, null, undefined, [400, null]]],
       dashes: [[50, 45, 608, [7.5, 0], 10, 0, 0]], currents: [[96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5]],
       hops: [[[109, 80], [103, 82], [111, 72]], 40], flames: [0xFD5E, 7], freeze: 1,
@@ -3471,7 +3528,12 @@ const S3D = (() => {
     // a hit restarting it at byte 0x28; heading turned in at x or z outside 0x740..0x8C0, |x - z| >= 0xD8, and
     // 0x1000 - x - z >= 0x110 or <= -0x118
     11: { kind: 'dd', at: [2052, 0x240 + 8, 2048], cruise: 0xB0 + 8, low: 0xB0 + 8, high: 0x100 + 8, dropY: 0xE0 + 8, script: 0xF2FA, hitAt: 0x28,
-      diag: 0xD8, sum: [0x1000 - 0x110, 0x1000 + 0x118], home: [2048, 2048], arena: [0x740, 0x8C0, 0x740, 0x8C0], hp: 8 } };
+      diag: 0xD8, sum: [0x1000 - 0x110, 0x1000 + 0x118], home: [2048, 2048], arena: [0x740, 0x8C0, 0x740, 0x8C0], hp: 8 },
+    // Volcano Valley 3 (InitLevel 0x9DF8, RunLevel_VVz3 0x9EBA): pod from 0x1E8 down to 0x58 (+8: the feet frame); hit
+    // box x and z 0x7F0..0x830; spiked cells (63, 64), (65, 64), (64, 63), (64, 65); the serpent rises at (0x834, 0x5C,
+    // 0x830), never under 0x60
+    14: { kind: 'vv', at: [0x800, 0x1E8 + 8, 0x800], cruise: 0x58 + 8, low: 0x58 + 8, hitBox: [0x7F0, 0x830, 0x7F0, 0x830], minY: 0x60 + 8,
+      rise: [0x834, 0x5C + 8, 0x830], spikes: [[63, 64], [65, 64], [64, 63], [64, 65]], home: [0x800, 0x800], arena: [0x740, 0x8C0, 0x740, 0x8C0], hp: 8 } };
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
   // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
@@ -3927,6 +3989,11 @@ const S3D = (() => {
         for (let o = bs.script; sc.length < 64; o += 4) { const a = s16(d, o), n = s16(d, o + 2); if (a < 0) { e.loop = sc.length - n / 4; break; } sc.push([a / 4, n]); }
         e.script = sc;
       }
+      if (bs.kind === 'vv') {
+        const Y = v => r3(v / CELL * vscale);
+        e.low = Y(bs.low); e.minY = Y(bs.minY); e.hitBox = [r3(bs.hitBox[0] / CELL - x0), r3(bs.hitBox[1] / CELL - x0), r3(bs.hitBox[2] / CELL - z0), r3(bs.hitBox[3] / CELL - z0)];
+        e.rise = [r3(bs.rise[0] / CELL - x0), Y(bs.rise[1]), r3(bs.rise[2] / CELL - z0)]; e.spikes = bs.spikes.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
+      }
       if (bs.kind === 'dd') {
         const Y = v => r3(v / CELL * vscale);
         e.low = Y(bs.low); e.high = Y(bs.high); e.dropY = Y(bs.dropY);
@@ -4154,7 +4221,7 @@ const S3D = (() => {
       bossSlam: [0x5F], bossCap: [0x9E] /* RR3's routine */,
       bumper: [0xB7], balloon: [0x77], spikesUp: [0x52], spear: [0x8C] /* Spring Stadium's routines */,
       ddDrop: [0x7E], snowman: [0x51], snowPuff: [0xC8] /* DD3's routine */,
-      rockBreak: [0x59], ventOut: [0xB6] /* Volcano Valley's helpers */,
+      rockBreak: [0x59], ventOut: [0xB6] /* Volcano Valley's helpers */, serpent: [0x4E] /* VV3's routine */,
       iceBreak: [0x59] /* Diamond Dust's ice spikes */, freeze: [0x80], frozenHop: [0x94], thaw: [0x80] /* routines 0x1B9CA, 0x3050 */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
@@ -5405,6 +5472,7 @@ const Art = (() => {
       padIn: () => tone('triangle', 500, 120, 0.9, 0.2),
       flame: () => noise(0.25, 0.35, 900),
       ddDrop: () => tone('square', 400, 200, 0.2, 0.15),
+      serpent: () => { noise(0.6, 0.8, 600); tone('sawtooth', 90, 220, 0.6, 0.3); },
       snowman: () => tone('triangle', 300, 900, 0.25, 0.2),
       snowPuff: () => noise(0.3, 0.25, 7000),
       bossHit: () => { noise(0.3, 0.8, 2000); tone('square', 300, 80, 0.3, 0.3); },
@@ -5819,6 +5887,16 @@ const Art = (() => {
     if (b.kind === 'rr') { o.rr = buildRrStatue(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
     if (b.kind === 'ss') { o.ss = buildSsArms(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
     if (b.kind === 'dd') { o.dd = buildDdParts(b, o.rom); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
+    if (b.kind === 'vv') {   // the fire serpent: the original's flame frames (object 138, line 3) or our own fireballs
+      o.ball.visible = false; o.links.forEach(l => { l.visible = false; });
+      const fr = o.rom ? romTypeFrames(0x138, 3) : [];
+      o.vv = Array.from({ length: 9 }, (_, k) => {
+        const sp = new THREE.Sprite(fr.length ? fr[Math.min(fr.length - 1, 7 - Math.min(7, k))] : puffMat);
+        if (fr.length) { sp.scale.set(ROM_SIZE * 1.3, ROM_SIZE * 1.3, 1); sp.center.set(0.5, OBJ_FOOT); } else sp.scale.setScalar(0.9 - k * 0.05);
+        levelGroup.add(sp);
+        sp.visible = false; sp.userData.frames = fr; return sp;
+      });
+    }
     return o;
   }
   // Diamond Dust 3's parts: blowers circling the pod, snowmen, their snowballs and the snow puffs. ROM look: the
@@ -5996,6 +6074,10 @@ const Art = (() => {
       });
     }
     if (o.dd) { updateDdParts(b, o.dd, t); if (o.rom) o.g.position.y = b.y - 8 * b.vs / 32; }
+    if (o.vv) {
+      if (o.rom) o.g.position.y = b.y - 8 * b.vs / 32;
+      o.vv.forEach((sp, k) => { const q = b.segs[k]; sp.visible = !!q && b.dead < 0; if (q) sp.position.set(q[0], q[1], q[2]); });
+    }
     if (o.ss) o.ss.forEach((a, k) => {   // links from under the pod to the fist
       const [fx, fy, fz] = b.fistAt[k], sx = b.x + b.fists[k][0] * 0.4, sy = b.y - 0.1, sz = b.z + b.fists[k][1] * 0.4;
       a.links.forEach((m, i) => { const t = (i + 1) / 7; m.position.set(sx + (fx - sx) * t, sy + (fy + 0.4 - sy) * t, sz + (fz - sz) * t); });

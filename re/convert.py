@@ -76,6 +76,7 @@ GIMMICKS = {
          'cracks': [([(55, 61)], 744, [0, -1]), ([(94, 114)], 424, [-1, 0])], 'balls': (0xE80, 56, 8)},
     13: {'pads': [(0, 1, 1), (2, 3, 2)], 'lava': 0x55, 'rocks': (0xAB42, 42), 'roofs': 0xAA4A, 'vents': (0xA8F6, 6), 'spouts': (0xA9AA, 10), 'fireRuns': (0xAA5E, 5),
          'cracks': [([(59, 55)], 680, [-1, 0]), ([(65, 63)], 584, [-1, 0])]},
+    14: {'lava': 0x55},
     10: {'pads': [(0, 1, 1), (2, 3, 2)], 'rides': [(78, 95, 0, 0x803E, None, None, None, None, (400, None))],
          'dashes': [(50, 45, 608, (7.5, 0), 10, 0, 0)], 'currents': [(96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5)],
          'hops': ([(109, 80), (103, 82), (111, 72)], 40), 'flames': (0xFD5E, 7), 'freeze': 1,
@@ -96,7 +97,9 @@ BOSSES = {3: {'kind': 'gg', 'at': (1152, 350, 1152), 'home': (1088, 1088), 'crui
                'corners': ((2237, 1560), (2045, 1752)), 'home': (1796, 2304), 'arena': (1496, 1896, 1981, 2398), 'hp': 8},
           11: {'kind': 'dd', 'at': (2052, 0x240 + 8, 2048), 'cruise': 0xB0 + 8, 'low': 0xB0 + 8, 'high': 0x100 + 8, 'dropY': 0xE0 + 8,
                'script': 0xF2FA, 'hitAt': 0x28, 'diag': 0xD8, 'sum': (0x1000 - 0x110, 0x1000 + 0x118), 'home': (2048, 2048),
-               'arena': (0x740, 0x8C0, 0x740, 0x8C0), 'hp': 8}}
+               'arena': (0x740, 0x8C0, 0x740, 0x8C0), 'hp': 8},
+          14: {'kind': 'vv', 'at': (0x800, 0x1E8 + 8, 0x800), 'cruise': 0x58 + 8, 'low': 0x58 + 8, 'hitBox': (0x7F0, 0x830, 0x7F0, 0x830), 'minY': 0x60 + 8,
+               'rise': (0x834, 0x5C + 8, 0x830), 'spikes': ((63, 64), (65, 64), (64, 63), (64, 65)), 'home': (0x800, 0x800), 'arena': (0x740, 0x8C0, 0x740, 0x8C0), 'hp': 8}}
 SCRIPTS = 0x25DF2
 
 
@@ -409,6 +412,12 @@ def convert(rom, level_id, vscale=1.0):
                 if a < 0: e["loop"] = len(sc) - n // 4; break
                 sc.append([a // 4, n])
             e["script"] = sc
+        if bs['kind'] == 'vv':
+            Y = lambda v: jround(v / CELL * vscale, 3)
+            e["low"] = Y(bs['low']); e["minY"] = Y(bs['minY'])
+            e["hitBox"] = [jround(bs['hitBox'][0] / CELL - x0, 3), jround(bs['hitBox'][1] / CELL - x0, 3), jround(bs['hitBox'][2] / CELL - z0, 3), jround(bs['hitBox'][3] / CELL - z0, 3)]
+            e["rise"] = [jround(bs['rise'][0] / CELL - x0, 3), Y(bs['rise'][1]), jround(bs['rise'][2] / CELL - z0, 3)]
+            e["spikes"] = [[cx - x0, cz - z0] for cx, cz in bs['spikes'] if floor_cell(cx, cz)]
         if bs['kind'] == 'dd':
             Y = lambda v: jround(v / CELL * vscale, 3)
             e["low"] = Y(bs['low']); e["high"] = Y(bs['high']); e["dropY"] = Y(bs['dropY'])

@@ -355,6 +355,7 @@
       padIn: () => tone('triangle', 500, 120, 0.9, 0.2),
       flame: () => noise(0.25, 0.35, 900),
       ddDrop: () => tone('square', 400, 200, 0.2, 0.15),
+      serpent: () => { noise(0.6, 0.8, 600); tone('sawtooth', 90, 220, 0.6, 0.3); },
       snowman: () => tone('triangle', 300, 900, 0.25, 0.2),
       snowPuff: () => noise(0.3, 0.25, 7000),
       bossHit: () => { noise(0.3, 0.8, 2000); tone('square', 300, 80, 0.3, 0.3); },
@@ -769,6 +770,16 @@
     if (b.kind === 'rr') { o.rr = buildRrStatue(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
     if (b.kind === 'ss') { o.ss = buildSsArms(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
     if (b.kind === 'dd') { o.dd = buildDdParts(b, o.rom); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
+    if (b.kind === 'vv') {   // the fire serpent: the original's flame frames (object 138, line 3) or our own fireballs
+      o.ball.visible = false; o.links.forEach(l => { l.visible = false; });
+      const fr = o.rom ? romTypeFrames(0x138, 3) : [];
+      o.vv = Array.from({ length: 9 }, (_, k) => {
+        const sp = new THREE.Sprite(fr.length ? fr[Math.min(fr.length - 1, 7 - Math.min(7, k))] : puffMat);
+        if (fr.length) { sp.scale.set(ROM_SIZE * 1.3, ROM_SIZE * 1.3, 1); sp.center.set(0.5, OBJ_FOOT); } else sp.scale.setScalar(0.9 - k * 0.05);
+        levelGroup.add(sp);
+        sp.visible = false; sp.userData.frames = fr; return sp;
+      });
+    }
     return o;
   }
   // Diamond Dust 3's parts: blowers circling the pod, snowmen, their snowballs and the snow puffs. ROM look: the
@@ -946,6 +957,10 @@
       });
     }
     if (o.dd) { updateDdParts(b, o.dd, t); if (o.rom) o.g.position.y = b.y - 8 * b.vs / 32; }
+    if (o.vv) {
+      if (o.rom) o.g.position.y = b.y - 8 * b.vs / 32;
+      o.vv.forEach((sp, k) => { const q = b.segs[k]; sp.visible = !!q && b.dead < 0; if (q) sp.position.set(q[0], q[1], q[2]); });
+    }
     if (o.ss) o.ss.forEach((a, k) => {   // links from under the pod to the fist
       const [fx, fy, fz] = b.fistAt[k], sx = b.x + b.fists[k][0] * 0.4, sy = b.y - 0.1, sz = b.z + b.fists[k][1] * 0.4;
       a.links.forEach((m, i) => { const t = (i + 1) / 7; m.position.set(sx + (fx - sx) * t, sy + (fy + 0.4 - sy) * t, sz + (fz - sz) * t); });

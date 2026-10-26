@@ -847,6 +847,24 @@ test('Volcano Valley 2: a moving platform carries the player; a swinging spiked 
   let hit = false; run(w, 120, (f, ww) => { if (ww.events.includes('hurt')) hit = true; return {}; });
   assert.ok(hit, 'spiked');
 });
+test('the Volcano Valley boss: comes down into the crater, a ball on it is a hit, the serpent rises and chases; eight', () => {
+  const boss = { type: 'boss', kind: 'vv', x: 6, y: 15.5, z: 6, home: [6, 6], cruise: 3, arena: [0, 12, 0, 12], hp: 8, vs: 1,
+    low: 3, minY: 3.25, hitBox: [5.5, 7.5, 5.5, 7.5], rise: [7.625, 3.125, 7.5], spikes: [[5, 6]] };
+  const lvl = grid(Array.from({ length: 12 }, () => 'd'.repeat(12)), { entities: [{ type: 'start', x: 10.5, z: 10.5 }, boss] });   // floor 3.25 m, as the arena's
+  let w = world(lvl); const b = () => w.boss;
+  w.p.inv = 1e9; run(w, 200, {}); near(b().y, 15.5 - 200 / 32, 1e-6, 'coming down');
+  run(w, 300, {}); near(b().y, 3, 1e-6, 'low');
+  let hits = 0;
+  for (let k = 0; k < 8; k++) {
+    for (let f = 0; f < 200 && b().cool > 0; f++) Sim.step(w, {});
+    Object.assign(w.p, { x: 6.5, z: 6.5, y: 4.5, vx: 3, vz: 3, vy: -1, grounded: false, ball: true, jumping: true });
+    Sim.step(w, {}); if (w.events.includes('bossHit')) hits++;
+  }
+  assert.strictEqual(hits, 8, `eight hits (${hits}, y ${b().y}, cool ${b().cool})`); assert.ok(b().dead >= 0, 'beaten');
+  w = world(lvl); w.ringCount = 5; Object.assign(w.boss, { y: 3 });
+  let rose = -1, hurtAt = -1; run(w, 700, (f, ww) => { if (rose < 0 && ww.events.includes('serpent')) rose = f; if (hurtAt < 0 && ww.events.includes('hurt')) hurtAt = f; return {}; });
+  assert.ok(rose >= 268 && rose <= 272 && hurtAt > rose, `rose at ${rose}, hurt at ${hurtAt}`);
+});
 test('a patrolling enemy walks to and fro between its two values', () => {
   const w = FLAT([{ type: 'enemy', x: 6.5, z: 2.5, patrol: { axis: 'x', range: [5, 8] }, speed: 1.875 }]); place(w, 1.5, 2.5);
   let lo = 9, hi = 0; run(w, 300, (f, ww) => { lo = Math.min(lo, ww.enemies[0].x); hi = Math.max(hi, ww.enemies[0].x); return {}; });

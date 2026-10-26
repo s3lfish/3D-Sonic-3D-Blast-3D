@@ -94,6 +94,7 @@ const S3D = (() => {
       cracks: [[[[55, 61]], 744, [0, -1]], [[[94, 114]], 424, [-1, 0]]], balls: [0xE80, 56, 8] },
     13: { pads: [[0, 1, 1], [2, 3, 2]], lava: 0x55, rocks: [0xAB42, 42], roofs: 0xAA4A, vents: [0xA8F6, 6], spouts: [0xA9AA, 10], fireRuns: [0xAA5E, 5],
       cracks: [[[[59, 55]], 680, [-1, 0]], [[[65, 63]], 584, [-1, 0]]] },
+    14: { lava: 0x55 },   // Volcano Valley 3: the crater's lava
     10: { pads: [[0, 1, 1], [2, 3, 2]], rides: [[78, 95, 0, 0x803E, null, null, null, undefined, [400, null]]],
       dashes: [[50, 45, 608, [7.5, 0], 10, 0, 0]], currents: [[96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5]],
       hops: [[[109, 80], [103, 82], [111, 72]], 40], flames: [0xFD5E, 7], freeze: 1,
@@ -133,7 +134,12 @@ const S3D = (() => {
     // a hit restarting it at byte 0x28; heading turned in at x or z outside 0x740..0x8C0, |x - z| >= 0xD8, and
     // 0x1000 - x - z >= 0x110 or <= -0x118
     11: { kind: 'dd', at: [2052, 0x240 + 8, 2048], cruise: 0xB0 + 8, low: 0xB0 + 8, high: 0x100 + 8, dropY: 0xE0 + 8, script: 0xF2FA, hitAt: 0x28,
-      diag: 0xD8, sum: [0x1000 - 0x110, 0x1000 + 0x118], home: [2048, 2048], arena: [0x740, 0x8C0, 0x740, 0x8C0], hp: 8 } };
+      diag: 0xD8, sum: [0x1000 - 0x110, 0x1000 + 0x118], home: [2048, 2048], arena: [0x740, 0x8C0, 0x740, 0x8C0], hp: 8 },
+    // Volcano Valley 3 (InitLevel 0x9DF8, RunLevel_VVz3 0x9EBA): pod from 0x1E8 down to 0x58 (+8: the feet frame); hit
+    // box x and z 0x7F0..0x830; spiked cells (63, 64), (65, 64), (64, 63), (64, 65); the serpent rises at (0x834, 0x5C,
+    // 0x830), never under 0x60
+    14: { kind: 'vv', at: [0x800, 0x1E8 + 8, 0x800], cruise: 0x58 + 8, low: 0x58 + 8, hitBox: [0x7F0, 0x830, 0x7F0, 0x830], minY: 0x60 + 8,
+      rise: [0x834, 0x5C + 8, 0x830], spikes: [[63, 64], [65, 64], [64, 63], [64, 65]], home: [0x800, 0x800], arena: [0x740, 0x8C0, 0x740, 0x8C0], hp: 8 } };
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
   // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
@@ -589,6 +595,11 @@ const S3D = (() => {
         for (let o = bs.script; sc.length < 64; o += 4) { const a = s16(d, o), n = s16(d, o + 2); if (a < 0) { e.loop = sc.length - n / 4; break; } sc.push([a / 4, n]); }
         e.script = sc;
       }
+      if (bs.kind === 'vv') {
+        const Y = v => r3(v / CELL * vscale);
+        e.low = Y(bs.low); e.minY = Y(bs.minY); e.hitBox = [r3(bs.hitBox[0] / CELL - x0), r3(bs.hitBox[1] / CELL - x0), r3(bs.hitBox[2] / CELL - z0), r3(bs.hitBox[3] / CELL - z0)];
+        e.rise = [r3(bs.rise[0] / CELL - x0), Y(bs.rise[1]), r3(bs.rise[2] / CELL - z0)]; e.spikes = bs.spikes.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
+      }
       if (bs.kind === 'dd') {
         const Y = v => r3(v / CELL * vscale);
         e.low = Y(bs.low); e.high = Y(bs.high); e.dropY = Y(bs.dropY);
@@ -816,7 +827,7 @@ const S3D = (() => {
       bossSlam: [0x5F], bossCap: [0x9E] /* RR3's routine */,
       bumper: [0xB7], balloon: [0x77], spikesUp: [0x52], spear: [0x8C] /* Spring Stadium's routines */,
       ddDrop: [0x7E], snowman: [0x51], snowPuff: [0xC8] /* DD3's routine */,
-      rockBreak: [0x59], ventOut: [0xB6] /* Volcano Valley's helpers */,
+      rockBreak: [0x59], ventOut: [0xB6] /* Volcano Valley's helpers */, serpent: [0x4E] /* VV3's routine */,
       iceBreak: [0x59] /* Diamond Dust's ice spikes */, freeze: [0x80], frozenHop: [0x94], thaw: [0x80] /* routines 0x1B9CA, 0x3050 */ },
     power: { shield: 0x3A, gold: 0x3F },
   };

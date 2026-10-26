@@ -158,6 +158,11 @@ serves index.html from main.
   the same helpers, `movePlat` (128: box swinging 63 units along x/z about +0x28, +4 a frame of 0x800 from +0x26) and
   `spikeBall` (118: swung by the routine about z 0xE80, 56 units, alternate records opposite). Not yet: 0xBA68 fire
   wheels, the sinking 128 kind, VV2's 0x63AC vent exception and $7A flag.
+- VV3 boss `vv` (`vvStep`, 0x9EBA): pod down to `low` (feet frame) in the crater; a falling ball inside `hitBox` is a hit
+  (bounce 5, pad 30, 60 frames apart), grounded there hurts; `spikes` cells round the mouth hurt; every 510 frames a fire
+  serpent rises at frame 270 at `rise` and chases 240 frames (octant heading, random turn 16..79, 2 units a frame, height
+  toward Sonic + 16, not under `minY`), nine segments along its path (`b.segs`); drawn with object 138's frames (line 3).
+  `GIMMICKS[14]` lava. Not modelled: the vents' fire ball hopping (0xA0A8) and its fight with the serpent.
 - Original movement (`physics.orig` = 1 on converted levels, `P.orig`, routine 0x3330): velocity split along
   `p.facing` (which is the heading there, turned 0x40/0x800 a frame toward the stick); tables [A, F, G] walk, ball,
   ice, roll; top 5 units a frame; spin dash steps by held frames 14/29/44/59. Measured in GG2 (speedprobe.py): sim
@@ -227,7 +232,7 @@ serves index.html from main.
 
 ## Status
 - 2026-10-27: Volcano Valley 1 and 2 (lava, rocks, vents, jet lifts, fire, spouts, fire runs, moving platforms, spiked
-  balls, pads, cracked walls, patrols); 97 sim tests. Next: VV3 boss (0x9EBA).
+  balls, pads, cracked walls, patrols) and the VV3 boss; 98 sim tests. Next: Gene Gadget.
 - 2026-10-27: DD3 boss; freezing as the original's hops; 93 sim tests.
 - 2026-10-27: the original's movement tables on converted levels (run up, stop, turn, ice, jump ball, roll, spin dash
   steps, all measured); Diamond Dust 2 gimmicks; ice, ice spikes, low roofs, spikes and bumpers in both DD acts;
