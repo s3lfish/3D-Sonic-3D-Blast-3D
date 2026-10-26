@@ -2545,11 +2545,15 @@
       const n = emeraldCount() + 1; store.set(EM_KEY, String(n));
       title = 'Sonic got a Chaos Emerald'; info += `\nEmerald bonus 10000\n${n} of 7`;
     } else if (won) { title = 'Special stage clear'; setLives(Math.min(9, lives + 1)); info += '\nOne up'; }
-    else title = 'No emerald this time';
+    else { title = 'No emerald this time'; info = ''; }
     bonus = null;
     $('bonusMsg').hidden = true;
     $('clearTitle').textContent = title; $('clearInfo').textContent = info; $('clearCard').hidden = false;
     clearTimeout(clearTimer); clearTimer = setTimeout(clearCardOff, 4000);
+    // the original reloads the act with Sonic where he was (0x4FCE): rings, enemies and monitors back
+    Sim.reloadAct(world, { x: world.p.x, z: world.p.z, facing: world.p.facing });
+    for (let q = 0; q < ringSprites.length; q++) ringSprites[q].visible = true;
+    prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
     $('ringCount').textContent = String(world.ringCount); shownRings = world.ringCount; $('ringTotal').textContent = `/ ${world.rings.length}`;
     $('flickyHud').hidden = !L.flickies; flickyHudKey = -1; showEmeralds();
     levelMusic(); fadeCut(); resetCamera();

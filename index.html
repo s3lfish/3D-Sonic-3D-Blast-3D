@@ -1883,16 +1883,19 @@ const Sim = (() => {
   }
   // a death: the original reloads the act (its main loop, 0x59C): rings, enemies, monitors and the rest are back, and
   // freed Flickies not yet taken to a ring go with their holders (who hold them again); the section, the Flickies in
-  // the ring and the rings given to Tails and Knuckles stay; the player starts at the section's start
-  function death(w) {
-    w.deaths++;
+  // the ring and the rings given to Tails and Knuckles stay; the player starts at the section's start (or, back from a
+  // special stage, where he was: `at`)
+  function reloadAct(w, at) {
     for (const g of w.rings) g.got = false;
     w.loose.length = 0; w.ringCount = 0;
     w.flickies = w.flickies.filter(f => f.state === 'gone');
     objectsBack(w);
+    const keep = w.spawn;
+    if (at) w.spawn = { x: at.x, z: at.z, facing: at.facing };
     respawn(w);
-    w.events.push('respawn');
+    w.spawn = keep;
   }
+  function death(w) { w.deaths++; reloadAct(w); w.events.push('respawn'); }
   // put every ring, enemy and monitor back and the player at the start
   function resetLevel(w) {
     const L = w.L;
@@ -4008,7 +4011,7 @@ const Sim = (() => {
     return b;
   }
 
-  return { P, LevelError, importLevel, floorAt, gradientAt, tileTopNear, createWorld, resetLevel, respawn, step, rrArm, ppLinks, bonusStart, bonusStep };
+  return { P, LevelError, importLevel, floorAt, gradientAt, tileTopNear, createWorld, resetLevel, respawn, reloadAct, step, rrArm, ppLinks, bonusStart, bonusStep };
 })();
 </script>
 
@@ -9209,11 +9212,15 @@ const Art = (() => {
       const n = emeraldCount() + 1; store.set(EM_KEY, String(n));
       title = 'Sonic got a Chaos Emerald'; info += `\nEmerald bonus 10000\n${n} of 7`;
     } else if (won) { title = 'Special stage clear'; setLives(Math.min(9, lives + 1)); info += '\nOne up'; }
-    else title = 'No emerald this time';
+    else { title = 'No emerald this time'; info = ''; }
     bonus = null;
     $('bonusMsg').hidden = true;
     $('clearTitle').textContent = title; $('clearInfo').textContent = info; $('clearCard').hidden = false;
     clearTimeout(clearTimer); clearTimer = setTimeout(clearCardOff, 4000);
+    // the original reloads the act with Sonic where he was (0x4FCE): rings, enemies and monitors back
+    Sim.reloadAct(world, { x: world.p.x, z: world.p.z, facing: world.p.facing });
+    for (let q = 0; q < ringSprites.length; q++) ringSprites[q].visible = true;
+    prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
     $('ringCount').textContent = String(world.ringCount); shownRings = world.ringCount; $('ringTotal').textContent = `/ ${world.rings.length}`;
     $('flickyHud').hidden = !L.flickies; flickyHudKey = -1; showEmeralds();
     levelMusic(); fadeCut(); resetCamera();
