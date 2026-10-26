@@ -75,6 +75,12 @@ body {
 .levels { display: grid; gap: 8px; border-top: 1px solid color-mix(in srgb, var(--muted) 25%, transparent); padding-top: 12px; }
 .levels p { font-size: 13px; }
 .levels.rom { border-top: 0; padding-top: 0; }
+.clearcard { position: fixed; left: 50%; top: 22%; transform: translateX(-50%); text-align: center; pointer-events: none; z-index: 30; }
+.clearcard h2 { margin: 0; font: 400 clamp(28px, 7vw, 56px)/1.05 var(--font-display); color: var(--gold); text-shadow: 0 3px 0 var(--void), 0 0 18px rgba(0,0,0,0.5); text-transform: uppercase; }
+.clearcard p { margin: 10px 0 0; font: 700 16px/1.5 var(--font-ui); color: #fff; white-space: pre-line; text-shadow: 0 2px 0 var(--void); }
+.flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 25; }
+.flash.on { animation: flash 0.5s ease-out; }
+@keyframes flash { from { opacity: 0.9; } to { opacity: 0; } }
 .levels.rom p { font-size: 14px; }
 .levels.rom strong { color: var(--gold); }
 .filebtn.primary { background: var(--gold); color: var(--void); border-color: transparent; font-size: 15px; padding: 10px 18px; }
@@ -165,6 +171,8 @@ body {
 </div>
 
 <div class="toast" id="toast" hidden></div>
+<div class="clearcard" id="clearCard" hidden><h2 id="clearTitle"></h2><p id="clearInfo"></p></div>
+<div class="flash" id="flash"></div>
 
 <script type="application/json" id="level">
 {
@@ -1013,7 +1021,19 @@ const Sim = (() => {
     hurtTime: 1.5,      // invulnerable seconds after a hit
     scatterMax: 16,     // most rings thrown out by a hit
     scatterLife: 4,     // seconds before thrown rings vanish
+    powerTime: 20,      // seconds of invincibility or speed shoes from a monitor
+    speedBoost: 1.5,    // top speed multiplier with speed shoes
+    boostWait: 1.0,     // a supercharger holds the player this long, revving, then fires them (watched in the original)
+    boostSpeed: 22,     // supercharger launch speed, m/s
+    chaseRange: 5,      // a chasing enemy starts after a player this close
+    chaseSpeed: 3,
+    turretRange: 8,     // turrets fire at a player this close
+    turretEvery: 2.5,   // seconds between shots
+    shotSpeed: 5,
+    shotLife: 3,
+    goldDash: 14,       // gold shield: a second jump press in the air dashes forward
   };
+  const MON_KINDS = new Set(['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']);
 
   const B36 = '0123456789abcdefghijklmnopqrstuvwxyz';
   const GRID_TYPES = { '.': ['F', 'grass'], '#': ['F', 'stone'], '=': ['F', 'wood'], 'x': ['P', 'none'], '^': ['H', 'hazard'] };
@@ -1125,7 +1145,17 @@ const Sim = (() => {
           if (!inBounds(e.x, e.z)) { errs.push(`A ${e.type} at (${e.x}, ${e.z}) is outside the map.`); break; }
           const f = floorAt(L, e.x, e.z);
           if (!Number.isFinite(f)) { errs.push(`A ${e.type} at (${e.x}, ${e.z}) is over a pit.`); break; }
-          L.entities.push({ type: e.type, x: e.x, z: e.z, y: f, radius: e.radius ?? 1.5, speed: e.speed ?? 1.2, skin: skinOf(e) });
+          L.entities.push({ type: e.type, x: e.x, z: e.z, y: f, radius: e.radius ?? 1.5, speed: e.speed ?? 1.2, skin: skinOf(e),
+            kind: MON_KINDS.has(e.kind) ? e.kind : 'rings', chase: e.chase ? 1 : 0 });
+          break;
+        }
+        case 'mine': case 'turret': case 'booster': {
+          if (!inBounds(e.x, e.z)) { errs.push(`A ${e.type} at (${e.x}, ${e.z}) is outside the map.`); break; }
+          const f = floorAt(L, e.x, e.z);
+          if (!Number.isFinite(f)) { errs.push(`A ${e.type} at (${e.x}, ${e.z}) is over a pit.`); break; }
+          const d = Array.isArray(e.dir) && e.dir.length === 2 && e.dir.every(Number.isFinite) && Math.hypot(e.dir[0], e.dir[1]) > 0 ? e.dir : [0, -1];
+          const dl = Math.hypot(d[0], d[1]);
+          L.entities.push({ type: e.type, x: e.x, z: e.z, y: f, dir: [d[0] / dl, d[1] / dl], skin: skinOf(e) });
           break;
         }
         case 'hole': {
@@ -1284,6 +1314,8 @@ const Sim = (() => {
       springs: L.entities.filter(e => e.type === 'spring').map(e => ({ x: e.x, y: e.y, z: e.z, power: e.power, cool: 0, firedAt: -9, skin: e.skin })),
       enemies: [], monitors: [], goals: [], loose: [], cleared: false, section: 0, spawn: null,
       holes: L.entities.filter(e => e.type === 'hole'),
+      boosters: L.entities.filter(e => e.type === 'booster').map(e => ({ x: e.x, y: e.y, z: e.z, dir: e.dir, firedAt: -9, skin: e.skin })),
+      mines: [], turrets: [], shots: [], lives: 3,
       flickies: [], delivered: 0, trail: [], seed: 12345,
       p: null,
     };
@@ -1296,8 +1328,11 @@ const Sim = (() => {
     w.ringCount = 0; w.loose.length = 0; w.cleared = false; w.section = 0; w.spawn = null; w.inGoal = false; w.warpedAt = -9;
     w.flickies = []; w.delivered = 0; w.trail = []; w.seed = 12345;
     for (const g of w.rings) g.got = false;
-    w.enemies = L.entities.filter(e => e.type === 'enemy').map((e, i) => ({ x0: e.x, z0: e.z, x: e.x, z: e.z, y: e.y, radius: e.radius, speed: e.speed, ang: i * 1.7, alive: true, diedAt: -9, skin: e.skin }));
-    w.monitors = L.entities.filter(e => e.type === 'monitor').map(e => ({ x: e.x, z: e.z, y: e.y, broken: false, skin: e.skin }));
+    w.enemies = L.entities.filter(e => e.type === 'enemy').map((e, i) => ({ x0: e.x, z0: e.z, x: e.x, z: e.z, y: e.y, radius: e.radius, speed: e.speed, chase: e.chase, ang: i * 1.7, alive: true, diedAt: -9, skin: e.skin }));
+    w.monitors = L.entities.filter(e => e.type === 'monitor').map(e => ({ x: e.x, z: e.z, y: e.y, broken: false, skin: e.skin, kind: e.kind || 'rings' }));
+    w.mines = L.entities.filter(e => e.type === 'mine').map(e => ({ x: e.x, z: e.z, y: e.y, alive: true, diedAt: -9, skin: e.skin }));
+    w.turrets = L.entities.filter(e => e.type === 'turret').map((e, i) => ({ x: e.x, z: e.z, y: e.y, cool: 1 + i * 0.4, firedAt: -9, skin: e.skin }));
+    w.shots = [];
     w.goals = L.entities.filter(e => e.type === 'goal').map(e => ({ x: e.x, z: e.z, y: e.y }));
     respawn(w);
   }
@@ -1306,7 +1341,8 @@ const Sim = (() => {
     if (w.flickies) scatterFlickies(w);
     const s = w.spawn || w.L.start;
     w.p = { x: s.x, y: floorAt(w.L, s.x, s.z), z: s.z, vx: 0, vy: 0, vz: 0, grounded: true, coyote: 0,
-      rolling: false, ball: false, sprung: false, charge: 0, facing: s.facing, jumping: false, prevJump: false, prevDash: false, invuln: 0 };
+      rolling: false, ball: false, sprung: false, charge: 0, facing: s.facing, jumping: false, prevJump: false, prevDash: false, invuln: 0,
+      shield: null, inv: 0, fast: 0, boost: null, goldUsed: false, dashHeld: 0 };
   }
 
   const _g = [0, 0];
@@ -1320,20 +1356,48 @@ const Sim = (() => {
     const jumpPress = inp.jump && !p.prevJump, dashPress = inp.dash && !p.prevDash, dashRelease = !inp.dash && p.prevDash;
     p.prevJump = !!inp.jump; p.prevDash = !!inp.dash;
     let speed = Math.hypot(p.vx, p.vz);
+    if (p.inv > 0) p.inv -= dt;
+    if (p.fast > 0) p.fast -= dt;
+    const runTop = P.run * (p.fast > 0 ? P.speedBoost : 1);
 
-    // spin dash: charge while held near standstill, launch on release
-    if (p.grounded) {
-      if (dashPress && speed > P.run * 0.6) p.rolling = true;
-      if (inp.dash && !p.rolling && speed < 2) {
-        p.charge = Math.min(P.dashCharge, p.charge + dt);
-        p.vx *= 0.8; p.vz *= 0.8;
-        if (m > 0.3) p.facing = Math.atan2(mx, mz);
+    // a supercharger holds the player on it, revving in a ball, then fires them along its direction
+    if (p.boost) {
+      const b = p.boost;
+      b.t += dt; p.x = b.pad.x; p.z = b.pad.z; p.y = b.pad.y; p.vx = p.vz = p.vy = 0; p.ball = true; p.charge = 0;
+      if (b.t >= P.boostWait) {
+        p.vx = b.pad.dir[0] * P.boostSpeed; p.vz = b.pad.dir[1] * P.boostSpeed; p.vy = 3; p.grounded = false;
+        p.rolling = true; p.facing = Math.atan2(p.vx, p.vz); p.boost = null; b.pad.firedAt = w.time; w.events.push('boost');
       }
-      if (dashRelease && p.charge > 0.08) {
-        const s = P.dashMin + (P.dashMax - P.dashMin) * Math.min(1, p.charge / P.dashCharge);
-        const a = m > 0.3 ? Math.atan2(mx, mz) : p.facing;
-        p.vx = Math.sin(a) * s; p.vz = Math.cos(a) * s; p.rolling = true; p.charge = 0;
-        w.events.push('dash');
+      return w;
+    }
+
+    // standing on a supercharger and pressing jump gets the player taken in (in the original, landing alone does nothing)
+    if (jumpPress && p.grounded) for (const b of w.boosters) {
+      if (w.time - b.firedAt < 1.5 || Math.abs(p.x - b.x) > 0.5 || Math.abs(p.z - b.z) > 0.5 || Math.abs(p.y - b.y) > 0.5) continue;
+      p.boost = { pad: b, t: 0 }; p.rolling = false; w.events.push('boostIn'); return w;
+    }
+
+    // spin dash (as in the original, the dash button does it): hold to brake and rev up, release to launch.
+    // A quick tap while running rolls instead.
+    if (p.grounded) {
+      if (dashPress) p.dashHeld = 0;
+      if (inp.dash) {
+        p.dashHeld += dt;
+        // a tap shorter than this keeps running speed (and rolls on release); held longer, the player brakes and revs
+        if (p.dashHeld > 0.12 || speed < 2) {
+          p.rolling = false; p.charge = Math.min(P.dashCharge, p.charge + dt);
+          p.vx *= 0.8; p.vz *= 0.8;
+          if (m > 0.3) p.facing = Math.atan2(mx, mz);
+        }
+      }
+      if (dashRelease) {
+        if (p.charge > 0.1) {
+          const s = P.dashMin + (P.dashMax - P.dashMin) * Math.min(1, p.charge / P.dashCharge);
+          const a = m > 0.3 ? Math.atan2(mx, mz) : p.facing;
+          p.vx = Math.sin(a) * s; p.vz = Math.cos(a) * s; p.rolling = true;
+          w.events.push('dash');
+        } else if (speed > runTop * 0.6) p.rolling = true;
+        p.charge = 0;
       }
       if (!inp.dash) p.charge = 0;
     } else p.charge = 0;
@@ -1343,6 +1407,10 @@ const Sim = (() => {
     if (jumpPress && (p.grounded || p.coyote > 0) && !charging) {
       p.vy = L.phys.jumpV; p.grounded = false; p.coyote = 0; p.jumping = true; p.ball = true;
       w.events.push('jump');
+    }
+    else if (jumpPress && !p.grounded && p.shield === 'gold' && !p.goldUsed) {
+      p.goldUsed = true; p.vx = Math.sin(p.facing) * P.goldDash; p.vz = Math.cos(p.facing) * P.goldDash; p.vy = Math.max(p.vy, 2);
+      p.jumping = false; p.ball = true; w.events.push('goldDash');
     }
     if (p.jumping && !inp.jump && p.vy > L.phys.jumpCut) p.vy = L.phys.jumpCut;
 
@@ -1362,7 +1430,7 @@ const Sim = (() => {
     } else {
       const acc = p.grounded ? P.accel : P.airAccel;
       if (m > 0.01) {
-        const top = p.grounded ? P.run * m : Math.max(P.run * m, speed);
+        const top = p.grounded ? runTop * m : Math.max(runTop * m, speed);
         const dvx = mx / m * top - p.vx, dvz = mz / m * top - p.vz, dl = Math.hypot(dvx, dvz), mxd = acc * dt;
         const k = dl > mxd ? mxd / dl : 1;
         p.vx += dvx * k; p.vz += dvz * k;
@@ -1395,7 +1463,7 @@ const Sim = (() => {
       } else {
         p.y += p.vy * sdt;
         if (p.vy <= 0 && Number.isFinite(f) && p.y <= f) {
-          p.y = f; p.vy = 0; p.grounded = true; p.jumping = false; p.coyote = 0; p.ball = p.rolling; p.sprung = false;
+          p.y = f; p.vy = 0; p.grounded = true; p.jumping = false; p.coyote = 0; p.ball = p.rolling; p.sprung = false; p.goldUsed = false;
           w.events.push('land');
         }
       }
@@ -1409,24 +1477,66 @@ const Sim = (() => {
       if (sp.cool > 0) { sp.cool -= dt; continue; }
       const dx = sp.x - p.x, dz = sp.z - p.z;
       if (dx * dx + dz * dz < 0.25 && p.y >= sp.y - 0.2 && p.y <= sp.y + 0.45 && p.vy <= 0.5) {
-        p.vy = sp.power; p.grounded = false; p.jumping = false; p.coyote = 0;
+        // gravity takes its first bite in the same step, as for a jump, so the rise matches the measured height
+        p.vy = sp.power - L.phys.gravity * dt; p.grounded = false; p.jumping = false; p.coyote = 0;
         p.ball = false; p.rolling = false; p.sprung = true; p.charge = 0;
         sp.cool = 0.3; sp.firedAt = w.time; w.events.push('spring');
       }
     }
 
-    // enemies patrol a small circle and follow the floor
+    // enemies stand still (radius 0), patrol a small circle, or chase a player who comes close; all follow the floor
     if (p.invuln > 0) p.invuln -= dt;
+    const pcy0 = p.y + 0.45;
+    for (const mi of w.mines) {
+      if (!mi.alive) continue;
+      const dx = p.x - mi.x, dz = p.z - mi.z;
+      if (dx * dx + dz * dz < 0.3 && Math.abs(pcy0 - (mi.y + 0.3)) < 0.7) {
+        mi.alive = false; mi.diedAt = w.time; w.events.push('boom');
+        if (p.inv <= 0 && p.invuln <= 0) { hurt(w, dx, dz); if (w.events.includes('respawn')) return w; }
+      }
+    }
+    for (const tu of w.turrets) {
+      tu.cool -= dt;
+      const dx = p.x - tu.x, dz = p.z - tu.z, d = Math.hypot(dx, dz);
+      if (tu.cool <= 0 && d < P.turretRange && d > 0.5 && Math.abs(p.y - tu.y) < 3) {
+        tu.cool = P.turretEvery; tu.firedAt = w.time;
+        w.shots.push({ x: tu.x + dx / d * 0.4, y: tu.y + 0.55, z: tu.z + dz / d * 0.4, vx: dx / d * P.shotSpeed, vz: dz / d * P.shotSpeed, age: 0 });
+        w.events.push('shot');
+      }
+    }
+    for (let i = w.shots.length - 1; i >= 0; i--) {
+      const sh = w.shots[i];
+      sh.age += dt; sh.x += sh.vx * dt; sh.z += sh.vz * dt;
+      const f = floorAt(L, sh.x, sh.z);
+      if (sh.age > P.shotLife || !Number.isFinite(f) || f > sh.y) { w.shots.splice(i, 1); continue; }
+      const dx = p.x - sh.x, dz = p.z - sh.z;
+      if (dx * dx + dz * dz < 0.16 && Math.abs(pcy0 - sh.y) < 0.6) {
+        w.shots.splice(i, 1);
+        if (p.inv <= 0 && p.invuln <= 0) { hurt(w, dx, dz); if (w.events.includes('respawn')) return w; }
+      }
+    }
     const attacking = p.ball || p.rolling || p.charge > 0;
     const pcy = p.y + 0.45, er2 = P.enemyR * P.enemyR;
     for (const en of w.enemies) {
       if (!en.alive) continue;
-      en.ang += (en.speed / Math.max(0.3, en.radius)) * dt;
-      const nx = en.x0 + Math.cos(en.ang) * en.radius, nz = en.z0 + Math.sin(en.ang) * en.radius, f = floorAt(L, nx, nz);
+      const ex = p.x - en.x, ez = p.z - en.z, near = en.chase && ex * ex + ez * ez < P.chaseRange * P.chaseRange && Math.abs(p.y - en.y) < 1.5;
+      let nx, nz;
+      if (near) {
+        const d = Math.hypot(ex, ez) || 1, st = Math.min(d, P.chaseSpeed * dt);
+        nx = en.x + ex / d * st; nz = en.z + ez / d * st;
+      } else {
+        en.ang += (en.speed / Math.max(0.3, en.radius)) * dt;
+        const tx = en.x0 + Math.cos(en.ang) * en.radius, tz = en.z0 + Math.sin(en.ang) * en.radius;
+        const d = Math.hypot(tx - en.x, tz - en.z), st = Math.min(d, Math.max(en.speed, P.chaseSpeed) * dt);
+        nx = d > 1e-6 ? en.x + (tx - en.x) / d * st : tx; nz = d > 1e-6 ? en.z + (tz - en.z) / d * st : tz;
+      }
+      // stand on the highest floor under the body so a slope never hides half of it
+      let f = -Infinity;
+      for (const [ox, oz] of [[0, 0], [0.25, 0], [-0.25, 0], [0, 0.25], [0, -0.25]]) { const g = floorAt(L, nx + ox, nz + oz); if (Number.isFinite(g)) f = Math.max(f, g); }
       if (Number.isFinite(f) && Math.abs(f - en.y) < 0.6) { en.x = nx; en.z = nz; en.y = f; }
       const dx = p.x - en.x, dz = p.z - en.z;
       if (dx * dx + dz * dz < er2 && Math.abs(pcy - (en.y + 0.4)) < 0.8) {
-        if (attacking) {
+        if (attacking || p.inv > 0) {
           en.alive = false; en.diedAt = w.time; w.events.push('enemy');
           if (L.flickies) w.flickies.push({ x: en.x, y: en.y + 0.3, z: en.z, vx: 0, vy: 4, vz: 0, state: 'free', age: 0, kind: w.flickies.length % 4, dir: rand(w) * 6.283 });
           if (!p.grounded) { p.vy = Math.max(p.vy, 6); p.jumping = false; }
@@ -1438,7 +1548,12 @@ const Sim = (() => {
       if (mo.broken) continue;
       const dx = p.x - mo.x, dz = p.z - mo.z;
       if (dx * dx + dz * dz < er2 && Math.abs(pcy - (mo.y + 0.4)) < 0.8 && attacking) {
-        mo.broken = true; w.ringCount += 10; w.events.push('monitor');
+        mo.broken = true; w.events.push('monitor'); w.power = mo.kind;
+        if (mo.kind === 'rings') w.ringCount += 10;
+        else if (mo.kind === 'shield' || mo.kind === 'gold' || mo.kind === 'fire') p.shield = mo.kind === 'fire' ? 'shield' : mo.kind;
+        else if (mo.kind === 'invincible') p.inv = P.powerTime;
+        else if (mo.kind === 'speed') p.fast = P.powerTime;
+        else if (mo.kind === 'oneup') w.lives++;
         if (!p.grounded) { p.vy = Math.max(p.vy, 6); p.jumping = false; }
       }
     }
@@ -1536,7 +1651,14 @@ const Sim = (() => {
     }
   }
   function hurt(w, awayX, awayZ) {
-    const p = w.p;
+    const p = w.p, m0 = Math.hypot(awayX, awayZ) || 1;
+    if (p.inv > 0) return;
+    // a shield takes the hit instead: no rings or Flickies lost
+    if (p.shield) {
+      p.shield = null; p.vx = (awayX / m0) * 4; p.vz = (awayZ / m0) * 4; p.vy = 5;
+      p.grounded = false; p.jumping = false; p.ball = false; p.rolling = false; p.charge = 0;
+      p.invuln = P.hurtTime; w.events.push('shieldLost'); return;
+    }
     scatterFlickies(w);
     if (w.ringCount <= 0) { w.deaths++; respawn(w); w.events.push('respawn'); return; }
     const n = Math.min(P.scatterMax, w.ringCount);
@@ -1567,9 +1689,10 @@ const S3D = (() => {
   'use strict';
   const HEADERS = 0x1AB62, HSIZE = 0x2A, CELL = 32, STEP = 8, RING_TABLE = 0x1936, RING_HOVER = 18;
   // object types, identified by watching the game run: player start, springs, monitors, the act-end ring, main enemies
-  const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal',
+  const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
     0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy' };
+  const MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire'];
   const LEVELS = [
     [1, 'Green Grove 1'], [2, 'Green Grove 2'], [3, 'Green Grove 3'],
     [7, 'Rusty Ruin 1'], [6, 'Rusty Ruin 2'], [8, 'Rusty Ruin 3'],
@@ -1700,7 +1823,7 @@ const S3D = (() => {
   }
   const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };
   const holeLaunch = vscale => launchFor(vscale, 127);
-  const springPower = vscale => Math.round(Math.sqrt(2 * (900 / CELL) * 3.27) * vscale * 1e4) / 1e4;
+  const springPower = vscale => launchFor(vscale, 140);   // measured: a spring throws Sonic 140 units up
   function convert(d, id, vscale = 1) {
     const h = HEADERS + (id - 1) * HSIZE;
     const raw = rncUnpack(d, u32(d, h + 4));
@@ -1742,7 +1865,11 @@ const S3D = (() => {
       if (!kind || !floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) continue;
       if (kind === 'start') { start = [x / CELL, z / CELL]; continue; }
       const e = { type: kind, x: r3(x / CELL - x0), z: r3(z / CELL - z0) };
-      if (kind === 'enemy') e.radius = 1.0;
+      // Green Grove guide + emulator: Hunters (0C) stand still, Scouters (58) chase; monitor kind = word +0x26 / 0x80
+      // (icon order in the ROM); a supercharger fires along z, towards +z when bit 0x800 of word +0x16 is set
+      if (kind === 'enemy') { e.radius = t === 0x0C ? 0 : 1.0; if (t === 0x58) e.chase = 1; }
+      if (kind === 'monitor') e.kind = MONITOR_KINDS[u16(ob, o + 0x26) >> 7] || 'rings';
+      if (kind === 'booster') e.dir = (u16(ob, o + 0x16) & 0x800) ? [0, 1] : [0, -1];
       if (kind === 'spring') e.power = springPower(vscale);
       if (kind !== 'goal') e.skin = t.toString(16).toUpperCase().padStart(3, '0');
       ents.push(e);
@@ -1800,6 +1927,8 @@ const S3D = (() => {
     '00C': [[9,-17,4,4,0,0,3,0x028BC2],[17,-25,2,1,0,0,3,0x028DC2],[-10,-22,4,3,1,0,3,0x030788],[-10,-38,3,2,1,0,3,0x030908],[-18,-14,1,2,1,0,3,0x0309C8],[-10,-46,2,1,1,0,3,0x030A08]],
     '018': [[-5,-18,4,4,0,0,2,0x0340C6],[-13,-18,1,3,0,0,2,0x0342C6]],
     '03C': [[-15,-36,4,4,0,0,3,0x03CC5C],[-15,-4,4,1,0,0,3,0x03CE5C]],
+    '008': [[-16,-36,4,4,0,0,3,0x028E14],[-8,-44,2,1,0,0,3,0x029014]],
+    '054': [[-17,-39,1,3,1,0,3,0x042164],[-9,-47,3,4,1,0,3,0x041EC4]],
     '058': [[-16,-19,4,3,0,0,3,0x042FA2],[-8,-27,2,1,0,0,3,0x043122]],
     '064': [[-24,-34,4,4,0,0,3,0x04D1C4],[8,-34,2,4,0,0,3,0x04D3C4],[-16,-2,4,2,0,0,3,0x04D4C4],[16,-2,1,1,0,0,3,0x04D5C4],[-24,-2,1,1,0,0,3,0x04D5E4]],
     '094': [[-3,-41,4,4,0,0,3,0x05C73C],[-3,-9,2,2,0,0,3,0x05C93C],[13,-9,3,1,0,0,3,0x05C9BC],[5,-49,2,1,0,0,3,0x05CA1C]],
@@ -1871,6 +2000,15 @@ const S3D = (() => {
     const rec = RECIPES[key]; if (!rec) return null;
     const pals = palBytes.map(n => paletteRGB(d, n)), px = new Uint8ClampedArray(size * size * 4);
     for (const [dx, dy, w, h, hf, vf, line, addr] of rec) blit(px, size, d.subarray(addr, addr + w * h * 32), w, h, ox + dx, oy + dy, !!hf, !!vf, pals[line]);
+    return px;
+  }
+  // monitor icons: 16 px squares (2 x 2 tiles, raw) at 0x13C7D8 + kind * 0x80 in palette line 2, in the order of
+  // MONITOR_KINDS; drawn 2 px right and 13 px down from the top left of the monitor body (emulator snapshot, GG1)
+  const MONITOR_ICONS = 0x13C7D8;
+  function monitorImage(d, kind, palBytes, size = 96, ox = 48, oy = 80) {
+    const px = recipeImage(d, '03C', palBytes, size, ox, oy), k = Math.max(0, MONITOR_KINDS.indexOf(kind));
+    if (!px) return null;
+    blit(px, size, d.subarray(MONITOR_ICONS + k * 0x80, MONITOR_ICONS + k * 0x80 + 128), 2, 2, ox - 13, oy - 23, false, false, paletteRGB(d, palBytes[2]));
     return px;
   }
   function ringImage(d, k, pal, size = 16) {
@@ -2300,7 +2438,7 @@ const S3D = (() => {
     return { top, wall, atlas, foliage, rejects, get count() { return slots.length; } };
   }
 
-  return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, ringImage, levelPalettes, OCTANT, HERO };
+  return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, ringImage, levelPalettes, OCTANT, HERO };
 })();
 </script>
 
@@ -2617,7 +2755,7 @@ const Art = (() => {
   const $ = id => document.getElementById(id);
   const canvas = $('view');
   const isTouch = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
-  const LEVEL_KEY = 'blastgrid.level', CAM_KEY = 'blastgrid.cam', LOOK_KEY = 'blastgrid.look';
+  const LEVEL_KEY = 'blastgrid.level', CAM_KEY = 'blastgrid.cam', LOOK_KEY = 'blastgrid.look', MUTE_KEY = 'blastgrid.mute';
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } },
@@ -2754,9 +2892,40 @@ const Art = (() => {
     return t;
   }
   // the freed bird (16 frames) and the big ring, drawn from the ROM's own object art
-  function romFlickyMat(frame, flip) {
-    const key = 'f' + frame + (flip ? 'L' : 'R');
-    if (!romArt.objs.has(key)) romArt.objs.set(key, new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.objImage(romArt.d, S3D.FLICKY_ART, frame, romArt.pal, 64, 32, 48, flip), 64)), alphaTest: 0.5 }));
+  const FLICKY_HUES = [null, 325, 115, 2];   // blue as drawn, then pink, green, red
+  function tintBlue(px, hue) {
+    for (let i = 0; i < px.length; i += 4) {
+      if (!px[i + 3]) continue;
+      const r = px[i] / 255, g = px[i + 1] / 255, b = px[i + 2] / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      if (b < mx || mx - mn < 0.15) continue;           // only the bluish body pixels change
+      const l = (mx + mn) / 2, sat = (mx - mn) / (1 - Math.abs(2 * l - 1) || 1);
+      const c = (1 - Math.abs(2 * l - 1)) * sat, hp = hue / 60, x = c * (1 - Math.abs(hp % 2 - 1)), m = l - c / 2;
+      const [rr, gg, bb] = hp < 1 ? [c, x, 0] : hp < 2 ? [x, c, 0] : hp < 3 ? [0, c, x] : hp < 4 ? [0, x, c] : hp < 5 ? [x, 0, c] : [c, 0, x];
+      px[i] = (rr + m) * 255; px[i + 1] = (gg + m) * 255; px[i + 2] = (bb + m) * 255;
+    }
+    return px;
+  }
+  function romFlickyMat(frame, flip, kind = 0) {
+    const key = 'f' + frame + (flip ? 'L' : 'R') + kind;
+    if (!romArt.objs.has(key)) {
+      let px = S3D.objImage(romArt.d, S3D.FLICKY_ART, frame, romArt.pal, 64, 32, 48, flip);
+      if (FLICKY_HUES[kind % 4] !== null) px = tintBlue(px, FLICKY_HUES[kind % 4]);
+      romArt.objs.set(key, new THREE.SpriteMaterial({ map: pixTex(pixCanvas(px, 64)), alphaTest: 0.5 }));
+    }
+    return romArt.objs.get(key);
+  }
+  // the big ring's own nine frames (it shrinks away when used) and monitors with the icon of what they hold
+  function romRingFrameMat(k) {
+    const key = 'bigring' + k;
+    if (!romArt.objs.has(key)) romArt.objs.set(key, new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.objImage(romArt.d, S3D.BIG_RING_ART, k, romArt.pal, 96, 48, 72), 96)), alphaTest: 0.5 }));
+    return romArt.objs.get(key);
+  }
+  function romMonitorMat(kind) {
+    const pals = L.palettes || romArt.fallbackPals, key = 'mon' + kind + pals.join(',');
+    if (!romArt.objs.has(key)) {
+      const px = S3D.monitorImage(romArt.d, kind, pals);
+      romArt.objs.set(key, px ? new THREE.SpriteMaterial({ map: pixTex(pixCanvas(px, ROM_CANVAS)), alphaTest: 0.5 }) : null);
+    }
     return romArt.objs.get(key);
   }
   function romRingMat() {
@@ -2775,6 +2944,129 @@ const Art = (() => {
     }
     return m;
   }
+
+  // springs in the ROM look: a short 3D drum coloured like the ROM's spring (cap, side, base), since the flat sprite
+  // is drawn for the original's fixed view and reads as a floating disc from a chase camera
+  function romSpringMats(skin) {
+    const key = skin || DEFAULT_SKIN.spring;
+    if (!S3D.RECIPES[key]) return null;
+    const pals = L.palettes || romArt.fallbackPals, id = 'drum' + key + pals.join(',');
+    if (!romArt.objs.has(id)) {
+      const px = S3D.recipeImage(romArt.d, key, pals), W = Math.round(Math.sqrt(px.length / 4));
+      const rows = [];
+      for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) if (px[(y * W + x) * 4 + 3]) { rows.push(y); break; }
+      const most = (y0, y1, skip) => {
+        const n = new Map();
+        for (let y = y0; y <= y1; y++) for (let x = 0; x < W; x++) {
+          const i = (y * W + x) * 4; if (!px[i + 3]) continue;
+          const k = (px[i] << 16) | (px[i + 1] << 8) | px[i + 2]; if (k !== skip) n.set(k, (n.get(k) || 0) + 1);
+        }
+        let best = 0x808080, c = -1; for (const [k, v] of n) if (v > c) { c = v; best = k; }
+        return best;
+      };
+      const top = rows[0], bot = rows[rows.length - 1], cap = most(top, top + Math.floor((bot - top) * 0.45), -1);
+      const side = most(top + Math.floor((bot - top) * 0.6), bot - 3, cap), base = most(bot - 2, bot, -1);
+      const m = c => new THREE.MeshBasicMaterial({ color: c });
+      romArt.objs.set(id, { side: m(side), cap: m(cap), base: m(base) });
+    }
+    return romArt.objs.get(id);
+  }
+  function springDrum(mats, sp) {
+    const g = new THREE.Group(), R = 0.46;
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.92, R * 0.92, 0.07, 24), mats.base); base.position.y = 0.035;
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 0.16, 24), [mats.side, mats.cap, mats.side]); drum.position.y = 0.15;
+    g.add(base, drum); g.position.set(sp.x, sp.y, sp.z); g.userData.drum = drum;
+    return g;
+  }
+
+  // scribbled stand-ins for mines, turrets and shots (the ROM look uses the original sprites)
+  function crudeMat(w, h, draw) {
+    const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'));
+    return spriteMat(c);
+  }
+  const mineMat = crudeMat(64, 64, g => {
+    g.fillStyle = '#5b5f73'; g.strokeStyle = '#1c1830'; g.lineWidth = 3;
+    for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; g.beginPath(); g.moveTo(32 + Math.cos(a) * 14, 34 + Math.sin(a) * 14); g.lineTo(32 + Math.cos(a) * 27, 34 + Math.sin(a) * 27); g.stroke(); }
+    g.beginPath(); g.arc(32, 34, 15, 0, 7); g.fill(); g.stroke(); g.fillStyle = '#ff5a4a'; g.beginPath(); g.arc(32, 34, 5, 0, 7); g.fill();
+  });
+  const turretMat = crudeMat(64, 64, g => {
+    g.fillStyle = '#7a3fb0'; g.strokeStyle = '#1c1830'; g.lineWidth = 3;
+    g.beginPath(); g.rect(14, 34, 36, 26); g.fill(); g.stroke();
+    g.fillStyle = '#c9c9d6'; g.beginPath(); g.arc(32, 34, 17, Math.PI, 0); g.fill(); g.stroke();
+    g.fillStyle = '#1c1830'; g.fillRect(28, 12, 8, 10);
+  });
+  const shotMat = crudeMat(32, 32, g => {
+    const r = g.createRadialGradient(16, 16, 2, 16, 16, 14); r.addColorStop(0, '#fff6c0'); r.addColorStop(0.5, '#ff9a2a'); r.addColorStop(1, 'rgba(255,80,0,0)');
+    g.fillStyle = r; g.fillRect(0, 0, 32, 32);
+  });
+  const shieldMats = Object.fromEntries([['shield', '120,180,255'], ['gold', '255,205,60']].map(([k, rgb]) => {
+    const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+    const r = g.createRadialGradient(32, 32, 18, 32, 32, 31); r.addColorStop(0, `rgba(${rgb},0.05)`); r.addColorStop(0.8, `rgba(${rgb},0.35)`); r.addColorStop(1, `rgba(${rgb},0)`);
+    g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+    return [k, new THREE.SpriteMaterial({ map: tex(c), transparent: true, depthWrite: false })];
+  }));
+  const starMat = crudeMat(32, 32, g => {
+    g.fillStyle = '#fff3a0'; g.beginPath();
+    for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4, r = k % 2 ? 5 : 15; g.lineTo(16 + Math.cos(a) * r, 16 + Math.sin(a) * r); }
+    g.fill();
+  });
+
+  // ---- sound effects: original blips made with Web Audio when they play (nothing from the ROM); M mutes ----
+  const Sfx = (() => {
+    let ctx = null, out = null, muted = store.get(MUTE_KEY) === '1', lastPlay = {};
+    function ready() {
+      if (ctx) return ctx.state === 'running';
+      try { ctx = new (window.AudioContext || window.webkitAudioContext)(); out = ctx.createGain(); out.gain.value = 0.25; out.connect(ctx.destination); } catch (e) { ctx = null; }
+      return false;
+    }
+    function unlock() { ready(); if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); }
+    // one note: wave, start and end frequency, length, volume, delay
+    function tone(type, f0, f1, len, vol = 0.5, at = 0) {
+      const t = ctx.currentTime + at, o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + len);
+      g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + len);
+      o.connect(g); g.connect(out); o.start(t); o.stop(t + len + 0.02);
+    }
+    function noise(len, vol = 0.5, cutoff = 1800, at = 0) {
+      const t = ctx.currentTime + at, n = Math.floor(ctx.sampleRate * len), buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+      const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+      src.buffer = buf; f.type = 'lowpass'; f.frequency.value = cutoff; g.gain.value = vol;
+      src.connect(f); f.connect(g); g.connect(out); src.start(t);
+    }
+    const arp = (notes, step, type = 'square', vol = 0.3) => notes.forEach((f, i) => tone(type, f, f, step * 1.6, vol, i * step));
+    const SOUNDS = {
+      ring: () => { tone('square', 1568, 1568, 0.07, 0.25); tone('square', 2093, 2093, 0.18, 0.22, 0.06); },
+      jump: () => tone('square', 260, 720, 0.16, 0.25),
+      spring: () => { tone('triangle', 180, 1400, 0.32, 0.5); tone('square', 360, 2000, 0.25, 0.12); },
+      dash: () => { noise(0.25, 0.5, 3000); tone('sawtooth', 900, 140, 0.3, 0.25); },
+      boostIn: () => tone('sawtooth', 200, 900, 0.9, 0.18),
+      boost: () => { noise(0.35, 0.6, 2500); tone('square', 700, 120, 0.4, 0.25); },
+      enemy: () => { noise(0.22, 0.7, 1400); tone('square', 520, 90, 0.2, 0.3); },
+      boom: () => { noise(0.5, 0.9, 700); tone('sine', 120, 40, 0.5, 0.6); },
+      shot: () => tone('square', 950, 260, 0.12, 0.15),
+      monitor: () => { noise(0.15, 0.6, 2000); arp([784, 988, 1175], 0.07, 'triangle', 0.35); },
+      hurt: () => { tone('square', 700, 180, 0.35, 0.3); arp([1568, 1397, 1175, 988], 0.05, 'square', 0.12); },
+      shieldLost: () => { tone('sine', 600, 150, 0.3, 0.4); noise(0.2, 0.3, 4000); },
+      goldDash: () => { noise(0.2, 0.5, 4000); tone('sawtooth', 1200, 300, 0.2, 0.2); },
+      warp: () => tone('sine', 1400, 200, 0.5, 0.35),
+      section: () => arp([523, 659, 784, 1047, 1319, 1568], 0.06, 'triangle', 0.35),
+      goal: () => arp([523, 659, 784, 1047, 784, 1047, 1319, 1568], 0.11, 'square', 0.22),
+      respawn: () => arp([392, 330, 262, 196], 0.12, 'triangle', 0.35),
+      needFlickies: () => tone('square', 300, 220, 0.25, 0.2),
+      flicky: () => tone('sine', 1800, 2600, 0.12, 0.25),
+    };
+    function play(name) {
+      if (muted || !SOUNDS[name] || !ready()) return;
+      const now = ctx.currentTime;
+      if (now - (lastPlay[name] || -1) < 0.05) return;   // several in one frame (rings in a line) sound once
+      lastPlay[name] = now; SOUNDS[name]();
+    }
+    for (const ev of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(ev, unlock, { passive: true });
+    return { play, unlock, toggle() { muted = !muted; store.set(MUTE_KEY, muted ? '1' : '0'); return muted; }, get muted() { return muted; } };
+  })();
+  const POWER_TEXT = { rings: 'Ten rings.', shield: 'Shield: it takes one hit for you.', gold: 'Gold shield: press jump again in the air to dash.',
+    invincible: 'Invincible for a while.', speed: 'Speed shoes: faster for a while.', oneup: 'One up.', fire: 'Shield: it takes one hit for you.' };
 
   // ---- level mesh, built by hand (r128 core has no merge utilities) ----
   const COLORS = {
@@ -2989,11 +3281,12 @@ const Art = (() => {
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
+  let mineSprites = [], turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null;
   function buildLevelObjects() {
     if (levelGroup) {
       scene.remove(levelGroup);
       if (foliage) foliage.tex.dispose();
-      levelGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } else if (o.isSprite && o.userData.fade !== undefined) o.material.dispose(); });
+      levelGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); for (const m of [].concat(o.material)) m.dispose(); } else if (o.isSprite && o.userData.fade !== undefined) o.material.dispose(); });
     }
     levelGroup = new THREE.Group();
     const mesh = buildLevelMesh(L);
@@ -3022,9 +3315,30 @@ const Art = (() => {
       if (rm) s.userData.rom = [rm, kind === 'enemy' ? romObjMat(kind, o.skin, true) : rm];
       return s;
     };
-    springSprites = world.springs.map(sp => objSprite('spring', sp, springMats[0], 0.95, 0.06));
+    springSprites = world.springs.map(sp => {
+      const dm = rom ? romSpringMats(sp.skin) : null;
+      if (!dm) return objSprite('spring', sp, springMats[0], 0.95, 0.06);
+      const g = springDrum(dm, sp); levelGroup.add(g); return g;
+    });
     enemySprites = world.enemies.map(en => objSprite('enemy', en, enemyMat(0, 0, false), 1.05, 0.04));
-    monitorSprites = world.monitors.map(mo => objSprite('monitor', mo, monitorMats[0], 0.85, 0.04));
+    monitorSprites = world.monitors.map(mo => {
+      const mm = rom ? romMonitorMat(mo.kind) : null;
+      if (!mm) return objSprite('monitor', mo, monitorMats[0], 0.85, 0.04);
+      const s = bottomSprite(mm, mo.x, mo.y, mo.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); s.userData.size = ROM_SIZE; s.userData.rom = [mm, mm]; return s;
+    });
+    mineSprites = world.mines.map(mi => objSprite('mine', mi, mineMat, 0.7, 0.04));
+    turretSprites = world.turrets.map(tu => objSprite('turret', tu, turretMat, 0.95, 0.04));
+    shotSprites = [];
+    for (let i = 0; i < 12; i++) { const s = new THREE.Sprite(shotMat); s.scale.set(0.35, 0.35, 1); s.visible = false; levelGroup.add(s); shotSprites.push(s); }
+    // superchargers are painted into the ROM's level art; the scribbled look marks them with a dark pad and an arrow
+    boosterMarks = rom && L.rom ? [] : world.boosters.map(b => {
+      const g = new THREE.Group();
+      const pad = new THREE.Mesh(new THREE.CircleGeometry(0.45, 24), new THREE.MeshBasicMaterial({ color: 0x241d3a }));
+      const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.4, 3), new THREE.MeshBasicMaterial({ color: 0xffc43d }));
+      pad.rotation.x = -Math.PI / 2; arrow.rotation.x = Math.PI / 2; arrow.position.y = 0.04;
+      g.add(pad, arrow); g.position.set(b.x, b.y + 0.02, b.z); g.rotation.y = Math.atan2(b.dir[0], b.dir[1]);
+      levelGroup.add(g); return g;
+    });
     // the original's big ring floats 56 units above the floor
     const lift = L.rom ? 56 / 32 * L.rom.vscale : 1.2;
     goalSprites = world.goals.map(gl => {
@@ -3034,6 +3348,7 @@ const Art = (() => {
     });
     flickySprites = [];
     for (let i = 0; i < 24; i++) { const s = new THREE.Sprite(flickyMat(0, 0, false)); s.center.set(0.5, 0.08); s.scale.set(0.55, 0.55, 1); s.visible = false; levelGroup.add(s); flickySprites.push(s); }
+    goalFx = null;
     $('flickyHud').hidden = !L.flickies;
     looseSprites = [];
     for (let i = 0; i < Sim.P.scatterMax; i++) { const s = new THREE.Sprite(rom ? romArt.rings[0] : ringMats[0]); s.scale.set(0.5, 0.5, 1); s.visible = false; levelGroup.add(s); looseSprites.push(s); }
@@ -3072,6 +3387,8 @@ const Art = (() => {
   const sil = new THREE.Sprite(silMat);
   sil.center.copy(hero.center); sil.scale.copy(hero.scale); sil.renderOrder = 10;
   scene.add(sil);
+  const shieldSprite = new THREE.Sprite(shieldMats.shield); shieldSprite.scale.set(1.25, 1.25, 1); shieldSprite.visible = false; shieldSprite.renderOrder = 5; scene.add(shieldSprite);
+  const stars = Array.from({ length: 4 }, () => { const s = new THREE.Sprite(starMat); s.scale.set(0.3, 0.3, 1); s.visible = false; scene.add(s); return s; });
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.34, 20), new THREE.MeshBasicMaterial({ color: 0x1a1430, transparent: true, opacity: 0.35, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
   scene.add(shadow);
   const look3 = { facingLeft: false, view: 'front', idleFor: 0, runCycle: 0, ballCycle: 0, oct: 0, romCycle: 0 };
@@ -3238,6 +3555,7 @@ const Art = (() => {
     else if (e.code === 'KeyQ' && !e.repeat) rotateCam(-1);
     else if (e.code === 'KeyE' && !e.repeat) rotateCam(1);
     else if (e.code === 'KeyR' && !e.repeat) restart();
+    else if (e.code === 'KeyM' && !e.repeat) toast(Sfx.toggle() ? 'Sound off. M turns it back on.' : 'Sound on.', 1.6);
     else if (e.code === 'KeyV' && !e.repeat) setMode(view.mode === 'iso' ? 'chase' : 'iso');
   });
   window.addEventListener('keyup', e => { if (e.code in KEYMAP) keys.delete(KEYMAP[e.code]); });
@@ -3351,11 +3669,11 @@ const Art = (() => {
 
   // ---- HUD, help card, level loading ----
   const rows = isTouch
-    ? [['Left thumb', 'Drag anywhere on the left to move'], ['Right thumb', 'Drag on the right to look around'], ['Jump', 'Jump; hold for height'], ['Dash', 'Hold while still to charge a spin dash, release to launch. Tap while running to roll.'], ['⟲ ⟳', 'Swing the camera 45 degrees'], ['ISO / 3D', 'Switch between the chase camera and the isometric view']]
-    : [['WASD / arrows', 'Move'], ['Mouse drag', 'Look around'], ['Space or J', 'Jump; hold for height'], ['Shift or K', 'Hold while still to charge a spin dash, release to launch. Tap while running to roll.'], ['Q / E', 'Swing the camera 45 degrees'], ['Wheel', 'Camera distance'], ['V', 'Switch to the isometric view and back'], ['R', 'Restart'], ['Controller', 'Left stick moves, right stick looks, A jump, B or X dash, LB/RB swing, Y or Back switches view, right stick click recentres, Start pauses']];
+    ? [['Left thumb', 'Drag anywhere on the left to move'], ['Right thumb', 'Drag on the right to look around'], ['Jump', 'Jump; hold for height'], ['Dash', 'Hold to stop and rev a spin dash, let go to launch. Tap while running to roll.'], ['⟲ ⟳', 'Swing the camera 45 degrees'], ['ISO / 3D', 'Switch between the chase camera and the isometric view']]
+    : [['WASD / arrows', 'Move'], ['Mouse drag', 'Look around'], ['Space or J', 'Jump; hold for height'], ['Shift or K', 'Hold to stop and rev a spin dash, let go to launch. Tap while running to roll.'], ['Q / E', 'Swing the camera 45 degrees'], ['Wheel', 'Camera distance'], ['V', 'Switch to the isometric view and back'], ['R', 'Restart'], ['M', 'Sound on or off'], ['Controller', 'Left stick moves, right stick looks, A jump, B or X dash, LB/RB swing, Y or Back switches view, right stick click recentres, Start pauses']];
   for (const [k, v] of rows) { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; $('keysList').append(dt, dd); }
   let started = false;
-  function start() { started = true; $('helpOverlay').hidden = true; canvas.focus(); }
+  function start() { Sfx.unlock(); started = true; $('helpOverlay').hidden = true; canvas.focus(); }
   function openHelp() { started = false; $('playBtn').textContent = 'Resume'; $('restartBtn').hidden = false; $('helpOverlay').hidden = false; }
   $('playBtn').addEventListener('click', start);
   $('helpBtn').addEventListener('click', openHelp);
@@ -3465,12 +3783,37 @@ const Art = (() => {
   $('builtInBtn').addEventListener('click', () => { store.del(LEVEL_KEY); useLevel(Sim.importLevel(JSON.parse(builtInRaw)), false); setLoadMsg([]); });
   showLevelName();
 
-  let cleared = false;
+  let cleared = false, clearTimer = 0;
+  // a white flash when a big ring is used, as in the original
+  function flash() { const f = $('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
+  function clearCardOff() { $('clearCard').hidden = true; clearTimeout(clearTimer); clearTimer = 0; }
+  // act clear: show the result, then move on to the next act in the original's order (ROM levels)
+  function actClear() {
+    const idx = L.rom ? S3D.LEVELS.findIndex(l => l[0] === L.rom.level) : -1, here = idx >= 0 ? S3D.LEVELS[idx][1] : L.name;
+    const next = idx >= 0 && romBytes ? S3D.LEVELS[idx + 1] : null, secs = Math.floor(world.time);
+    $('clearTitle').textContent = `${here} clear`;
+    $('clearInfo').textContent = `Rings ${world.ringCount}   Time ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}` + (next ? `\nNext: ${next[1]}` : '\nOpen ? to play again or choose another level.');
+    $('clearCard').hidden = false;
+    clearTimeout(clearTimer);
+    clearTimer = setTimeout(() => {
+      clearTimer = 0; $('clearCard').hidden = true;
+      if (!next) return;
+      try {
+        const raw = S3D.convert(romBytes, next[0], L.rom.vscale);
+        useLevel(Sim.importLevel(raw), true);
+        store.set(LEVEL_KEY, JSON.stringify(raw));
+        $('romLevel').value = String(next[0]);
+        toast(next[1], 2.5);
+      } catch (err) { toast('The next level could not be converted: ' + err.message + '.', 4); }
+    }, 5000);
+  }
   function restart() {
     Sim.resetLevel(world);
     for (let q = 0; q < world.rings.length; q++) ringSprites[q].visible = true;
     for (const s of enemySprites) s.visible = true;
     for (const s of monitorSprites) s.visible = true;
+    for (const s of mineSprites) s.visible = true;
+    clearCardOff();
     prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z; cleared = false;
     $('ringCount').textContent = '0';
   }
@@ -3512,7 +3855,15 @@ const Art = (() => {
       prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
       Sim.step(world, inp);
       if (world.events.includes('respawn')) { prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z; toast('Back to the start.', 1.4); }
-      if (world.events.includes('goal')) toast('Goal! Keep exploring, or open ? to restart.', 4);
+      for (const ev of world.events) Sfx.play(ev);
+      if (world.events.includes('section') || world.events.includes('goal')) {
+        const used = goalSprites[world.events.includes('goal') ? world.goals.length - 1 : world.section - 1];
+        if (used) { const s = used.clone(); if (!used.userData.rom) s.material = used.material.clone(), s.material.transparent = true; levelGroup.add(s); goalFx = { sprite: s, t0: now / 1000, rom: !!used.userData.rom }; }
+        flash();
+      }
+      if (world.events.includes('goal')) actClear();
+      if (world.events.includes('monitor')) toast(POWER_TEXT[world.power] || '', 2);
+      if (world.events.includes('shieldLost')) toast('The shield took the hit.', 1.6);
       if (world.events.includes('needFlickies')) toast(`The ring needs ${L.flickies} Flickies. Free them from enemies and bring them here.`, 3);
       if (world.events.includes('section')) toast(world.holes.some(h => h.opens === world.section) ? 'Ring used. Step into the hole beneath it.' : 'Ring used. On to the next one.', 3);
       if (world.events.includes('warp')) { prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z; }
@@ -3550,6 +3901,13 @@ const Art = (() => {
     if (heroMat.map !== map) { heroMat.map = map; silMat.map = map; }
     hero.position.copy(rp); sil.position.copy(rp);
     hero.visible = !(p.invuln > 0 && Math.floor(t * 16) % 2);
+    shieldSprite.visible = !!p.shield;
+    if (p.shield) { shieldSprite.material = shieldMats[p.shield] || shieldMats.shield; shieldSprite.position.set(rp.x, rp.y + 0.55, rp.z); }
+    for (let k = 0; k < stars.length; k++) {
+      stars[k].visible = p.inv > 0 && !(p.inv < 3 && Math.floor(t * 10) % 2);
+      const a = t * 5 + k * Math.PI / 2;
+      stars[k].position.set(rp.x + Math.cos(a) * 0.55, rp.y + 0.5 + Math.sin(t * 7 + k) * 0.3, rp.z + Math.sin(a) * 0.55);
+    }
 
     // shadow on the floor under the player, tilted with the slope
     const f = Sim.floorAt(L, rp.x, rp.z);
@@ -3595,6 +3953,20 @@ const Art = (() => {
       const s = monitorSprites[q], broken = world.monitors[q].broken;
       if (s.userData.rom) s.visible = !broken; else s.material = monitorMats[broken ? 1 : 0];
     }
+    for (let q = 0; q < mineSprites.length; q++) {
+      const s = mineSprites[q], mi = world.mines[q];
+      if (mi.alive) { s.visible = true; s.scale.set(s.userData.size, s.userData.size, 1); continue; }
+      const k = (world.time - mi.diedAt) / 0.3;
+      s.visible = k < 1; if (k < 1) s.scale.set(s.userData.size * (1 + 2 * k), s.userData.size * (1 + 2 * k), 1);
+    }
+    for (let q = 0; q < turretSprites.length; q++) {
+      const s = turretSprites[q], k = world.time - world.turrets[q].firedAt;
+      s.scale.set(s.userData.size, s.userData.size * (k < 0.15 ? 0.9 : 1), 1);
+    }
+    for (let q = 0; q < shotSprites.length; q++) {
+      const sh = world.shots[q]; shotSprites[q].visible = !!sh;
+      if (sh) shotSprites[q].position.set(sh.x, sh.y, sh.z);
+    }
     // Flickies: hop about, face the way they go; the HUD shows how many the ring has and how many follow
     for (let q = 0; q < flickySprites.length; q++) {
       const s = flickySprites[q], f = world.flickies.filter(ff => ff.state !== 'gone')[q];
@@ -3603,7 +3975,7 @@ const Art = (() => {
       const dx = f.x - s.position.x, dz = f.z - s.position.z, sx = dx * rx + dz * rz;
       if (Math.abs(sx) > 1e-3) s.userData.left = sx < 0;
       s.position.set(f.x, f.y, f.z);
-      if (rom) { s.material = romFlickyMat(Math.floor(t * 12 + q * 3) % 16, !s.userData.left); s.scale.set(64 * PX, 64 * PX, 1); s.center.set(0.5, 1 - 52 / 64); }
+      if (rom) { s.material = romFlickyMat(Math.floor(t * 12 + q * 3) % 16, !s.userData.left, f.kind); s.scale.set(64 * PX, 64 * PX, 1); s.center.set(0.5, 1 - 52 / 64); }
       else { s.material = flickyMat(f.kind, Math.floor(t * 8 + q) % 2, !!s.userData.left); s.scale.set(0.55, 0.55, 1); s.center.set(0.5, 0.08); }
     }
     if (L.flickies) {
@@ -3624,6 +3996,13 @@ const Art = (() => {
       else goalSprites[q].material = goalMats[Math.floor(t * 3) % 2];
       goalSprites[q].visible = q === world.section && !world.cleared;
     }
+    // a used big ring shrinks away through its own frames (ROM look) or grows and fades (scribbled)
+    if (goalFx) {
+      const k = (t - goalFx.t0) / 0.6, s = goalFx.sprite;
+      if (k >= 1) { s.visible = false; goalFx = null; }
+      else if (goalFx.rom) { s.visible = true; s.material = romRingFrameMat(Math.min(8, Math.floor(k * 9))); }
+      else { s.visible = true; s.scale.set(1.1 * (1 + k), 2.2 * (1 + k), 1); s.material.opacity = 1 - k; }
+    }
     for (let q = 0; q < looseSprites.length; q++) {
       const s = looseSprites[q], r = world.loose[q];
       s.visible = !!r && !(r.age > Sim.P.scatterLife - 1 && Math.floor(t * 12) % 2);
@@ -3634,7 +4013,8 @@ const Art = (() => {
     }
     for (let q = 0; q < springSprites.length; q++) {
       const s = springSprites[q], fired = world.time - world.springs[q].firedAt < 0.25;
-      if (s.userData.rom) s.scale.set(s.userData.size, s.userData.size * (fired ? 1.25 : 1), 1);
+      if (s.userData.drum) { s.userData.drum.scale.y = fired ? 1.6 : 1; s.userData.drum.position.y = fired ? 0.2 : 0.15; }
+      else if (s.userData.rom) s.scale.set(s.userData.size, s.userData.size * (fired ? 1.25 : 1), 1);
       else s.material = springMats[fired ? 1 : 0];
     }
     if (waterMesh) waterTex.offset.set(t * 0.08, t * 0.03);

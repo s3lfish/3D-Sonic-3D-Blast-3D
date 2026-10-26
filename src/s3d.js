@@ -9,9 +9,10 @@ const S3D = (() => {
   'use strict';
   const HEADERS = 0x1AB62, HSIZE = 0x2A, CELL = 32, STEP = 8, RING_TABLE = 0x1936, RING_HOVER = 18;
   // object types, identified by watching the game run: player start, springs, monitors, the act-end ring, main enemies
-  const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal',
+  const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
     0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy' };
+  const MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire'];
   const LEVELS = [
     [1, 'Green Grove 1'], [2, 'Green Grove 2'], [3, 'Green Grove 3'],
     [7, 'Rusty Ruin 1'], [6, 'Rusty Ruin 2'], [8, 'Rusty Ruin 3'],
@@ -142,7 +143,7 @@ const S3D = (() => {
   }
   const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };
   const holeLaunch = vscale => launchFor(vscale, 127);
-  const springPower = vscale => Math.round(Math.sqrt(2 * (900 / CELL) * 3.27) * vscale * 1e4) / 1e4;
+  const springPower = vscale => launchFor(vscale, 140);   // measured: a spring throws Sonic 140 units up
   function convert(d, id, vscale = 1) {
     const h = HEADERS + (id - 1) * HSIZE;
     const raw = rncUnpack(d, u32(d, h + 4));
@@ -184,7 +185,11 @@ const S3D = (() => {
       if (!kind || !floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) continue;
       if (kind === 'start') { start = [x / CELL, z / CELL]; continue; }
       const e = { type: kind, x: r3(x / CELL - x0), z: r3(z / CELL - z0) };
-      if (kind === 'enemy') e.radius = 1.0;
+      // Green Grove guide + emulator: Hunters (0C) stand still, Scouters (58) chase; monitor kind = word +0x26 / 0x80
+      // (icon order in the ROM); a supercharger fires along z, towards +z when bit 0x800 of word +0x16 is set
+      if (kind === 'enemy') { e.radius = t === 0x0C ? 0 : 1.0; if (t === 0x58) e.chase = 1; }
+      if (kind === 'monitor') e.kind = MONITOR_KINDS[u16(ob, o + 0x26) >> 7] || 'rings';
+      if (kind === 'booster') e.dir = (u16(ob, o + 0x16) & 0x800) ? [0, 1] : [0, -1];
       if (kind === 'spring') e.power = springPower(vscale);
       if (kind !== 'goal') e.skin = t.toString(16).toUpperCase().padStart(3, '0');
       ents.push(e);
@@ -242,6 +247,8 @@ const S3D = (() => {
     '00C': [[9,-17,4,4,0,0,3,0x028BC2],[17,-25,2,1,0,0,3,0x028DC2],[-10,-22,4,3,1,0,3,0x030788],[-10,-38,3,2,1,0,3,0x030908],[-18,-14,1,2,1,0,3,0x0309C8],[-10,-46,2,1,1,0,3,0x030A08]],
     '018': [[-5,-18,4,4,0,0,2,0x0340C6],[-13,-18,1,3,0,0,2,0x0342C6]],
     '03C': [[-15,-36,4,4,0,0,3,0x03CC5C],[-15,-4,4,1,0,0,3,0x03CE5C]],
+    '008': [[-16,-36,4,4,0,0,3,0x028E14],[-8,-44,2,1,0,0,3,0x029014]],
+    '054': [[-17,-39,1,3,1,0,3,0x042164],[-9,-47,3,4,1,0,3,0x041EC4]],
     '058': [[-16,-19,4,3,0,0,3,0x042FA2],[-8,-27,2,1,0,0,3,0x043122]],
     '064': [[-24,-34,4,4,0,0,3,0x04D1C4],[8,-34,2,4,0,0,3,0x04D3C4],[-16,-2,4,2,0,0,3,0x04D4C4],[16,-2,1,1,0,0,3,0x04D5C4],[-24,-2,1,1,0,0,3,0x04D5E4]],
     '094': [[-3,-41,4,4,0,0,3,0x05C73C],[-3,-9,2,2,0,0,3,0x05C93C],[13,-9,3,1,0,0,3,0x05C9BC],[5,-49,2,1,0,0,3,0x05CA1C]],
@@ -313,6 +320,15 @@ const S3D = (() => {
     const rec = RECIPES[key]; if (!rec) return null;
     const pals = palBytes.map(n => paletteRGB(d, n)), px = new Uint8ClampedArray(size * size * 4);
     for (const [dx, dy, w, h, hf, vf, line, addr] of rec) blit(px, size, d.subarray(addr, addr + w * h * 32), w, h, ox + dx, oy + dy, !!hf, !!vf, pals[line]);
+    return px;
+  }
+  // monitor icons: 16 px squares (2 x 2 tiles, raw) at 0x13C7D8 + kind * 0x80 in palette line 2, in the order of
+  // MONITOR_KINDS; drawn 2 px right and 13 px down from the top left of the monitor body (emulator snapshot, GG1)
+  const MONITOR_ICONS = 0x13C7D8;
+  function monitorImage(d, kind, palBytes, size = 96, ox = 48, oy = 80) {
+    const px = recipeImage(d, '03C', palBytes, size, ox, oy), k = Math.max(0, MONITOR_KINDS.indexOf(kind));
+    if (!px) return null;
+    blit(px, size, d.subarray(MONITOR_ICONS + k * 0x80, MONITOR_ICONS + k * 0x80 + 128), 2, 2, ox - 13, oy - 23, false, false, paletteRGB(d, palBytes[2]));
     return px;
   }
   function ringImage(d, k, pal, size = 16) {
@@ -742,5 +758,5 @@ const S3D = (() => {
     return { top, wall, atlas, foliage, rejects, get count() { return slots.length; } };
   }
 
-  return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, ringImage, levelPalettes, OCTANT, HERO };
+  return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, ringImage, levelPalettes, OCTANT, HERO };
 })();

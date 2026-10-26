@@ -16,9 +16,10 @@ def jround(v, n):
 HEADERS, HSIZE, CELL, STEP = 0x1AB62, 0x2A, 32, 8
 RING_TABLE, RING_HOVER = 0x1936, 18
 # object types identified from in-game photos (springs, monitors, the act-end ring, player start, main enemies)
-KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal',
+KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
          0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
          0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy'}
+MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']
 
 
 # the original's movement, measured in the running game (see s3d.js physicsFor)
@@ -35,7 +36,7 @@ def launch_for(vscale, rise):
 
 
 def spring_power(vscale):
-    return jround(math.sqrt(2 * (900 / CELL) * 3.27) * vscale, 4)
+    return launch_for(vscale, 140)   # measured: a spring throws Sonic 140 units up
 
 
 def convert(rom, level_id, vscale=1.0):
@@ -82,7 +83,13 @@ def convert(rom, level_id, vscale=1.0):
         if not kind or not floor_cell(x // CELL, z // CELL): continue
         if kind == 'start': start = (x / CELL, z / CELL); continue
         e = {"type": kind, "x": jround(x / CELL - x0, 3), "z": jround(z / CELL - z0, 3)}
-        if kind == 'enemy': e["radius"] = 1.0
+        if kind == 'enemy':
+            e["radius"] = 0 if t == 0x0C else 1.0
+            if t == 0x58: e["chase"] = 1
+        if kind == 'monitor':
+            k2 = struct.unpack('>H', r[0x26:0x28])[0] >> 7
+            e["kind"] = MONITOR_KINDS[k2] if k2 < len(MONITOR_KINDS) else 'rings'
+        if kind == 'booster': e["dir"] = [0, 1] if struct.unpack('>H', r[0x16:0x18])[0] & 0x800 else [0, -1]
         if kind == 'spring': e["power"] = spring_power(vscale)
         if kind != 'goal': e["skin"] = f'{t:03X}'
         ents.append(e)

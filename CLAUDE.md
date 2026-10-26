@@ -51,6 +51,15 @@ serves index.html from main.
   art (the ground beneath shows through); the game draws them as camera-facing quads in one mesh (`buildFoliage`,
   `updateFoliage`), tucked away when between the chase camera and the player. Grass along cliff tops and pieces of
   floor drawn in front stay painted. GG1: 58 pieces (palms, flowers, flower beds, a cannon).
+- Objects added 2026-10-26: `mine` (hurts, then gone), `turret` (shot every 2.5 s within 8 m), `booster` {dir}
+  (supercharger: jump on it, held `P.boostWait`, fired at `P.boostSpeed`); monitor `kind` (rings, shield, gold, invincible,
+  speed, oneup, fire); enemy `chase` (Scouter 58) and radius 0 (Hunter 0C stands still). Player: `shield`, `inv`, `fast`
+  timers; shields take a hit without losing rings; gold shield dashes on a second jump press in the air.
+- Spin dash: hold dash to brake and rev (any speed), release to launch; a tap under 0.12 s while running rolls.
+- Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
+  ROM look draws springs as 3D drums coloured from the ROM sprite (`romSpringMats`).
+- Act end: the `goal` event shows `#clearCard`, flashes, and after 5 s converts the next act in `S3D.LEVELS` order.
+- Sound: `Sfx` in game.js, Web Audio blips per sim event (original, nothing from the ROM); M mutes (`blastgrid.mute`).
 - Big ring in ROM look: object art 0x3D068 frame 0, floating 56 units up, squeezed in x to turn.
 - ROM files: `S3D.openRomFile` takes a plain ROM, an .smd dump (de-interleaved) or either inside a .zip (stored or
   deflate via DecompressionStream).
@@ -79,6 +88,9 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
+- 2026-10-26: Springs measured (140 units), monitors with ROM icons and effects, mines, turrets, superchargers, Scouters
+  chase, Hunters stand, Flickies coloured in turn, act end moves to the next act, sound effects, spin dash on hold. 64 sim tests.
+  Bill asked about music: offered own audio files, VGM rips, or full emulation; awaiting his choice.
 - 2026-10-26: Published on GitHub (s3lfish/3D-Sonic-3D-Blast-3D), Pages at https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/.
   All 22 levels convert; level art, foliage, zone skies, ROM sprites, measured physics, zip/SMD ROMs, controller.
   Green Grove sections, rings, holes and Flickies work (GG1 playable to the end). 54 sim tests, pad test, render test.

@@ -343,5 +343,73 @@ test('resetLevel restores enemies, monitors and rings', () => {
   assert.ok(w.enemies[0].alive && !w.monitors[0].broken && w.ringCount === 0);
 });
 
+console.log('objects from the original');
+const FLAT = (ents, extra = {}) => world(grid(W12('c' + row('4', 16) + 'c'), Object.assign({ entities: [{ type: 'start', x: 1.5, z: 2.5 }].concat(ents) }, ORIG, extra)));
+test('spring throws the player 140 original units (4.375 m)', () => {
+  const w = FLAT([{ type: 'spring', x: 5.5, z: 2.5, power: 15.9235 }]);   // S3D springPower at true shape
+  place(w, 5.5, 2.5); let top = 0;
+  run(w, 120, (f, ww) => { top = Math.max(top, ww.p.y); return { mx: 0, mz: 0 }; });
+  near(top - 1, 4.375, 0.03, 'spring rise');
+});
+test('holding dash while running brakes, revs and launches', () => {
+  const w = FLAT([]);
+  w.p.facing = Math.PI / 2;
+  run(w, 40, { mx: 1, mz: 0 });
+  assert.ok(Math.hypot(w.p.vx, w.p.vz) > 6, 'running first');
+  run(w, 40, { mx: 1, mz: 0, dash: true });
+  assert.ok(w.p.charge > 0.3 && Math.hypot(w.p.vx, w.p.vz) < 1, `charge ${w.p.charge}`);
+  run(w, 1, { mx: 1, mz: 0, dash: false });
+  assert.ok(w.p.rolling && Math.hypot(w.p.vx, w.p.vz) > Sim.P.dashMin, 'launched');
+});
+test('a quick dash tap while running rolls without losing speed', () => {
+  const w = FLAT([]);
+  run(w, 40, { mx: 1, mz: 0 });
+  const v0 = Math.hypot(w.p.vx, w.p.vz);
+  run(w, 4, { mx: 1, mz: 0, dash: true }); run(w, 1, { mx: 1, mz: 0 });
+  assert.ok(w.p.rolling && Math.hypot(w.p.vx, w.p.vz) > v0 * 0.9, 'rolling at speed');
+});
+const attack = w => run(w, 12, { dash: true });
+test('monitors give what their icon shows', () => {
+  for (const [kind, check] of [['rings', w => w.ringCount === 10], ['shield', w => w.p.shield === 'shield'], ['gold', w => w.p.shield === 'gold'],
+    ['invincible', w => w.p.inv > 19], ['speed', w => w.p.fast > 19], ['oneup', w => w.lives === 4]]) {
+    const w = FLAT([{ type: 'monitor', x: 5.5, z: 2.5, kind }]); place(w, 5.3, 2.5); attack(w);
+    assert.ok(w.monitors[0].broken && check(w), kind);
+  }
+});
+test('a shield takes a hit: no rings lost, shield gone', () => {
+  const w = FLAT([{ type: 'mine', x: 8.5, z: 2.5 }]); w.ringCount = 7; w.p.shield = 'shield';
+  place(w, 7.5, 2.5); run(w, 30, { mx: 1, mz: 0 });
+  assert.strictEqual(w.ringCount, 7); assert.strictEqual(w.p.shield, null); assert.ok(!w.mines[0].alive);
+});
+test('a mine hurts and scatters rings', () => {
+  const w = FLAT([{ type: 'mine', x: 8.5, z: 2.5 }]); w.ringCount = 7;
+  place(w, 7.5, 2.5); run(w, 30, { mx: 1, mz: 0 });
+  assert.strictEqual(w.ringCount, 0); assert.ok(w.loose.length === 7);
+});
+test('a turret fires at a player in range, and the shot hurts', () => {
+  const w = FLAT([{ type: 'turret', x: 10.5, z: 2.5 }]); w.ringCount = 3;
+  place(w, 6.5, 2.5); let fired = false;
+  run(w, 240, (f, ww) => { if (ww.events.includes('shot')) fired = true; return {}; });
+  assert.ok(fired, 'fired'); assert.strictEqual(w.ringCount, 0, 'hit');
+});
+test('invincibility: enemies and mines do not hurt, enemies pop on touch', () => {
+  const w = FLAT([{ type: 'enemy', x: 8.5, z: 2.5, radius: 0 }, { type: 'mine', x: 11.5, z: 2.5 }]); w.ringCount = 5; w.p.inv = 10;
+  place(w, 6.5, 2.5); run(w, 90, { mx: 1, mz: 0 });
+  assert.strictEqual(w.ringCount, 5); assert.ok(!w.enemies[0].alive);
+});
+test('supercharger: jump on it, held a second, fired along its direction', () => {
+  const w = FLAT([{ type: 'booster', x: 4.5, z: 2.5, dir: [1, 0] }]); place(w, 4.5, 2.5);
+  run(w, 2, { jump: true });
+  assert.ok(w.p.boost, 'taken in');
+  run(w, 30, {}); near(w.p.x, 4.5, 1e-9, 'held');
+  run(w, 40, {});
+  assert.ok(w.p.x > 8 && !w.p.boost, `fired to x ${w.p.x}`);
+});
+test('a chasing enemy comes after a nearby player and a still one stays put', () => {
+  const w = FLAT([{ type: 'enemy', x: 9.5, z: 2.5, radius: 1, chase: 1 }, { type: 'enemy', x: 14.5, z: 2.5, radius: 0 }]);
+  place(w, 6.5, 2.5); run(w, 30, {});
+  assert.ok(w.enemies[0].x < 9.2, `chaser at ${w.enemies[0].x}`); near(w.enemies[1].x, 14.5, 1e-9, 'still enemy');
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

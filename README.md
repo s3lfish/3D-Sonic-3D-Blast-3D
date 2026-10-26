@@ -40,12 +40,15 @@ untested.
 
 - All 22 levels' terrain, start points, rings, springs, monitors, big rings and most enemies.
 - The original level art unprojected onto the 3D faces, foliage as standing sprites, zone skies.
-- Movement measured in the original (jump height, gravity, step height; edges are walls).
+- Movement measured in the original (jump height, spring height, gravity, step height; edges are walls).
 - Green Grove sections: Flickies freed from enemies open each big ring; holes carry you to the next section.
-  Green Grove Act 1 can be played to the end.
+  Reaching the last ring ends the act and moves on to the next one.
+- Monitors show their icon and give rings, a shield, a gold shield, invincibility, speed shoes or a 1-up.
+- Mines, Turrets, chasing and standing enemies, and superchargers (stand on one and press jump).
+- Sound effects (made in the browser, not the original's). M turns sound off.
 
-Not done yet: section gimmicks outside Green Grove (lifts, tubes, objects that change the map), Flicky colours,
-monitor icons, bosses, sound. See `re/NOTES.md` for what is known and what is not.
+Not done yet: section gimmicks outside Green Grove (lifts, tubes, objects that change the map), cracked walls and the
+cannon, bosses, music. See `re/NOTES.md` for what is known and what is not.
 
 ## Working on it
 

@@ -32,6 +32,8 @@ original art. The browser code carries reading rules only.
 | `anim_recipe.py` | Find animated static tiles (water, lava) written at run time |
 | `artcheck.py`, `artcompare.py`, `occl.py`, `gaps.py` | Alignment, emulator comparison, face visibility, section gaps |
 | `edgeprobe.py`, `edgejump.py`, `stepprobe2.py`, `springprobe.py`, `holeprobe.py`, `flickyprobe2.py` | Emulator measurements |
+| `objwatch.py LEVEL TYPE N` | Put Sonic beside (or with `DROP=` on) one object, optionally press jump (`JUMP=`), log and photograph |
+| `monicons.py LEVEL` | Photograph every monitor and list its sprite pieces with their raw ROM addresses |
 | `emu_run.py`, `vdp.py`, `mkstart.py`, `mkstate.py`, `bootto.py`, `typesheet.py` | Emulator helpers |
 | `leakcheck.py [page]` | Checks a page for ROM bytes (hex, base64, number lists); default `../index.html` |
 | `out/anim.json`, `out/recipes.json`, `out/artblocks.txt`, `out/hero_anim.json` | Addresses and indexes only, no pixels |
@@ -99,6 +101,8 @@ original art. The browser code carries reading rules only.
 
 - Jump rise 60 units; gravity 0.25 units/frame²; terminal fall 7 units/frame; top run speed about 5 units/frame.
 - Steps up of 8 units are walked, 16 blocked; drops of any size between floor cells are walked off.
+- Springs (type 18) throw Sonic 140 units up: launch speed 8 units/frame, contact at the object's y (`objwatch.py`).
+  Some springs stand on a raised cell, so they are jumped onto.
 - Cells with no floor (map word 0) are walls: Sonic stops at the edge walking and jumping (18 of 18 edges in GG1,
   GG2, DD1). The map has no bottomless pits. Spring height not measured.
 
@@ -121,7 +125,23 @@ original art. The browser code carries reading rules only.
   have none. GG1 section 0 has 4 x 0C + 1 x 58 = 5 enemies, so 58 probably holds one too (unconfirmed). Blast Grid
   models it as: every converted enemy frees one, five per ring.
 
+## Green Grove objects (emulator + the StrategyWiki Green Grove guide)
+
+- 08 Mine (explodes on touch), 0C Hunter (stands still), 58 Scouter (chases), 54 Turret (fires at Sonic; killed a
+  test Sonic with no rings), 44 continue (a head above a spring), 28 cracked wall (raises its cell to 480 units until
+  broken), 38 supercharger posts (raise two cells by 32), 24 supercharger pad.
+- Supercharger pad (24): stand on it and press jump; Sonic is held revving about one second, then fired as a ball
+  along z, towards +z when bit 0x800 of word +0x16 is set. The player slot does not move while the pad carries him.
+- Monitors (3C): word +0x26 / 0x80 = kind, in icon order: 1-up, rings, blue shield, gold shield, invincibility,
+  speed shoes, a red shield (then score digits). Icons are 2 x 2 raw tiles at 0x13C7D8 + kind * 0x80, palette line 2,
+  drawn 2 px right and 13 px down from the body's top left (`monicons.py`). GG1 holds 3 rings, 2 blue, 2 gold,
+  1 invincibility, 1 speed shoes, matching the guide.
+- Sprite recipes 008 (mine) and 054 (turret) captured with `recipe.py`; the 008 snapshot also caught a spring and
+  was trimmed to the mine's two pieces.
+- Act 1 ends at the second big ring from the start table, at ground level inside the brick U.
+
 ## Open questions
 
 - Section gimmicks per zone; objects that write the map.
-- Monitor icons, Flicky colours, the 060 and 0C8 enemies, spring height, level 22 animated tiles.
+- Supercharger flight path (where it lands), the cannon, cracked walls and posts as map changes, continues.
+- The 060 and 0C8 enemies, level 22 animated tiles, sound (the driver is not decoded).

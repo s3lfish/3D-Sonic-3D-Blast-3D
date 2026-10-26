@@ -3,7 +3,7 @@
   const $ = id => document.getElementById(id);
   const canvas = $('view');
   const isTouch = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
-  const LEVEL_KEY = 'blastgrid.level', CAM_KEY = 'blastgrid.cam', LOOK_KEY = 'blastgrid.look';
+  const LEVEL_KEY = 'blastgrid.level', CAM_KEY = 'blastgrid.cam', LOOK_KEY = 'blastgrid.look', MUTE_KEY = 'blastgrid.mute';
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } },
@@ -140,9 +140,40 @@
     return t;
   }
   // the freed bird (16 frames) and the big ring, drawn from the ROM's own object art
-  function romFlickyMat(frame, flip) {
-    const key = 'f' + frame + (flip ? 'L' : 'R');
-    if (!romArt.objs.has(key)) romArt.objs.set(key, new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.objImage(romArt.d, S3D.FLICKY_ART, frame, romArt.pal, 64, 32, 48, flip), 64)), alphaTest: 0.5 }));
+  const FLICKY_HUES = [null, 325, 115, 2];   // blue as drawn, then pink, green, red
+  function tintBlue(px, hue) {
+    for (let i = 0; i < px.length; i += 4) {
+      if (!px[i + 3]) continue;
+      const r = px[i] / 255, g = px[i + 1] / 255, b = px[i + 2] / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      if (b < mx || mx - mn < 0.15) continue;           // only the bluish body pixels change
+      const l = (mx + mn) / 2, sat = (mx - mn) / (1 - Math.abs(2 * l - 1) || 1);
+      const c = (1 - Math.abs(2 * l - 1)) * sat, hp = hue / 60, x = c * (1 - Math.abs(hp % 2 - 1)), m = l - c / 2;
+      const [rr, gg, bb] = hp < 1 ? [c, x, 0] : hp < 2 ? [x, c, 0] : hp < 3 ? [0, c, x] : hp < 4 ? [0, x, c] : hp < 5 ? [x, 0, c] : [c, 0, x];
+      px[i] = (rr + m) * 255; px[i + 1] = (gg + m) * 255; px[i + 2] = (bb + m) * 255;
+    }
+    return px;
+  }
+  function romFlickyMat(frame, flip, kind = 0) {
+    const key = 'f' + frame + (flip ? 'L' : 'R') + kind;
+    if (!romArt.objs.has(key)) {
+      let px = S3D.objImage(romArt.d, S3D.FLICKY_ART, frame, romArt.pal, 64, 32, 48, flip);
+      if (FLICKY_HUES[kind % 4] !== null) px = tintBlue(px, FLICKY_HUES[kind % 4]);
+      romArt.objs.set(key, new THREE.SpriteMaterial({ map: pixTex(pixCanvas(px, 64)), alphaTest: 0.5 }));
+    }
+    return romArt.objs.get(key);
+  }
+  // the big ring's own nine frames (it shrinks away when used) and monitors with the icon of what they hold
+  function romRingFrameMat(k) {
+    const key = 'bigring' + k;
+    if (!romArt.objs.has(key)) romArt.objs.set(key, new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.objImage(romArt.d, S3D.BIG_RING_ART, k, romArt.pal, 96, 48, 72), 96)), alphaTest: 0.5 }));
+    return romArt.objs.get(key);
+  }
+  function romMonitorMat(kind) {
+    const pals = L.palettes || romArt.fallbackPals, key = 'mon' + kind + pals.join(',');
+    if (!romArt.objs.has(key)) {
+      const px = S3D.monitorImage(romArt.d, kind, pals);
+      romArt.objs.set(key, px ? new THREE.SpriteMaterial({ map: pixTex(pixCanvas(px, ROM_CANVAS)), alphaTest: 0.5 }) : null);
+    }
     return romArt.objs.get(key);
   }
   function romRingMat() {
@@ -161,6 +192,129 @@
     }
     return m;
   }
+
+  // springs in the ROM look: a short 3D drum coloured like the ROM's spring (cap, side, base), since the flat sprite
+  // is drawn for the original's fixed view and reads as a floating disc from a chase camera
+  function romSpringMats(skin) {
+    const key = skin || DEFAULT_SKIN.spring;
+    if (!S3D.RECIPES[key]) return null;
+    const pals = L.palettes || romArt.fallbackPals, id = 'drum' + key + pals.join(',');
+    if (!romArt.objs.has(id)) {
+      const px = S3D.recipeImage(romArt.d, key, pals), W = Math.round(Math.sqrt(px.length / 4));
+      const rows = [];
+      for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) if (px[(y * W + x) * 4 + 3]) { rows.push(y); break; }
+      const most = (y0, y1, skip) => {
+        const n = new Map();
+        for (let y = y0; y <= y1; y++) for (let x = 0; x < W; x++) {
+          const i = (y * W + x) * 4; if (!px[i + 3]) continue;
+          const k = (px[i] << 16) | (px[i + 1] << 8) | px[i + 2]; if (k !== skip) n.set(k, (n.get(k) || 0) + 1);
+        }
+        let best = 0x808080, c = -1; for (const [k, v] of n) if (v > c) { c = v; best = k; }
+        return best;
+      };
+      const top = rows[0], bot = rows[rows.length - 1], cap = most(top, top + Math.floor((bot - top) * 0.45), -1);
+      const side = most(top + Math.floor((bot - top) * 0.6), bot - 3, cap), base = most(bot - 2, bot, -1);
+      const m = c => new THREE.MeshBasicMaterial({ color: c });
+      romArt.objs.set(id, { side: m(side), cap: m(cap), base: m(base) });
+    }
+    return romArt.objs.get(id);
+  }
+  function springDrum(mats, sp) {
+    const g = new THREE.Group(), R = 0.46;
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.92, R * 0.92, 0.07, 24), mats.base); base.position.y = 0.035;
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 0.16, 24), [mats.side, mats.cap, mats.side]); drum.position.y = 0.15;
+    g.add(base, drum); g.position.set(sp.x, sp.y, sp.z); g.userData.drum = drum;
+    return g;
+  }
+
+  // scribbled stand-ins for mines, turrets and shots (the ROM look uses the original sprites)
+  function crudeMat(w, h, draw) {
+    const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'));
+    return spriteMat(c);
+  }
+  const mineMat = crudeMat(64, 64, g => {
+    g.fillStyle = '#5b5f73'; g.strokeStyle = '#1c1830'; g.lineWidth = 3;
+    for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; g.beginPath(); g.moveTo(32 + Math.cos(a) * 14, 34 + Math.sin(a) * 14); g.lineTo(32 + Math.cos(a) * 27, 34 + Math.sin(a) * 27); g.stroke(); }
+    g.beginPath(); g.arc(32, 34, 15, 0, 7); g.fill(); g.stroke(); g.fillStyle = '#ff5a4a'; g.beginPath(); g.arc(32, 34, 5, 0, 7); g.fill();
+  });
+  const turretMat = crudeMat(64, 64, g => {
+    g.fillStyle = '#7a3fb0'; g.strokeStyle = '#1c1830'; g.lineWidth = 3;
+    g.beginPath(); g.rect(14, 34, 36, 26); g.fill(); g.stroke();
+    g.fillStyle = '#c9c9d6'; g.beginPath(); g.arc(32, 34, 17, Math.PI, 0); g.fill(); g.stroke();
+    g.fillStyle = '#1c1830'; g.fillRect(28, 12, 8, 10);
+  });
+  const shotMat = crudeMat(32, 32, g => {
+    const r = g.createRadialGradient(16, 16, 2, 16, 16, 14); r.addColorStop(0, '#fff6c0'); r.addColorStop(0.5, '#ff9a2a'); r.addColorStop(1, 'rgba(255,80,0,0)');
+    g.fillStyle = r; g.fillRect(0, 0, 32, 32);
+  });
+  const shieldMats = Object.fromEntries([['shield', '120,180,255'], ['gold', '255,205,60']].map(([k, rgb]) => {
+    const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+    const r = g.createRadialGradient(32, 32, 18, 32, 32, 31); r.addColorStop(0, `rgba(${rgb},0.05)`); r.addColorStop(0.8, `rgba(${rgb},0.35)`); r.addColorStop(1, `rgba(${rgb},0)`);
+    g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+    return [k, new THREE.SpriteMaterial({ map: tex(c), transparent: true, depthWrite: false })];
+  }));
+  const starMat = crudeMat(32, 32, g => {
+    g.fillStyle = '#fff3a0'; g.beginPath();
+    for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4, r = k % 2 ? 5 : 15; g.lineTo(16 + Math.cos(a) * r, 16 + Math.sin(a) * r); }
+    g.fill();
+  });
+
+  // ---- sound effects: original blips made with Web Audio when they play (nothing from the ROM); M mutes ----
+  const Sfx = (() => {
+    let ctx = null, out = null, muted = store.get(MUTE_KEY) === '1', lastPlay = {};
+    function ready() {
+      if (ctx) return ctx.state === 'running';
+      try { ctx = new (window.AudioContext || window.webkitAudioContext)(); out = ctx.createGain(); out.gain.value = 0.25; out.connect(ctx.destination); } catch (e) { ctx = null; }
+      return false;
+    }
+    function unlock() { ready(); if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); }
+    // one note: wave, start and end frequency, length, volume, delay
+    function tone(type, f0, f1, len, vol = 0.5, at = 0) {
+      const t = ctx.currentTime + at, o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + len);
+      g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + len);
+      o.connect(g); g.connect(out); o.start(t); o.stop(t + len + 0.02);
+    }
+    function noise(len, vol = 0.5, cutoff = 1800, at = 0) {
+      const t = ctx.currentTime + at, n = Math.floor(ctx.sampleRate * len), buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+      const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+      src.buffer = buf; f.type = 'lowpass'; f.frequency.value = cutoff; g.gain.value = vol;
+      src.connect(f); f.connect(g); g.connect(out); src.start(t);
+    }
+    const arp = (notes, step, type = 'square', vol = 0.3) => notes.forEach((f, i) => tone(type, f, f, step * 1.6, vol, i * step));
+    const SOUNDS = {
+      ring: () => { tone('square', 1568, 1568, 0.07, 0.25); tone('square', 2093, 2093, 0.18, 0.22, 0.06); },
+      jump: () => tone('square', 260, 720, 0.16, 0.25),
+      spring: () => { tone('triangle', 180, 1400, 0.32, 0.5); tone('square', 360, 2000, 0.25, 0.12); },
+      dash: () => { noise(0.25, 0.5, 3000); tone('sawtooth', 900, 140, 0.3, 0.25); },
+      boostIn: () => tone('sawtooth', 200, 900, 0.9, 0.18),
+      boost: () => { noise(0.35, 0.6, 2500); tone('square', 700, 120, 0.4, 0.25); },
+      enemy: () => { noise(0.22, 0.7, 1400); tone('square', 520, 90, 0.2, 0.3); },
+      boom: () => { noise(0.5, 0.9, 700); tone('sine', 120, 40, 0.5, 0.6); },
+      shot: () => tone('square', 950, 260, 0.12, 0.15),
+      monitor: () => { noise(0.15, 0.6, 2000); arp([784, 988, 1175], 0.07, 'triangle', 0.35); },
+      hurt: () => { tone('square', 700, 180, 0.35, 0.3); arp([1568, 1397, 1175, 988], 0.05, 'square', 0.12); },
+      shieldLost: () => { tone('sine', 600, 150, 0.3, 0.4); noise(0.2, 0.3, 4000); },
+      goldDash: () => { noise(0.2, 0.5, 4000); tone('sawtooth', 1200, 300, 0.2, 0.2); },
+      warp: () => tone('sine', 1400, 200, 0.5, 0.35),
+      section: () => arp([523, 659, 784, 1047, 1319, 1568], 0.06, 'triangle', 0.35),
+      goal: () => arp([523, 659, 784, 1047, 784, 1047, 1319, 1568], 0.11, 'square', 0.22),
+      respawn: () => arp([392, 330, 262, 196], 0.12, 'triangle', 0.35),
+      needFlickies: () => tone('square', 300, 220, 0.25, 0.2),
+      flicky: () => tone('sine', 1800, 2600, 0.12, 0.25),
+    };
+    function play(name) {
+      if (muted || !SOUNDS[name] || !ready()) return;
+      const now = ctx.currentTime;
+      if (now - (lastPlay[name] || -1) < 0.05) return;   // several in one frame (rings in a line) sound once
+      lastPlay[name] = now; SOUNDS[name]();
+    }
+    for (const ev of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(ev, unlock, { passive: true });
+    return { play, unlock, toggle() { muted = !muted; store.set(MUTE_KEY, muted ? '1' : '0'); return muted; }, get muted() { return muted; } };
+  })();
+  const POWER_TEXT = { rings: 'Ten rings.', shield: 'Shield: it takes one hit for you.', gold: 'Gold shield: press jump again in the air to dash.',
+    invincible: 'Invincible for a while.', speed: 'Speed shoes: faster for a while.', oneup: 'One up.', fire: 'Shield: it takes one hit for you.' };
 
   // ---- level mesh, built by hand (r128 core has no merge utilities) ----
   const COLORS = {
@@ -375,11 +529,12 @@
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
+  let mineSprites = [], turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null;
   function buildLevelObjects() {
     if (levelGroup) {
       scene.remove(levelGroup);
       if (foliage) foliage.tex.dispose();
-      levelGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } else if (o.isSprite && o.userData.fade !== undefined) o.material.dispose(); });
+      levelGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); for (const m of [].concat(o.material)) m.dispose(); } else if (o.isSprite && o.userData.fade !== undefined) o.material.dispose(); });
     }
     levelGroup = new THREE.Group();
     const mesh = buildLevelMesh(L);
@@ -408,9 +563,30 @@
       if (rm) s.userData.rom = [rm, kind === 'enemy' ? romObjMat(kind, o.skin, true) : rm];
       return s;
     };
-    springSprites = world.springs.map(sp => objSprite('spring', sp, springMats[0], 0.95, 0.06));
+    springSprites = world.springs.map(sp => {
+      const dm = rom ? romSpringMats(sp.skin) : null;
+      if (!dm) return objSprite('spring', sp, springMats[0], 0.95, 0.06);
+      const g = springDrum(dm, sp); levelGroup.add(g); return g;
+    });
     enemySprites = world.enemies.map(en => objSprite('enemy', en, enemyMat(0, 0, false), 1.05, 0.04));
-    monitorSprites = world.monitors.map(mo => objSprite('monitor', mo, monitorMats[0], 0.85, 0.04));
+    monitorSprites = world.monitors.map(mo => {
+      const mm = rom ? romMonitorMat(mo.kind) : null;
+      if (!mm) return objSprite('monitor', mo, monitorMats[0], 0.85, 0.04);
+      const s = bottomSprite(mm, mo.x, mo.y, mo.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); s.userData.size = ROM_SIZE; s.userData.rom = [mm, mm]; return s;
+    });
+    mineSprites = world.mines.map(mi => objSprite('mine', mi, mineMat, 0.7, 0.04));
+    turretSprites = world.turrets.map(tu => objSprite('turret', tu, turretMat, 0.95, 0.04));
+    shotSprites = [];
+    for (let i = 0; i < 12; i++) { const s = new THREE.Sprite(shotMat); s.scale.set(0.35, 0.35, 1); s.visible = false; levelGroup.add(s); shotSprites.push(s); }
+    // superchargers are painted into the ROM's level art; the scribbled look marks them with a dark pad and an arrow
+    boosterMarks = rom && L.rom ? [] : world.boosters.map(b => {
+      const g = new THREE.Group();
+      const pad = new THREE.Mesh(new THREE.CircleGeometry(0.45, 24), new THREE.MeshBasicMaterial({ color: 0x241d3a }));
+      const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.4, 3), new THREE.MeshBasicMaterial({ color: 0xffc43d }));
+      pad.rotation.x = -Math.PI / 2; arrow.rotation.x = Math.PI / 2; arrow.position.y = 0.04;
+      g.add(pad, arrow); g.position.set(b.x, b.y + 0.02, b.z); g.rotation.y = Math.atan2(b.dir[0], b.dir[1]);
+      levelGroup.add(g); return g;
+    });
     // the original's big ring floats 56 units above the floor
     const lift = L.rom ? 56 / 32 * L.rom.vscale : 1.2;
     goalSprites = world.goals.map(gl => {
@@ -420,6 +596,7 @@
     });
     flickySprites = [];
     for (let i = 0; i < 24; i++) { const s = new THREE.Sprite(flickyMat(0, 0, false)); s.center.set(0.5, 0.08); s.scale.set(0.55, 0.55, 1); s.visible = false; levelGroup.add(s); flickySprites.push(s); }
+    goalFx = null;
     $('flickyHud').hidden = !L.flickies;
     looseSprites = [];
     for (let i = 0; i < Sim.P.scatterMax; i++) { const s = new THREE.Sprite(rom ? romArt.rings[0] : ringMats[0]); s.scale.set(0.5, 0.5, 1); s.visible = false; levelGroup.add(s); looseSprites.push(s); }
@@ -458,6 +635,8 @@
   const sil = new THREE.Sprite(silMat);
   sil.center.copy(hero.center); sil.scale.copy(hero.scale); sil.renderOrder = 10;
   scene.add(sil);
+  const shieldSprite = new THREE.Sprite(shieldMats.shield); shieldSprite.scale.set(1.25, 1.25, 1); shieldSprite.visible = false; shieldSprite.renderOrder = 5; scene.add(shieldSprite);
+  const stars = Array.from({ length: 4 }, () => { const s = new THREE.Sprite(starMat); s.scale.set(0.3, 0.3, 1); s.visible = false; scene.add(s); return s; });
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.34, 20), new THREE.MeshBasicMaterial({ color: 0x1a1430, transparent: true, opacity: 0.35, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
   scene.add(shadow);
   const look3 = { facingLeft: false, view: 'front', idleFor: 0, runCycle: 0, ballCycle: 0, oct: 0, romCycle: 0 };
@@ -624,6 +803,7 @@
     else if (e.code === 'KeyQ' && !e.repeat) rotateCam(-1);
     else if (e.code === 'KeyE' && !e.repeat) rotateCam(1);
     else if (e.code === 'KeyR' && !e.repeat) restart();
+    else if (e.code === 'KeyM' && !e.repeat) toast(Sfx.toggle() ? 'Sound off. M turns it back on.' : 'Sound on.', 1.6);
     else if (e.code === 'KeyV' && !e.repeat) setMode(view.mode === 'iso' ? 'chase' : 'iso');
   });
   window.addEventListener('keyup', e => { if (e.code in KEYMAP) keys.delete(KEYMAP[e.code]); });
@@ -737,11 +917,11 @@
 
   // ---- HUD, help card, level loading ----
   const rows = isTouch
-    ? [['Left thumb', 'Drag anywhere on the left to move'], ['Right thumb', 'Drag on the right to look around'], ['Jump', 'Jump; hold for height'], ['Dash', 'Hold while still to charge a spin dash, release to launch. Tap while running to roll.'], ['⟲ ⟳', 'Swing the camera 45 degrees'], ['ISO / 3D', 'Switch between the chase camera and the isometric view']]
-    : [['WASD / arrows', 'Move'], ['Mouse drag', 'Look around'], ['Space or J', 'Jump; hold for height'], ['Shift or K', 'Hold while still to charge a spin dash, release to launch. Tap while running to roll.'], ['Q / E', 'Swing the camera 45 degrees'], ['Wheel', 'Camera distance'], ['V', 'Switch to the isometric view and back'], ['R', 'Restart'], ['Controller', 'Left stick moves, right stick looks, A jump, B or X dash, LB/RB swing, Y or Back switches view, right stick click recentres, Start pauses']];
+    ? [['Left thumb', 'Drag anywhere on the left to move'], ['Right thumb', 'Drag on the right to look around'], ['Jump', 'Jump; hold for height'], ['Dash', 'Hold to stop and rev a spin dash, let go to launch. Tap while running to roll.'], ['⟲ ⟳', 'Swing the camera 45 degrees'], ['ISO / 3D', 'Switch between the chase camera and the isometric view']]
+    : [['WASD / arrows', 'Move'], ['Mouse drag', 'Look around'], ['Space or J', 'Jump; hold for height'], ['Shift or K', 'Hold to stop and rev a spin dash, let go to launch. Tap while running to roll.'], ['Q / E', 'Swing the camera 45 degrees'], ['Wheel', 'Camera distance'], ['V', 'Switch to the isometric view and back'], ['R', 'Restart'], ['M', 'Sound on or off'], ['Controller', 'Left stick moves, right stick looks, A jump, B or X dash, LB/RB swing, Y or Back switches view, right stick click recentres, Start pauses']];
   for (const [k, v] of rows) { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; $('keysList').append(dt, dd); }
   let started = false;
-  function start() { started = true; $('helpOverlay').hidden = true; canvas.focus(); }
+  function start() { Sfx.unlock(); started = true; $('helpOverlay').hidden = true; canvas.focus(); }
   function openHelp() { started = false; $('playBtn').textContent = 'Resume'; $('restartBtn').hidden = false; $('helpOverlay').hidden = false; }
   $('playBtn').addEventListener('click', start);
   $('helpBtn').addEventListener('click', openHelp);
@@ -851,12 +1031,37 @@
   $('builtInBtn').addEventListener('click', () => { store.del(LEVEL_KEY); useLevel(Sim.importLevel(JSON.parse(builtInRaw)), false); setLoadMsg([]); });
   showLevelName();
 
-  let cleared = false;
+  let cleared = false, clearTimer = 0;
+  // a white flash when a big ring is used, as in the original
+  function flash() { const f = $('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
+  function clearCardOff() { $('clearCard').hidden = true; clearTimeout(clearTimer); clearTimer = 0; }
+  // act clear: show the result, then move on to the next act in the original's order (ROM levels)
+  function actClear() {
+    const idx = L.rom ? S3D.LEVELS.findIndex(l => l[0] === L.rom.level) : -1, here = idx >= 0 ? S3D.LEVELS[idx][1] : L.name;
+    const next = idx >= 0 && romBytes ? S3D.LEVELS[idx + 1] : null, secs = Math.floor(world.time);
+    $('clearTitle').textContent = `${here} clear`;
+    $('clearInfo').textContent = `Rings ${world.ringCount}   Time ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}` + (next ? `\nNext: ${next[1]}` : '\nOpen ? to play again or choose another level.');
+    $('clearCard').hidden = false;
+    clearTimeout(clearTimer);
+    clearTimer = setTimeout(() => {
+      clearTimer = 0; $('clearCard').hidden = true;
+      if (!next) return;
+      try {
+        const raw = S3D.convert(romBytes, next[0], L.rom.vscale);
+        useLevel(Sim.importLevel(raw), true);
+        store.set(LEVEL_KEY, JSON.stringify(raw));
+        $('romLevel').value = String(next[0]);
+        toast(next[1], 2.5);
+      } catch (err) { toast('The next level could not be converted: ' + err.message + '.', 4); }
+    }, 5000);
+  }
   function restart() {
     Sim.resetLevel(world);
     for (let q = 0; q < world.rings.length; q++) ringSprites[q].visible = true;
     for (const s of enemySprites) s.visible = true;
     for (const s of monitorSprites) s.visible = true;
+    for (const s of mineSprites) s.visible = true;
+    clearCardOff();
     prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z; cleared = false;
     $('ringCount').textContent = '0';
   }
@@ -898,7 +1103,15 @@
       prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
       Sim.step(world, inp);
       if (world.events.includes('respawn')) { prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z; toast('Back to the start.', 1.4); }
-      if (world.events.includes('goal')) toast('Goal! Keep exploring, or open ? to restart.', 4);
+      for (const ev of world.events) Sfx.play(ev);
+      if (world.events.includes('section') || world.events.includes('goal')) {
+        const used = goalSprites[world.events.includes('goal') ? world.goals.length - 1 : world.section - 1];
+        if (used) { const s = used.clone(); if (!used.userData.rom) s.material = used.material.clone(), s.material.transparent = true; levelGroup.add(s); goalFx = { sprite: s, t0: now / 1000, rom: !!used.userData.rom }; }
+        flash();
+      }
+      if (world.events.includes('goal')) actClear();
+      if (world.events.includes('monitor')) toast(POWER_TEXT[world.power] || '', 2);
+      if (world.events.includes('shieldLost')) toast('The shield took the hit.', 1.6);
       if (world.events.includes('needFlickies')) toast(`The ring needs ${L.flickies} Flickies. Free them from enemies and bring them here.`, 3);
       if (world.events.includes('section')) toast(world.holes.some(h => h.opens === world.section) ? 'Ring used. Step into the hole beneath it.' : 'Ring used. On to the next one.', 3);
       if (world.events.includes('warp')) { prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z; }
@@ -936,6 +1149,13 @@
     if (heroMat.map !== map) { heroMat.map = map; silMat.map = map; }
     hero.position.copy(rp); sil.position.copy(rp);
     hero.visible = !(p.invuln > 0 && Math.floor(t * 16) % 2);
+    shieldSprite.visible = !!p.shield;
+    if (p.shield) { shieldSprite.material = shieldMats[p.shield] || shieldMats.shield; shieldSprite.position.set(rp.x, rp.y + 0.55, rp.z); }
+    for (let k = 0; k < stars.length; k++) {
+      stars[k].visible = p.inv > 0 && !(p.inv < 3 && Math.floor(t * 10) % 2);
+      const a = t * 5 + k * Math.PI / 2;
+      stars[k].position.set(rp.x + Math.cos(a) * 0.55, rp.y + 0.5 + Math.sin(t * 7 + k) * 0.3, rp.z + Math.sin(a) * 0.55);
+    }
 
     // shadow on the floor under the player, tilted with the slope
     const f = Sim.floorAt(L, rp.x, rp.z);
@@ -981,6 +1201,20 @@
       const s = monitorSprites[q], broken = world.monitors[q].broken;
       if (s.userData.rom) s.visible = !broken; else s.material = monitorMats[broken ? 1 : 0];
     }
+    for (let q = 0; q < mineSprites.length; q++) {
+      const s = mineSprites[q], mi = world.mines[q];
+      if (mi.alive) { s.visible = true; s.scale.set(s.userData.size, s.userData.size, 1); continue; }
+      const k = (world.time - mi.diedAt) / 0.3;
+      s.visible = k < 1; if (k < 1) s.scale.set(s.userData.size * (1 + 2 * k), s.userData.size * (1 + 2 * k), 1);
+    }
+    for (let q = 0; q < turretSprites.length; q++) {
+      const s = turretSprites[q], k = world.time - world.turrets[q].firedAt;
+      s.scale.set(s.userData.size, s.userData.size * (k < 0.15 ? 0.9 : 1), 1);
+    }
+    for (let q = 0; q < shotSprites.length; q++) {
+      const sh = world.shots[q]; shotSprites[q].visible = !!sh;
+      if (sh) shotSprites[q].position.set(sh.x, sh.y, sh.z);
+    }
     // Flickies: hop about, face the way they go; the HUD shows how many the ring has and how many follow
     for (let q = 0; q < flickySprites.length; q++) {
       const s = flickySprites[q], f = world.flickies.filter(ff => ff.state !== 'gone')[q];
@@ -989,7 +1223,7 @@
       const dx = f.x - s.position.x, dz = f.z - s.position.z, sx = dx * rx + dz * rz;
       if (Math.abs(sx) > 1e-3) s.userData.left = sx < 0;
       s.position.set(f.x, f.y, f.z);
-      if (rom) { s.material = romFlickyMat(Math.floor(t * 12 + q * 3) % 16, !s.userData.left); s.scale.set(64 * PX, 64 * PX, 1); s.center.set(0.5, 1 - 52 / 64); }
+      if (rom) { s.material = romFlickyMat(Math.floor(t * 12 + q * 3) % 16, !s.userData.left, f.kind); s.scale.set(64 * PX, 64 * PX, 1); s.center.set(0.5, 1 - 52 / 64); }
       else { s.material = flickyMat(f.kind, Math.floor(t * 8 + q) % 2, !!s.userData.left); s.scale.set(0.55, 0.55, 1); s.center.set(0.5, 0.08); }
     }
     if (L.flickies) {
@@ -1010,6 +1244,13 @@
       else goalSprites[q].material = goalMats[Math.floor(t * 3) % 2];
       goalSprites[q].visible = q === world.section && !world.cleared;
     }
+    // a used big ring shrinks away through its own frames (ROM look) or grows and fades (scribbled)
+    if (goalFx) {
+      const k = (t - goalFx.t0) / 0.6, s = goalFx.sprite;
+      if (k >= 1) { s.visible = false; goalFx = null; }
+      else if (goalFx.rom) { s.visible = true; s.material = romRingFrameMat(Math.min(8, Math.floor(k * 9))); }
+      else { s.visible = true; s.scale.set(1.1 * (1 + k), 2.2 * (1 + k), 1); s.material.opacity = 1 - k; }
+    }
     for (let q = 0; q < looseSprites.length; q++) {
       const s = looseSprites[q], r = world.loose[q];
       s.visible = !!r && !(r.age > Sim.P.scatterLife - 1 && Math.floor(t * 12) % 2);
@@ -1020,7 +1261,8 @@
     }
     for (let q = 0; q < springSprites.length; q++) {
       const s = springSprites[q], fired = world.time - world.springs[q].firedAt < 0.25;
-      if (s.userData.rom) s.scale.set(s.userData.size, s.userData.size * (fired ? 1.25 : 1), 1);
+      if (s.userData.drum) { s.userData.drum.scale.y = fired ? 1.6 : 1; s.userData.drum.position.y = fired ? 0.2 : 0.15; }
+      else if (s.userData.rom) s.scale.set(s.userData.size, s.userData.size * (fired ? 1.25 : 1), 1);
       else s.material = springMats[fired ? 1 : 0];
     }
     if (waterMesh) waterTex.offset.set(t * 0.08, t * 0.03);
