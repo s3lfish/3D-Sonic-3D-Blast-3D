@@ -382,6 +382,54 @@ test('a cannon catches a player dropping into its mouth and fires them on a jump
   assert.ok(drift < 0.01, `no steering in flight (drifted ${drift})`);
   assert.ok(flewTo > 3, `went south to z ${flewTo}`);
 });
+test('a fan sets the player whirling: held on it, slow to steer, bouncing off walls, ended by a jump', () => {
+  const w = world(arena([{ type: 'fan', cells: [[3, 2]] }]));
+  w.p.x = 3.5; w.p.z = 2.5;
+  let started = false;
+  run(w, 20, (f, ww) => { if (ww.events.includes('whirl')) started = true; return { mx: 1, mz: 0 }; });
+  assert.ok(started && w.p.whirl, 'whirling'); near(w.p.x, 3.5, 0.05, 'held on the fan');
+  run(w, 40, { mx: 1, mz: 0 });
+  assert.ok(w.p.vx > 3 && w.p.vx < 6.5, `picks up speed slowly: ${w.p.vx}`);
+  let bounced = false;
+  run(w, 240, (f, ww) => { if (ww.p.vx < -3) bounced = true; return { mx: 1, mz: 0 }; });
+  assert.ok(bounced, 'bounced off the wall'); assert.ok(w.p.whirl, 'still whirling');
+  run(w, 5, { mx: 0, mz: 0, jump: true }); assert.ok(!w.p.whirl, 'a jump ends it');
+});
+test('a pillar stops walking and dashing players but breaks under a whirl', () => {
+  const lvl = fan => arena([{ type: 'crack', by: 'whirl', cells: [[8, 2]], top: 6 }, ...(fan ? [{ type: 'fan', cells: [[3, 2]] }] : [])]);
+  const a = world(lvl(false));
+  run(a, 200, (f, w) => ({ mx: f < 8 ? 1 : 0, mz: 0, dash: f > 30 && f < 80 }));
+  run(a, 100, { mx: 1, mz: 0 });
+  assert.ok(a.p.x < 8 && !a.cracks[0].broken, `got through to x ${a.p.x}`);
+  const b = world(lvl(true));
+  run(b, 200, { mx: 1, mz: 0 });
+  assert.ok(b.cracks[0].broken, 'the whirl broke it'); assert.ok(b.p.x > 9, `carried on to x ${b.p.x}`);
+});
+test('a door moves a player standing on it to its exit and pushes them out along the floor', () => {
+  const w = world(arena([{ type: 'hole', x: 4.5, z: 2.5, size: 0.5, opens: 0, exit: [15.5, 2.5], exitY: 0.75, push: [7.5, 0], launch: 0 }]));
+  let warped = false, grounded = false;
+  run(w, 60, (f, ww) => { if (ww.events.includes('warp')) { warped = true; grounded = ww.p.grounded; } return { mx: warped ? 0 : 1, mz: 0 }; });
+  assert.ok(warped && grounded, 'came out on the floor'); assert.ok(w.p.x > 15.6, `pushed east to ${w.p.x}`);
+});
+test('a ring with a pocket puts the player there; a ride from it opens with the ring and ends in the air', () => {
+  const w = world(arena([{ type: 'goal', x: 4.5, z: 2.5, put: [12.5, 1.5, 90] }, { type: 'goal', x: 19.5, z: 2.5 },
+    { type: 'hole', x: 14.5, z: 1.5, size: 0.5, opens: 1, exit: [16.5, 3.5], exitY: 4, push: [0, -1], launch: 0 }]));
+  let sec = false;
+  run(w, 60, (f, ww) => { if (ww.events.includes('section')) sec = true; return { mx: sec ? 0 : 1, mz: 0 }; });
+  assert.ok(sec, 'ring used'); near(w.p.x, 12.5, 0.2, 'pocket x'); near(w.p.z, 1.5, 0.2, 'pocket z');
+  Sim.respawn(w);
+  near(w.p.x, 12.5, 1e-9, 'a lost life starts in the pocket'); near(w.p.facing, Math.PI / 2, 1e-9, 'facing east');
+  let rode = false, high = 0;
+  run(w, 90, (f, ww) => { if (ww.events.includes('warp')) rode = true; if (rode) high = Math.max(high, ww.p.y); return { mx: rode ? 0 : 1, mz: 0 }; });
+  assert.ok(rode, 'took the ride'); near(high, 4, 0.05, 'came out at the given height'); assert.ok(w.p.grounded, 'landed');
+});
+test('converted spike blocks (H) hurt', () => {
+  const tiles = []; for (let k = 0; k < 15; k++) tiles.push({ c: [1, 1, 1, 1], t: k === 7 ? 'H' : 'F' });
+  const w = world({ version: 1, format: 'tiles', width: 5, depth: 3, tiles, entities: [{ type: 'start', x: 0.5, z: 1.5 }] });
+  let respawned = false;
+  run(w, 60, (f, ww) => { if (ww.events.includes('respawn')) respawned = true; return { mx: 1, mz: 0 }; });
+  assert.ok(respawned, 'no rings: a hit sends the player back');
+});
 test('a ring with no Flickies left in the level still opens', () => {
   const w = world(Object.assign(arena([{ type: 'goal', x: 6.5, z: 2.5 }]), { flickies: 5 }));
   run(w, 90, { mx: 1, mz: 0 });

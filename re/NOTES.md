@@ -229,3 +229,22 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - Section gimmicks per zone; objects that write the map.
 - Supercharger flight path (where it lands), the cannon, cracked walls and posts as map changes, continues.
 - The 060 and 0C8 enemies, level 22 animated tiles, sound (the driver is not decoded).
+
+## Rusty Ruin 1 (2026-10-26; private emulator tools sectionwatch.py, secexit.py, fan2.py, cellseq.py, objram.py)
+- Act routine 0x742C (labelled RunLevel_RRz2; the labels swap RR acts 1 and 2). A big ring sets $0A5E; the routine
+  writes 1 into the mode of a type 090 object beside the ring; when its +2 word turns 1 the routine places Sonic in a
+  closed pocket ((1696, 232, 1840) after ring 1, (2576, 200, 1216) after ring 2), fades, and walks him by itself to a
+  cell ((60, 48) / (80, 50)) that starts a ride (player state 0x36: a roll out through a curved arch, ending at
+  (1888, 455, 730) moving 5 units a frame south; 0x38: a hop up a wall onto (2576, 264, 1676)). Ring 3's part is
+  only reachable this way (`gaps.py`). After a lost life InitLevel sets mode 3 and the pocket is used again.
+- Doors: table 0x7994, 28-byte records [cell, x, y, z (16.16), $38, cell, sprite, direction, camera x2]; grounded on
+  the cell, Sonic is moved and pushed 4 units a frame (direction 0 south, 2 west, 4 north, else east).
+- Fans: map low byte 0x55 (helper 0x83A8): grounded, not whirling: $5C = 1 (whirl), $56 = 2, held 32 frames with
+  sound 0xAB every 8. Measured: 0.094 units a frame per frame towards the stick, top 5, drag 0.03 with the stick
+  released, a wall sends back about 0.94 of the speed. Spike blocks: low byte 0xFF sets $3E = -1 (a hit).
+  Low byte 0xAA: green domes, a puff (object 0A8) and sound 0xAA only.
+- Pillars: table 0x7ACC (helper 0x85AC), 14-byte records [screen x, screen y, x, y, z, cell, raised word]; InitLevel
+  raises each cell by 0x2000; while whirling, cells touched are let in and a pillar whose cell Sonic enters drops by
+  0x2000 (sound 0x59). Dash walls (88, 62) and (100, 41) (the latter also lowers (100, 15)) as in Green Grove.
+- Helpers not yet used: 0x84F2 (flamethrowers: fire objects when Sonic is in front, sound 0x7F), 0x86B0 (maces: a
+  ball circling a centre, angle step per frame from the table at 0x75C2).

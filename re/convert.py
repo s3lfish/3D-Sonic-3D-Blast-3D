@@ -18,7 +18,7 @@ RING_TABLE, RING_HOVER = 0x1936, 18
 # object types identified from in-game photos (springs, monitors, the act-end ring, player start, main enemies)
 KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
          0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
-         0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy'}
+         0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy'}
 MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']
 
 
@@ -42,7 +42,13 @@ def spring_power(vscale):
 GIMMICKS = {
     1: {'cannons': [(116, 12, 248, 9, 7.067)], 'cracks': [([(108, 17)], 480, [0, -1])]},
     2: {'cannons': [(21, 48, 576, 9, 6.1)], 'cracks': [([(59, 47)], 784, [-1, 0]), ([(108, 41), (109, 41)], 688, [0, -1])]},
+    # Rusty Ruin 1 (see s3d.js GIMMICKS): spike and fan cell marks, door and pillar tables, pockets after rings, rides
+    7: {'spikes': 0xFF, 'fans': 0x55, 'doors': (0x7994, 4), 'pillars': (0x7ACC, 23),
+        'links': [(1696, 1840, 90), (2576, 1216, 180)],
+        'rides': [(60, 48, 1, 1888, 455, 730, 0, 5), (80, 50, 2, 2576, 264, 1676, 0, 0)],
+        'cracks': [([(88, 62)], 432, [-1, 0]), ([(100, 41), (100, 15, 560)], 432, [0, -1])]},
 }
+DOOR_PUSH = {0: (0, 4), 2: (-4, 0), 4: (0, -4)}
 
 def convert(rom, level_id, vscale=1.0):
     h = HEADERS + (level_id - 1) * HSIZE
@@ -55,6 +61,7 @@ def convert(rom, level_id, vscale=1.0):
     x1, z1 = min(127, x1), min(127, z1)
     W, D = x1 - x0 + 1, z1 - z0 + 1
     unit = STEP / CELL * vscale          # metres per 8-unit step
+    gm = GIMMICKS.get(level_id, {}); mps = 60 / CELL
     tiles = []
     for z in range(z0, z1 + 1):
         for x in range(x0, x1 + 1):
@@ -63,7 +70,8 @@ def convert(rom, level_id, vscale=1.0):
                 tiles.append({"c": [0, 0, 0, 0], "t": "W"}); continue   # no floor: Sonic cannot enter (edgeprobe.py)
             hb = v >> 8
             cs = [(v >> 6) & 3, (v >> 4) & 3, (v >> 2) & 3, v & 3]
-            tiles.append({"c": [jround((hb + c) * unit, 4) for c in cs], "t": "F"})
+            spike = gm.get('spikes') is not None and (v & 0xFF) == gm['spikes']
+            tiles.append({"c": [jround((hb + c) * unit, 4) for c in cs], "t": "H" if spike else "F"})
     ents = []
     floor_cell = lambda cx, cz: 0 <= cx < 128 and 0 <= cz < 128 and w[cz * 128 + cx] != 0
     # objects: 52-byte records in the RNC block at header +0x00; type at +0x22, x/y/z at +6/+0xA/+0xE
@@ -100,20 +108,50 @@ def convert(rom, level_id, vscale=1.0):
         if kind == 'spring': e["power"] = spring_power(vscale)
         if kind != 'goal': e["skin"] = f'{t:03X}'
         ents.append(e)
-    # Green Grove gimmicks run by the act's own routine (see s3d.js GIMMICKS)
-    gm = GIMMICKS.get(level_id, {}); mps = 60 / CELL
+    # gimmicks run by the act's own routine (see s3d.js GIMMICKS)
     for cx, cz, mouth, up, south in gm.get('cannons', []):
         if floor_cell(cx, cz):
             ents.append({"type": "cannon", "x": cx - x0, "z": cz - z0, "y": jround(mouth / CELL * vscale, 3), "h": jround(12 / CELL * vscale, 3),
                          "vy": jround(up * mps * vscale, 3), "vz": jround(south * mps, 3)})
     for cells, top, dr in gm.get('cracks', []):
-        if all(floor_cell(cx, cz) for cx, cz in cells):
-            ents.append({"type": "crack", "cells": [[cx - x0, cz - z0] for cx, cz in cells], "top": jround(top / CELL * vscale, 3), "dir": dr})
+        if all(floor_cell(c[0], c[1]) for c in cells):
+            ents.append({"type": "crack", "cells": [[c[0] - x0, c[1] - z0] + ([jround(c[2] / CELL * vscale, 3)] if len(c) > 2 else []) for c in cells],
+                         "top": jround(top / CELL * vscale, 3), "dir": dr})
+    if 'pillars' in gm:
+        o, n = gm['pillars']
+        for k in range(n):
+            c = struct.unpack('>H', rom[o + 14 * k + 10:o + 14 * k + 12])[0] >> 1
+            cx, cz = c % 128, c // 128
+            if floor_cell(cx, cz):
+                ents.append({"type": "crack", "by": "whirl", "cells": [[cx - x0, cz - z0]], "top": jround(rom[o + 14 * k + 12] * STEP / CELL * vscale, 3)})
+    if 'fans' in gm:
+        cells = [[x - x0, z - z0] for z in range(z0, z1 + 1) for x in range(x0, x1 + 1) if w[z * 128 + x] and (w[z * 128 + x] & 0xFF) == gm['fans']]
+        if cells: ents.append({"type": "fan", "cells": cells})
+    if 'doors' in gm:
+        o, n = gm['doors']
+        for k in range(n):
+            r = rom[o + 28 * k:o + 28 * k + 28]
+            c = struct.unpack('>H', r[0:2])[0] >> 1
+            cx, cz = c % 128, c // 128
+            x, y, z, dr = struct.unpack('>h', r[2:4])[0], struct.unpack('>h', r[6:8])[0], struct.unpack('>h', r[10:12])[0], struct.unpack('>H', r[22:24])[0]
+            vx, vz = DOOR_PUSH.get(dr, (4, 0))
+            if floor_cell(cx, cz) and floor_cell(x // CELL, z // CELL):
+                ents.append({"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": 0, "exit": [jround(x / CELL - x0, 3), jround(z / CELL - z0, 3)],
+                             "exitY": jround(y / CELL * vscale, 3), "push": [jround(vx * mps, 3), jround(vz * mps, 3)], "launch": 0})
+    for cx, cz, after, x, y, z, vx, vz in gm.get('rides', []):
+        if floor_cell(cx, cz) and floor_cell(x // CELL, z // CELL):
+            ents.append({"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": after, "exit": [jround(x / CELL - x0, 3), jround(z / CELL - z0, 3)],
+                         "exitY": jround(y / CELL * vscale, 3), "push": [jround(vx * mps, 3), jround(vz * mps, 3)], "launch": 0})
     if table_rings:
         for k in range(3):
             x, z = struct.unpack('>h', rom[st + 0x14 + 6 * k:st + 0x16 + 6 * k])[0], struct.unpack('>h', rom[st + 0x18 + 6 * k:st + 0x1A + 6 * k])[0]
             if not x: break
-            if floor_cell(x // CELL, z // CELL): ents.append({"type": "goal", "x": jround(x / CELL - x0, 3), "z": jround(z / CELL - z0, 3)})
+            if not floor_cell(x // CELL, z // CELL): continue
+            g = {"type": "goal", "x": jround(x / CELL - x0, 3), "z": jround(z / CELL - z0, 3)}
+            links = gm.get('links', [])
+            if k < len(links) and floor_cell(links[k][0] // CELL, links[k][1] // CELL):
+                g["put"] = [jround(links[k][0] / CELL - x0, 3), jround(links[k][1] / CELL - z0, 3), links[k][2]]
+            ents.append(g)
     opens = 0
     for i, (x, z, mode) in enumerate(holes):
         if mode != 4 or i + 1 >= len(holes): continue
@@ -142,7 +180,7 @@ def convert(rom, level_id, vscale=1.0):
         start = (bx + 0.5, bz + 0.5)
     ents.insert(0, {"type": "start", "x": start[0] - x0, "z": start[1] - z0})
     return {"version": 1, "format": "tiles", "name": f"ROM level {level_id}", "width": W, "depth": D,
-            "killY": jround(min(min(t["c"]) for t in tiles if t["t"] == "F") - 3, 2), "tiles": tiles, "entities": ents,
+            "killY": jround(min(min(t["c"]) for t in tiles if t["t"] != "W") - 3, 2), "tiles": tiles, "entities": ents,
             "physics": physics_for(vscale), "rom": {"level": level_id, "origin": [x0, z0], "vscale": vscale},
             "flickies": 5 if table_rings else 0}
 

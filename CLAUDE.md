@@ -73,6 +73,12 @@ serves index.html from main.
   jump, then fired with no steering (`p.flyT`, `P.cannonFly`); during the flight W cells are open air. `crack` {cells,
   top, dir}: raised for the sim only (`L.up`, read by floorAt, gradientAt, tileTopNear) until a fast roll along dir
   breaks it; drawn as a 3 m rock column from `artBaker(...).rockSlot` (`crackMeshes`). Sounds 0x81 / 0x59.
+- Rusty Ruin 1 (`GIMMICKS[7]`, from RunLevel 0x742C, labelled RRz2): map low byte 0xFF = spike blocks (tile 'H'),
+  0x55 = fans (`fan` entity: grounded on one sets `p.whirl`: held 32 frames, `P.whirl*` steering, bounces off walls,
+  breaks enemies and pillars, ended by a jump or a hit); pillars = `crack` with `by: 'whirl'` from the table at 0x7ACC
+  (drawn as stone columns); doors = `hole` with `exitY`/`push`/`size`, `opens` 0 (table 0x7994); after rings 1 and 2
+  the routine puts Sonic in a closed pocket (`goal.put`, also the respawn) and a ride (hole opened by that ring) takes
+  him on. Crock (9C) is an enemy. Crack cells may carry their own height ([x, z, top]). Holes with `opens` 0 are open.
 - Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
   ROM look draws springs as 3D drums coloured from the ROM sprite (`romSpringMats`).
 - Act end: the `goal` event shows `#clearCard`, flashes, and after 5 s converts the next act in `S3D.LEVELS` order.
@@ -131,6 +137,9 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
+- 2026-10-26 evening: Rusty Ruin 1 gimmicks (above); 75 sim tests. Open in RR: maces (084/088 orbit, helper 0x86B0),
+  flamethrowers (helper 0x84F2, sound 0x7F), green dome buttons (0xAA cells, cosmetic), RR2 rides (states 2E-34),
+  conveyor cells (0xC3/0xF0), RR2 pillars and wall, RR3 boss.
 - 2026-10-26: ROM results screen, Saturn screen option, ROM music and effects by emulation (GG1 music checked against
   the reference emulator: same notes at the same tempo, top-note agreement 0.53 vs 0.14 chance). 3D Sonic from Bill's Sonic Jam USA disc (formats from Sonic Retro SCHG),
   with skid, and Jam palms (GG 16/36/4), springs, big ring and Flickies; European disc; monitor boxes. 66 sim tests.

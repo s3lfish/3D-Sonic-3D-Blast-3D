@@ -13,14 +13,25 @@ const S3D = (() => {
   // cannons [cell x, cell z, mouth height, launch up and launch south in units a frame (emulator: the routine asks 9 and
   // 7.5 / 6.5; Sonic moves 7.067 / 6.1 a frame south)]; cracked walls [cells, raised height in units, the way a dash
   // must go to break them]. The ROM map holds the broken walls.
+  // Rusty Ruin 1 (RunLevel at 0x742C, labelled RRz2): map cells whose low byte is 0xFF are spike blocks (hurt) and
+  // 0x55 are fans (standing on one starts the whirl); doors = table at 0x7994 [cell, x, y, z (16.16), ...; direction
+  // word at +0x16: 0 south, 2 west, 4 north, else east, pushed 4 units a frame]; pillars = table at 0x7ACC [screen x,
+  // screen y, x, y, z, cell, raised word] (the act raises them at the start; the whirl breaks them). After a big ring
+  // the routine puts Sonic in a closed pocket [x, z, compass degrees]; walking into a cell [x, z, after ring n] takes
+  // him to [x, y, z] moving [vx, vz] units a frame (watched in the emulator: the end of each scripted ride).
+  // cracks: [cells (optionally [x, z, own raised height]), raised height, the way a dash must go].
   const GIMMICKS = {
     1: { cannons: [[116, 12, 248, 9, 7.067]], cracks: [[[[108, 17]], 480, [0, -1]]] },
     2: { cannons: [[21, 48, 576, 9, 6.1]], cracks: [[[[59, 47]], 784, [-1, 0]], [[[108, 41], [109, 41]], 688, [0, -1]]] },
+    7: { spikes: 0xFF, fans: 0x55, doors: [0x7994, 4], pillars: [0x7ACC, 23],
+      links: [[1696, 1840, 90], [2576, 1216, 180]],
+      rides: [[60, 48, 1, 1888, 455, 730, 0, 5], [80, 50, 2, 2576, 264, 1676, 0, 0]],
+      cracks: [[[[88, 62]], 432, [-1, 0]], [[[100, 41], [100, 15, 560]], 432, [0, -1]]] },
   };   // units: spike ball circle radius (measured) and height (estimated)
   // object types, identified by watching the game run: player start, springs, monitors, the act-end ring, main enemies
   const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
-    0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy' };
+    0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy' };
   const MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire'];
   const LEVELS = [
     [1, 'Green Grove 1'], [2, 'Green Grove 2'], [3, 'Green Grove 3'],
@@ -163,6 +174,7 @@ const S3D = (() => {
     if (x1 < x0) throw new Error('this level has no floor');
     x0 = Math.max(0, x0 - 1); z0 = Math.max(0, z0 - 1); x1 = Math.min(127, x1 + 1); z1 = Math.min(127, z1 + 1);
     const W = x1 - x0 + 1, D = z1 - z0 + 1, unit = STEP / CELL * vscale;
+    const gm = GIMMICKS[id] || {}, mps = 60 / CELL;   // units a frame to metres a second
     const tiles = [];
     let minTop = Infinity, sumX = 0, sumZ = 0, nFloor = 0;
     for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
@@ -171,7 +183,7 @@ const S3D = (() => {
       if (!v) { tiles.push({ c: [0, 0, 0, 0], t: 'W' }); continue; }
       const hb = v >> 8, c = [(v >> 6) & 3, (v >> 4) & 3, (v >> 2) & 3, v & 3].map(k => Math.round((hb + k) * unit * 1e4) / 1e4);
       minTop = Math.min(minTop, ...c); sumX += x; sumZ += z; nFloor++;
-      tiles.push({ c, t: 'F' });
+      tiles.push({ c, t: gm.spikes !== undefined && (v & 0xFF) === gm.spikes ? 'H' : 'F' });
     }
     const floorCell = (cx, cz) => cx >= 0 && cz >= 0 && cx < 128 && cz < 128 && map[cz * 128 + cx] !== 0;
     const r3 = v => Math.round(v * 1000) / 1000;
@@ -208,15 +220,38 @@ const S3D = (() => {
       if (kind !== 'goal') e.skin = t.toString(16).toUpperCase().padStart(3, '0');
       ents.push(e);
     }
-    const gm = GIMMICKS[id] || {}, mps = 60 / CELL;   // units a frame to metres a second
     for (const [cx, cz, mouth, up, south] of gm.cannons || []) if (floorCell(cx, cz))
       ents.push({ type: 'cannon', x: cx - x0, z: cz - z0, y: r3(mouth / CELL * vscale), h: r3(12 / CELL * vscale), vy: r3(up * mps * vscale), vz: r3(south * mps) });
     for (const [cells, top, dir] of gm.cracks || []) if (cells.every(([cx, cz]) => floorCell(cx, cz)))
-      ents.push({ type: 'crack', cells: cells.map(([cx, cz]) => [cx - x0, cz - z0]), top: r3(top / CELL * vscale), dir });
+      ents.push({ type: 'crack', cells: cells.map(([cx, cz, t]) => t ? [cx - x0, cz - z0, r3(t / CELL * vscale)] : [cx - x0, cz - z0]), top: r3(top / CELL * vscale), dir });
+    if (gm.pillars) for (let k = 0, o = gm.pillars[0]; k < gm.pillars[1]; k++, o += 14) {
+      const c = u16(d, o + 10) >> 1, cx = c % 128, cz = c >> 7;
+      if (floorCell(cx, cz)) ents.push({ type: 'crack', by: 'whirl', cells: [[cx - x0, cz - z0]], top: r3((d[o + 12] * STEP) / CELL * vscale) });
+    }
+    if (gm.fans !== undefined) {
+      const cells = [];
+      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) { const v = map[z * 128 + x]; if (v && (v & 0xFF) === gm.fans) cells.push([x - x0, z - z0]); }
+      if (cells.length) ents.push({ type: 'fan', cells });
+    }
+    // doors: stepping on the cell (grounded) moves Sonic to the place given and pushes him out of it
+    const DOOR_PUSH = { 0: [0, 4], 2: [-4, 0], 4: [0, -4] };
+    if (gm.doors) for (let k = 0, o = gm.doors[0]; k < gm.doors[1]; k++, o += 28) {
+      const c = u16(d, o) >> 1, cx = c % 128, cz = c >> 7, x = s16(d, o + 2), y = s16(d, o + 6), z = s16(d, o + 10);
+      const [vx, vz] = DOOR_PUSH[u16(d, o + 22)] || [4, 0];
+      if (floorCell(cx, cz) && floorCell(Math.floor(x / CELL), Math.floor(z / CELL)))
+        ents.push({ type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: 0, exit: [r3(x / CELL - x0), r3(z / CELL - z0)],
+          exitY: r3(y / CELL * vscale), push: [r3(vx * mps), r3(vz * mps)], launch: 0 });
+    }
+    for (const [cx, cz, after, x, y, z, vx, vz] of gm.rides || []) if (floorCell(cx, cz) && floorCell(Math.floor(x / CELL), Math.floor(z / CELL)))
+      ents.push({ type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: after, exit: [r3(x / CELL - x0), r3(z / CELL - z0)],
+        exitY: r3(y / CELL * vscale), push: [r3(vx * mps), r3(vz * mps)], launch: 0 });
     if (tableRings) for (let k = 0; k < 3; k++) {
       const x = s16(d, st + 0x14 + 6 * k), z = s16(d, st + 0x18 + 6 * k);
       if (!x) break;
-      if (floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) ents.push({ type: 'goal', x: r3(x / CELL - x0), z: r3(z / CELL - z0) });
+      if (!floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) continue;
+      const g = { type: 'goal', x: r3(x / CELL - x0), z: r3(z / CELL - z0) }, put = (gm.links || [])[k];
+      if (put && floorCell(Math.floor(put[0] / CELL), Math.floor(put[1] / CELL))) g.put = [r3(put[0] / CELL - x0), r3(put[1] / CELL - z0), put[2]];
+      ents.push(g);
     }
     // a hole swallows the player inside x+3..x+27, z-7..z+17 (world units): centre (x+15, z+5). Closed holes open in
     // record order, one per ring used, and throw the player out of the next hole in record order with a 127-unit rise
@@ -409,7 +444,7 @@ const S3D = (() => {
     sfx: { jump: [0x62], charge: [0xAB], dash: [0xB6], ring: [0x33], spring: [0x68], enemy: [0x3D, 0x38], monitor: [0x3D],
       hurt: [0xB9], shot: [0x4D], boom: [0x9A], goal: [0x6A], boostIn: [0xAB], boost: [0xB6], goldDash: [0xB6],
       shieldLost: [0xB9], section: [0xAC] /* near the big ring routine */,
-      cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */ },
+      cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, whirl: [0xAB] /* Rusty Ruin's fans */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {

@@ -324,6 +324,7 @@
       cannonIn: () => tone('square', 300, 200, 0.2, 0.12),
       cannon: () => { noise(0.4, 0.8, 600); tone('square', 160, 60, 0.5, 0.3); },
       crack: () => { noise(0.5, 0.9, 1400); noise(0.3, 0.5, 300); },
+      whirl: () => tone('sawtooth', 300, 1100, 0.12, 0.12),
       boost: () => { noise(0.35, 0.6, 2500); tone('square', 700, 120, 0.4, 0.25); },
       enemy: () => { noise(0.22, 0.7, 1400); tone('square', 520, 90, 0.2, 0.3); },
       boom: () => { noise(0.5, 0.9, 700); tone('sine', 120, 40, 0.5, 0.6); },
@@ -755,13 +756,25 @@
       if (rm) s.userData.rom = [rm, kind === 'enemy' ? romObjMat(kind, o.skin, true) : rm];
       return s;
     };
-    // cracked walls: a column of plain rock (from the level's own cliffs in the ROM look) on each cell until broken
+    // cracked walls: a column of plain rock (from the level's own cliffs in the ROM look) on each cell until broken;
+    // pillars (broken by a whirl): a stone column on a pink base, about the original sprite's height
     crackMeshes = world.cracks.map(c => {
       const g = new THREE.Group(), art = mesh.userData.art && levelArtFor(L);
-      for (const [cx, cz] of c.cells) {
+      if (c.by === 'whirl') {
+        for (const [cx, cz] of c.cells) {
+          const k = (cz * L.width + cx) * 4, floor = Math.min(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]);
+          const vs = L.rom ? L.rom.vscale : 1, hh = 1.7 * vs;
+          for (const [r, h, y, col] of [[0.42, 0.18 * vs, 0, 0xb07894], [0.32, hh, 0.18 * vs, 0xa8a492], [0.4, 0.14 * vs, 0.18 * vs + hh, 0xa8a492]]) {
+            const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 12), new THREE.MeshLambertMaterial({ color: col }));
+            m.position.set(cx + 0.5, floor + y + h / 2, cz + 0.5); g.add(m);
+          }
+        }
+        levelGroup.add(g); return g;
+      }
+      for (const [cx, cz, top] of c.cells) {
         // drawn 3 m tall (the original's 480 units would be a 15 m chimney); no jump clears either
         const vs = L.rom ? L.rom.vscale : 1, k = (cz * L.width + cx) * 4;
-        const floor = Math.min(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]), h = Math.min(c.top - floor, 3 * vs);
+        const floor = Math.min(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]), h = Math.min(top - floor, 3 * vs);
         let mat;
         const slot = art && L.rom ? art.baker.rockSlot(cx + L.rom.origin[0], cz + L.rom.origin[1]) : -1;
         if (slot >= 0) {
@@ -997,13 +1010,14 @@
     const balled = p.charge > 0 || p.ball || p.rolling;
     h.ball.visible = balled; h.anim.visible = !balled;
     if (balled) { h.ball.rotation.z -= dt * Math.max(sp, p.charge > 0 ? 14 : 8) * 1.6; return; }
+    if (p.whirl) h.root.rotation.y = t * 18;   // a whirl: spun round like a top, standing
     // a skid is over in a tenth of a second at the sim's braking; its animation plays through once all the same
     if (p.skid && !h.wasSkid) h.skidT = h.S.anims.skid.length / 30;
     h.wasSkid = p.skid; h.skidT = Math.max(0, (h.skidT || 0) - dt);
     let clip, rate = 30;
     if (!p.grounded) clip = p.sprung ? 'spring' : 'fall';
     else if (p.skid || h.skidT > 0) clip = 'skid';
-    else if (sp < 0.3) clip = 'idle', rate = 15;
+    else if (sp < 0.3 || p.whirl) clip = 'idle', rate = 15;
     else if (sp < run * 0.55) clip = 'walk', rate = 30 * Math.max(0.4, sp / (run * 0.4));
     else if (sp < run * 1.1) clip = 'run', rate = 30 * Math.max(0.7, sp / run);
     else clip = 'sprint', rate = 30 * Math.min(1.6, sp / run);
@@ -1020,8 +1034,10 @@
   const look3 = { facingLeft: false, view: 'front', idleFor: 0, runCycle: 0, ballCycle: 0, oct: 0, romCycle: 0 };
   // which ROM frame to show: view from the heading on screen, pose from the sim
   function romHeroPick(pose, sp, sx, sf, t, dt) {
-    if (sp > 0.6) look3.oct = ((Math.round(Math.atan2(sx, -sf) / (Math.PI / 4)) % 8) + 8) % 8;
+    if (pose === 'whirl') look3.oct = Math.floor(t * 16) % 8;          // a whirl: the standing frame turned round fast
+    else if (sp > 0.6) look3.oct = ((Math.round(Math.atan2(sx, -sf) / (Math.PI / 4)) % 8) + 8) % 8;
     const [v, flip] = S3D.OCTANT[look3.oct], side = !look3.facingLeft; // ball and charge frames face left as stored
+    if (pose === 'whirl') return [v, flip];
     if (pose === 'charge') { const q = S3D.HERO.charge(); return [q[Math.floor(t * 20) % q.length], side]; }
     if (pose === 'ball' || pose === 'spring') { const q = S3D.HERO.ball(); return [q[Math.floor(look3.ballCycle * 2) % q.length], side]; }
     if (pose === 'run' || pose === 'air') {
@@ -1610,7 +1626,8 @@
       if (world.events.includes('monitor')) toast(POWER_TEXT[world.power] || '', 2);
       if (world.events.includes('shieldLost')) toast('The shield took the hit.', 1.6);
       if (world.events.includes('needFlickies')) toast(`The ring needs ${L.flickies} Flickies. Free them from enemies and bring them here.`, 3);
-      if (world.events.includes('section')) toast(world.holes.some(h => h.opens === world.section) ? 'Ring used. Step into the hole beneath it.' : 'Ring used. On to the next one.', 3);
+      if (world.events.includes('section')) toast(world.goals[world.section - 1].put ? 'Ring used. Find the way out of here.'
+        : world.holes.some(h => h.opens === world.section && h.exitY === null) ? 'Ring used. Step into the hole beneath it.' : 'Ring used. On to the next one.', 3);
       if (world.events.includes('warp')) { prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z; }
       acc -= STEP; steps++;
     }
@@ -1622,7 +1639,8 @@
     const sp = Math.hypot(p.vx, p.vz);
     const camYaw = currentYaw(), rx = Math.cos(camYaw), rz = -Math.sin(camYaw), fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
     let pose, phase;
-    if (p.charge > 0) { pose = 'charge'; phase = Math.floor(t * 20) % 2; }
+    if (p.whirl) { pose = 'whirl'; phase = Math.floor(t * 16) % 4; }
+    else if (p.charge > 0) { pose = 'charge'; phase = Math.floor(t * 20) % 2; }
     else if (p.ball || p.rolling) { look3.ballCycle += dt * Math.max(sp, 6) * 1.4; pose = 'ball'; phase = Math.floor(look3.ballCycle) % 4; }
     else if (!p.grounded) { pose = p.sprung ? 'spring' : 'air'; phase = 0; }
     else if (sp > 0.6) { look3.runCycle += dt * (3 + sp * 1.1); pose = 'run'; phase = Math.floor(look3.runCycle) % 4; }
@@ -1640,7 +1658,8 @@
       map = romHeroTex(idx, flip);
       if (hero.scale.x !== ROM_SIZE) { hero.scale.set(ROM_SIZE, ROM_SIZE, 1); hero.center.set(0.5, HERO_FOOT); sil.scale.copy(hero.scale); sil.center.copy(hero.center); }
     } else {
-      map = heroTexture(ballLike ? 'front' : look3.view, pose, phase, Math.floor(t * 8) % 3, look3.facingLeft);
+      map = pose === 'whirl' ? heroTexture(phase < 2 ? 'front' : 'back', 'idle', 0, Math.floor(t * 8) % 3, phase % 2 === 1)
+        : heroTexture(ballLike ? 'front' : look3.view, pose, phase, Math.floor(t * 8) % 3, look3.facingLeft);
       if (hero.scale.x !== 1.5) { hero.scale.set(1.5, 1.5, 1); hero.center.set(0.5, 0.04); sil.scale.copy(hero.scale); sil.center.copy(hero.center); }
     }
     if (heroMat.map !== map) { heroMat.map = map; silMat.map = map; }
