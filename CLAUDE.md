@@ -109,9 +109,8 @@ serves index.html from main.
   the reference emulator: same notes at the same tempo, top-note agreement 0.53 vs 0.14 chance). 3D Sonic from Bill's Sonic Jam USA disc (formats from Sonic Retro SCHG).
 - 2026-10-26: Springs measured (140 units), monitors with ROM icons and effects, mines, turrets, superchargers, Scouters
   chase, Hunters stand, Flickies coloured in turn, act end moves to the next act, sound effects, spin dash on hold. 64 sim tests.
-  Bill asked about music: offered own audio files, VGM rips, or full emulation; awaiting his choice.
 - 2026-10-26: Published on GitHub (s3lfish/3D-Sonic-3D-Blast-3D), Pages at https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/.
   All 22 levels convert; level art, foliage, zone skies, ROM sprites, measured physics, zip/SMD ROMs, controller.
   Green Grove sections, rings, holes and Flickies work (GG1 playable to the end). 54 sim tests, pad test, render test.
-  Gaps: other zones' section gimmicks, Flicky colours, monitor icons, bosses, sound; palms on cliff edges stay painted;
+  Gaps then: other zones' section gimmicks, bosses; palms on cliff edges stay painted;
   stretched texture on steep slopes facing away from the original camera; GG2 foliage bake about 1.25 s.
