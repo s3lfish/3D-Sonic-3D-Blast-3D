@@ -18,7 +18,7 @@ RING_TABLE, RING_HOVER = 0x1936, 18
 # object types identified from in-game photos (springs, monitors, the act-end ring, player start, main enemies)
 KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
          0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
-         0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift'}
+         0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler'}
 MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']
 
 
@@ -145,6 +145,10 @@ def convert(rom, level_id, vscale=1.0):
         y_obj = struct.unpack('>h', r[0xA:0xC])[0]
         if t == 0x8C: e["power"] = launch_for(vscale, 94); e["absY"] = jround(y_obj / CELL * vscale, 3)
         if kind == 'lift': e["y"] = jround(y_obj / CELL * vscale, 3); e["drop"] = jround(84 / CELL * vscale, 3)
+        if kind == 'crawler':   # spiked crawler: 1 unit a frame between +0x24 and +0x26, along x if that holds x
+            a, b = struct.unpack('>hh', r[0x24:0x28]); along_x = a <= x <= b
+            e["y"] = jround((y_obj + 8) / CELL * vscale, 3); e["axis"] = 'x' if along_x else 'z'
+            e["range"] = [jround(a / CELL - x0, 3), jround(b / CELL - x0, 3)] if along_x else [jround(a / CELL - z0, 3), jround(b / CELL - z0, 3)]
         if kind != 'goal': e["skin"] = f'{t:03X}'
         ents.append(e)
     # gimmicks run by the act's own routine (see s3d.js GIMMICKS)

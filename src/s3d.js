@@ -87,7 +87,10 @@ const S3D = (() => {
   // object types, identified by watching the game run: player start, springs, monitors, the act-end ring, main enemies
   const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
-    0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift' };
+    0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler' };
+  // Rusty Ruin's spiked crawler (0AC), watched in the emulator: it rolls 1 unit a frame along the foot of a wall between
+  // words +0x24 and +0x26, turning at each end, and hurts whatever touches it (it cannot be broken). The range holds
+  // the record's x when it runs along x, else it runs along z (all three records; the rule is mine).
   // Rusty Ruin 2, watched in the emulator: 08C is a stone trampoline at its own height (Sonic bounces 94 units up
   // whatever he presses); 098 a stone slab over a gap that sinks 84 units about a second after Sonic lands on it
   const MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire'];
@@ -276,6 +279,11 @@ const S3D = (() => {
       if (kind === 'spring') e.power = springPower(vscale);
       if (t === 0x8C) { e.power = launchFor(vscale, 94); e.absY = r3(s16(ob, o + 0xA) / CELL * vscale); }
       if (kind === 'lift') { e.y = r3(s16(ob, o + 0xA) / CELL * vscale); e.drop = r3(84 / CELL * vscale); }
+      if (kind === 'crawler') {
+        const a = s16(ob, o + 0x24), b = s16(ob, o + 0x26), alongX = a <= x && x <= b;
+        e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); e.axis = alongX ? 'x' : 'z';
+        e.range = alongX ? [r3(a / CELL - x0), r3(b / CELL - x0)] : [r3(a / CELL - z0), r3(b / CELL - z0)];
+      }
       if (kind !== 'goal') e.skin = t.toString(16).toUpperCase().padStart(3, '0');
       ents.push(e);
     }

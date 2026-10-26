@@ -726,7 +726,7 @@
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
-  let mineSprites = [], turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
+  let mineSprites = [], crawlerSprites = [], turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
   let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
   // spiked ball on a chain, and a burst of fireballs when beaten
@@ -973,6 +973,12 @@
       const s = bottomSprite(mm, mo.x, mo.y, mo.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); s.userData.size = ROM_SIZE; s.userData.rom = [mm, mm]; return s;
     });
     mineSprites = world.mines.map(mi => objSprite('mine', mi, mineMat, 0.7, 0.04));
+    // Rusty Ruin's spiked crawlers: the original's eight turning frames (object art by type), centred on the sim's height
+    crawlerSprites = world.crawlers.map(c => {
+      const sp = new THREE.Sprite(rom ? romBossMat(0xAC, 0, 64, 40) : mineMat);
+      if (rom) { sp.center.set(0.5, 1 - 50 / 64); sp.scale.set(64 * 0.025, 64 * 0.025, 1); } else sp.scale.set(0.6, 0.6, 1);
+      sp.userData.rom = rom; levelGroup.add(sp); return sp;
+    });
     turretSprites = world.turrets.map(tu => objSprite('turret', tu, turretMat, 0.95, 0.04));
     shotSprites = [];
     for (let i = 0; i < 12; i++) { const s = new THREE.Sprite(shotMat); s.scale.set(0.35, 0.35, 1); s.visible = false; levelGroup.add(s); shotSprites.push(s); }
@@ -1908,6 +1914,11 @@
       if (mi.alive) { s.visible = true; s.scale.set(s.userData.size, s.userData.size, 1); continue; }
       const k = (world.time - mi.diedAt) / 0.3;
       s.visible = k < 1; if (k < 1) s.scale.set(s.userData.size * (1 + 2 * k), s.userData.size * (1 + 2 * k), 1);
+    }
+    for (let q = 0; q < crawlerSprites.length; q++) {
+      const s = crawlerSprites[q], c = world.crawlers[q];
+      s.position.set(c.x, c.y, c.z);
+      if (s.userData.rom) s.material = romBossMat(0xAC, (Math.floor(world.time * 15) * (c.dir > 0 ? 1 : 7)) % 8, 64, 40);
     }
     for (let q = 0; q < turretSprites.length; q++) {
       const s = turretSprites[q], k = world.time - world.turrets[q].firedAt;

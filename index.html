@@ -1027,6 +1027,7 @@ const Sim = (() => {
     // towards the stick, up to 5 units a frame, 0.03 a frame per frame of drag with the stick let go, 0.94 kept off a wall
     whirlHold: 32 / 60, whirlAccel: 10.5, whirlTop: 9.375, whirlDrag: 3.4, whirlBounce: 0.94,
     liftWait: 1, liftSink: 40 / 60, bossBallR: 0.6,
+    crawlSpeed: 60 / 32, crawlR: 0.5,   // Rusty Ruin's crawler: 1 unit a frame; touch box (estimated from its sprite)
     // flamethrowers (helper 0x84F2): the box in front reaches 8 units back, 120 out, 32 to each side; fireballs (speed and
     // life estimated from emulator frames: about 5 units a frame for 4 m)
     flameBack: 8 / 32, flameReach: 120 / 32, flameWide: 1, flameSpeed: 5 * 60 / 32, flameLife: 0.45, flameR: 0.45,
@@ -1187,6 +1188,14 @@ const Sim = (() => {
             ? { x: e.put[0], z: e.put[1], facing: (r => Math.atan2(Math.sin(r), -Math.cos(r)))((e.put[2] ?? 180) * Math.PI / 180) } : null;
           L.entities.push({ type: e.type, x: e.x, z: e.z, y: f, radius: e.radius ?? 1.5, speed: e.speed ?? 1.2, skin: skinOf(e),
             kind: MON_KINDS.has(e.kind) ? e.kind : 'rings', chase: e.chase ? 1 : 0, orbit: e.orbit > 0 ? e.orbit : 0, orbitY: e.orbitY ?? 0.6, put });
+          break;
+        }
+        // a spiked crawler (Rusty Ruin): rolls along "axis" ('x' or 'z') between the two values of "range" at height "y"
+        case 'crawler': {
+          if (!inBounds(e.x, e.z) || !Number.isFinite(e.y) || (e.axis !== 'x' && e.axis !== 'z') || !Array.isArray(e.range) || e.range.length !== 2 || !e.range.every(Number.isFinite)) {
+            errs.push(`A crawler at (${e.x}, ${e.z}) needs a height "y", an "axis" ('x' or 'z') and a "range" of two numbers.`); break;
+          }
+          L.entities.push({ type: 'crawler', x: e.x, y: e.y, z: e.z, axis: e.axis, range: [Math.min(...e.range), Math.max(...e.range)], skin: e.skin });
           break;
         }
         case 'mine': case 'turret': case 'booster': {
@@ -1454,6 +1463,7 @@ const Sim = (() => {
       orbit: e.orbit || 0, orbitY: e.orbitY || 0, phase: i * 1.7, ball: e.orbit ? { x: e.x, y: e.y, z: e.z } : null }));
     w.monitors = L.entities.filter(e => e.type === 'monitor').map(e => ({ x: e.x, z: e.z, y: e.y, broken: false, skin: e.skin, kind: e.kind || 'rings' }));
     w.mines = L.entities.filter(e => e.type === 'mine').map(e => ({ x: e.x, z: e.z, y: e.y, alive: true, diedAt: -9, skin: e.skin }));
+    w.crawlers = L.entities.filter(e => e.type === 'crawler').map(e => ({ ...e, dir: 1 }));
     // cracked walls stand again: their cells are raised for the sim only (L.up), the floor beneath stays in L
     L.up = new Map();
     w.cracks = L.entities.filter(e => e.type === 'crack').map(e => ({ ...e, broken: false, brokeAt: -9 }));
@@ -1922,6 +1932,16 @@ const Sim = (() => {
       if (dx * dx + dz * dz < 0.3 && Math.abs(pcy0 - (mi.y + 0.3)) < 0.7) {
         mi.alive = false; mi.diedAt = w.time; w.events.push('boom');
         if (p.inv <= 0 && p.invuln <= 0) { hurt(w, dx, dz); if (w.events.includes('respawn')) return w; }
+      }
+    }
+    // spiked crawlers roll 1 unit a frame to the end of their run and back; a touch hurts
+    for (const c of w.crawlers) {
+      const k = c.axis === 'x' ? 'x' : 'z';
+      c[k] += c.dir * P.crawlSpeed * dt;
+      if (c[k] >= c.range[1]) { c[k] = c.range[1]; c.dir = -1; } else if (c[k] <= c.range[0]) { c[k] = c.range[0]; c.dir = 1; }
+      const dx = p.x - c.x, dz = p.z - c.z;
+      if (Math.abs(dx) < P.crawlR && Math.abs(dz) < P.crawlR && p.y < c.y + 0.3 && p.y + 0.9 > c.y - 0.3 && p.inv <= 0 && p.invuln <= 0) {
+        hurt(w, dx, dz); if (w.events.includes('respawn')) return w;
       }
     }
     for (const tu of w.turrets) {
@@ -2810,7 +2830,10 @@ const S3D = (() => {
   // object types, identified by watching the game run: player start, springs, monitors, the act-end ring, main enemies
   const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
-    0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift' };
+    0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler' };
+  // Rusty Ruin's spiked crawler (0AC), watched in the emulator: it rolls 1 unit a frame along the foot of a wall between
+  // words +0x24 and +0x26, turning at each end, and hurts whatever touches it (it cannot be broken). The range holds
+  // the record's x when it runs along x, else it runs along z (all three records; the rule is mine).
   // Rusty Ruin 2, watched in the emulator: 08C is a stone trampoline at its own height (Sonic bounces 94 units up
   // whatever he presses); 098 a stone slab over a gap that sinks 84 units about a second after Sonic lands on it
   const MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire'];
@@ -2999,6 +3022,11 @@ const S3D = (() => {
       if (kind === 'spring') e.power = springPower(vscale);
       if (t === 0x8C) { e.power = launchFor(vscale, 94); e.absY = r3(s16(ob, o + 0xA) / CELL * vscale); }
       if (kind === 'lift') { e.y = r3(s16(ob, o + 0xA) / CELL * vscale); e.drop = r3(84 / CELL * vscale); }
+      if (kind === 'crawler') {
+        const a = s16(ob, o + 0x24), b = s16(ob, o + 0x26), alongX = a <= x && x <= b;
+        e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); e.axis = alongX ? 'x' : 'z';
+        e.range = alongX ? [r3(a / CELL - x0), r3(b / CELL - x0)] : [r3(a / CELL - z0), r3(b / CELL - z0)];
+      }
       if (kind !== 'goal') e.skin = t.toString(16).toUpperCase().padStart(3, '0');
       ents.push(e);
     }
@@ -4907,7 +4935,7 @@ const Art = (() => {
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
-  let mineSprites = [], turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
+  let mineSprites = [], crawlerSprites = [], turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
   let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
   // spiked ball on a chain, and a burst of fireballs when beaten
@@ -5154,6 +5182,12 @@ const Art = (() => {
       const s = bottomSprite(mm, mo.x, mo.y, mo.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); s.userData.size = ROM_SIZE; s.userData.rom = [mm, mm]; return s;
     });
     mineSprites = world.mines.map(mi => objSprite('mine', mi, mineMat, 0.7, 0.04));
+    // Rusty Ruin's spiked crawlers: the original's eight turning frames (object art by type), centred on the sim's height
+    crawlerSprites = world.crawlers.map(c => {
+      const sp = new THREE.Sprite(rom ? romBossMat(0xAC, 0, 64, 40) : mineMat);
+      if (rom) { sp.center.set(0.5, 1 - 50 / 64); sp.scale.set(64 * 0.025, 64 * 0.025, 1); } else sp.scale.set(0.6, 0.6, 1);
+      sp.userData.rom = rom; levelGroup.add(sp); return sp;
+    });
     turretSprites = world.turrets.map(tu => objSprite('turret', tu, turretMat, 0.95, 0.04));
     shotSprites = [];
     for (let i = 0; i < 12; i++) { const s = new THREE.Sprite(shotMat); s.scale.set(0.35, 0.35, 1); s.visible = false; levelGroup.add(s); shotSprites.push(s); }
@@ -6089,6 +6123,11 @@ const Art = (() => {
       if (mi.alive) { s.visible = true; s.scale.set(s.userData.size, s.userData.size, 1); continue; }
       const k = (world.time - mi.diedAt) / 0.3;
       s.visible = k < 1; if (k < 1) s.scale.set(s.userData.size * (1 + 2 * k), s.userData.size * (1 + 2 * k), 1);
+    }
+    for (let q = 0; q < crawlerSprites.length; q++) {
+      const s = crawlerSprites[q], c = world.crawlers[q];
+      s.position.set(c.x, c.y, c.z);
+      if (s.userData.rom) s.material = romBossMat(0xAC, (Math.floor(world.time * 15) * (c.dir > 0 ? 1 : 7)) % 8, 64, 40);
     }
     for (let q = 0; q < turretSprites.length; q++) {
       const s = turretSprites[q], k = world.time - world.turrets[q].firedAt;

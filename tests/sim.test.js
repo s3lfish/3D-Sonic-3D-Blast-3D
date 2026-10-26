@@ -546,6 +546,17 @@ test('the Rusty Ruin boss: the pod comes down, an arm reaches to the player and 
   run(w2, 437 + 120, (f, ww) => { if (ww.events.includes("hurt")) hurtUnder = true; return {}; });
   assert.ok(hurtUnder, 'hurt under the slam');
 });
+test('a spiked crawler rolls to the ends of its run and back, and hurts a player in its way', () => {
+  const lvl = grid(Array.from({ length: 6 }, () => '4'.repeat(10)), { entities: [{ type: 'start', x: 8.5, z: 1.5 },
+    { type: 'crawler', x: 3, y: 1.5, z: 3.5, axis: 'x', range: [2, 5] }] });
+  const w = world(lvl); w.ringCount = 5;
+  let lo = 9, hi = -9;
+  run(w, 240, (f, ww) => { lo = Math.min(lo, ww.crawlers[0].x); hi = Math.max(hi, ww.crawlers[0].x); return {}; });
+  near(lo, 2, 1e-9, 'west end'); near(hi, 5, 1e-9, 'east end'); near(w.crawlers[0].z, 3.5, 0, 'stays on its line');
+  Object.assign(w.p, { x: 3.5, z: 3.5 }); let hurt = false;
+  run(w, 120, (f, ww) => { if (ww.events.includes('hurt')) hurt = true; return {}; });
+  assert.ok(hurt, 'hurt');
+});
 test('converted spike blocks (H) hurt', () => {
   const tiles = []; for (let k = 0; k < 15; k++) tiles.push({ c: [1, 1, 1, 1], t: k === 7 ? 'H' : 'F' });
   const w = world({ version: 1, format: 'tiles', width: 5, depth: 3, tiles, entities: [{ type: 'start', x: 0.5, z: 1.5 }] });

@@ -287,3 +287,8 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   its record) holds Sonic over x -4..+20, z -2..+36 of the record and carries him as it lifts and pulls back; a slam
   coming down on him hurts. From a raised fist a jump reaches the pod.
 - Not used: cells 0x4172/0x4174 with z <= 0x830 and y <= 0x70 set Sonic's $3E to -1 (no hits there).
+
+## Rusty Ruin crawler 0AC (objtrack.py, crawltest.py)
+- Rolls 1 unit a frame between words +0x24 and +0x26 and back (RR2 (3017, 546, 1135) along x 2969..3062; RR1 two
+  along z). It wakes once on screen. A Sonic dropped onto it is hurt ($3E = -2). Art: type art 0xAC, eight turning
+  frames. Axis rule (the range holds x: along x) is inferred from three records.

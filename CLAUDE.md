@@ -165,7 +165,8 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
-- 2026-10-27: RR3 boss (statue arms, slams, fist rides; checked in the emulator and the page); 81 sim tests.
+- 2026-10-27: RR3 boss (statue arms, slams, fist rides; checked in the emulator and the page); spiked crawler 0AC
+  (`crawler` {y, axis, range}: 1 unit a frame, hurts, ROM look draws type art 0xAC frames 0-7); 82 sim tests.
 - 2026-10-27 early: RR2 gimmicks; pads with the original sequence (GG too); maces (`mace`: tables 0x75C2/0x80B8, ball 64
   units out, 2048 a turn) and flamethrowers (`flame`: tables 0x7548/0x7EC4, box 128x64 units, a fireball every 6
   frames, `w.puffs`); GG3 boss; 80 sim tests. Open: 0AC crawler (patrols 1 unit a frame, hurts), other bosses.
