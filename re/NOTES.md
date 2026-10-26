@@ -527,7 +527,7 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - 178 (handler 0x15E20): patrols x or z (bit 3 of byte +0x16) between +0x24 and +0x26 a unit a call, every other
   frame (0.5 a frame, measured; Gene Gadget's 05C and Volcano Valley's 100 too); when $0B04 (31..0) is 0, a shot
   (template 0xDA24) 16 out and 12 up, 2 a frame from table 0x15EE8 (E, S, W, N; index +0x2A += 12), vy -1, gravity
-  1/16, gone after 32 frames or in a wall (watched), sound 0x9A.
+  1/16, gone where the floor rises over it (watched: a slope 2 cells on), sound 0x9A.
 - 19C (handler 0x1680C): Flicky capsule: a platform box at (x - 15, y + 32, z - 15) 30 x 30 ($CC4A list); touched
   from the air: vy -5, ball; then broken (0x192C2: sound 0x3D, Flicky by byte +0x19). Routine 0x192C2 frees a Flicky
   only for byte +0x19 = 1..4 (colour; counts $069A..$069D): Scouters (058) and 178 hold none; in PP1 the capsules
@@ -558,3 +558,35 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   random jitter of -2..1, a unit a call, kept in the 64-unit square from +0x28, +0x2A; breakable, holds no Flicky.
 - 18C (handler 0x17606): a 31-unit platform at (x - 1, y - 1, z - 1) rising a unit a call while stood on to +0x26
   (sound 0xD2), sinking back to +0x24. 188: the cracked wall's sprite (handler 0x18880, as PP1's 198).
+
+## Panic Puppet 3 boss (2026-10-27; pp3_dis, gngseq.py, emulator; level vars a4 = 0xFFFF0B6C)
+- InitLevel 0x1258C: pod (x.l, y, z.l) = (0x561, 0x390, 0x540); arm A at a4+0xA {x.l, y, z.l, timer, hits 4, flag/phase
+  +E, phase +10} = (0x590, 0x220, 0x590), arm B at a4+0x1C (0x5B0, 0x220, 0x570); delay $2E = 0x190; pod target $32
+  0x200; stage $36 0. Map: (45, 44) to 0x3D00 (the start cell), the first 370 bytes cleared to a pattern (the serpent's
+  path buffer, as VV3's).
+- Pod: y -1 a frame to $32 (sound 0xBE); at a target other than 0x200: x 0x561 -> (0x661, 0x640, y 0x1A0), 0x661 ->
+  (0x761, 0x740, 0x140), else gone. Records: 048 pod, 174 links (6 an arm), 1A0 claws, 1A4 shoulder cannons, 190 the
+  pad's hatch, 138 serpent links (line 1), 02C/030 debris.
+- Arena 1 (0x12BC2, per arm: rest, zone centre): flag set; dead: return. Timer: >= 0xA3 y + 1 (sound 0xC3 at 0xA3),
+  0xA2..0x98 y - 8 (sound 0x81 at 0x98), <= 0x20 y + 2, else rest: Sonic not knocked back, y >= 0x1F0, in the
+  shoulder's corner cell (A (42, 43) x >= 0x544 z <= 0x57C; B (44, 41) x <= 0x59C z >= 0x524): hit (timer 0x20, sound
+  0x59, $34 = 0x46 frames of safety, $38 flash; 0 hits: sound 0x54), else every 8 frames sound 0x92. Timer 0: target
+  Sonic if within 48 of the zone centre (dist^2 < 0x900), else the rest place; x and z step half a unit toward it;
+  aligned (integer parts): timer 0xBB (sound 0x5A) or the flag. Watched: rise 544 -> 569, slam to 481 (floor 488),
+  rests, 481 -> 545; the claw hurts at rest; a jump at (42, 43) during rest took a hit.
+- Shoulder shots while both flags: $0B04 = 0 (B, from (0x590, 0x222, 0x530)) and 0x10 (A, (0x550, 0x222, 0x570)),
+  template 0xDA24 (gravity 1/16 = word +0x24), vy -2, vx and vz random 0..2 (B: vx >= vz; A: vx <= vz), sound 0x4D.
+- Both arms broken: $34 = 0x64 each frame (Sonic safe); pod target 0x180 (arena 1) / 0xF0 (2); once the pod has moved,
+  0x12FF4 / 0x13144: grounded on cell (47, 41) / (50, 54): held at (0x5F0, 0x1E0, 0x530) / (0x650, 0x180, 0x6D0),
+  pad 80 frames, sound 0x3C, $30 = 0x37: at 0x27 put at (0x6F0, 0x2E0, 0x630) / (0x750, 0x280, 0x7D0) (in a ball,
+  falls); at 0: stage + 1, timers A 0x190, B 0x2BC, hits 4, B's phases 0x400; otherwise 0x13272 every 600 frames pulls
+  the pad toward the lift (not modelled).
+- Arenas 2 and 3 (0x12D4C, 0x12EC6; rest A (0x688, 0x1A0, 0x6A8) B (0x6C8, 0x1A0, 0x668); +0x100, -0x60, +0x100
+  for arena 3): dead: sink to 0x180 / 0x120. Timer - 1: > 0x78: x = rest + sin(+E) x 32, z = rest - sin(+E) x 32,
+  y = rest + sin(+10) x 16 (table 0x276E8, 1024 words of +-32767), +E + 8, +10 + 0x12. Arena 2 at 0x78: the serpent
+  (a4+0x3C; from the claw + (0xB, 0, 0xA), first toward + (0x100, 0x100), chasing Sonic once under 0xC8 of its 0xD2
+  frames; routine 0xA3F2 as VV3's; five links $D07A..; sound 0x4E). Arena 3, timer <= 0x78: a shot a frame (template
+  0xDA5A, gravity 1/8) at 2.5..3.5 units a frame in x and z, sound 0x78. Hit window 0x77..1 (y >= 0x190 / 0x130;
+  cells A (50, 51) / (58, 59), B (52, 49) / (60, 57)): the arm hit waits 0x294 and the other 0x168 (alone 0x168);
+  timer 0: 0x258 (0x12C alone). Arena 3 beaten: pod target 0xC0, $3E = 0x168: explosions (random, sound 0x59), then
+  $0A1C = 1 (act over), score + 10.

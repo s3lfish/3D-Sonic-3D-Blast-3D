@@ -988,14 +988,15 @@ test('a Flicky capsule: its sides are walls; landing on it breaks it, throws the
   place(w, 10.5, 2.5); w.p.ball = true; Object.assign(w.p, { y: 1.5, grounded: false, vy: -1 }); run(w, 20, {});
   assert.ok(!w.enemies[0].alive && w.flickies.length === 1, 'an enemy holding none frees none');
 });
-test('a 178 shoots every 32 frames, east, south, west and north in turn from its index; the shots last 32 frames', () => {
+test('a 178 shoots every 32 frames, east, south, west and north in turn from its index; the shots fall to the floor', () => {
   const w = GNG([{ type: 'enemy', x: 8.5, z: 2.5, radius: 0, shoot: 1 }]); place(w, 3.5, 2.5);
   const dirs = []; let oldest = 0;
   run(w, 130, (f, ww) => {
     if (ww.events.includes('pellet')) { const s = ww.shots[ww.shots.length - 1]; dirs.push([Math.sign(Math.round(s.vx)), Math.sign(Math.round(s.vz))]); }
     for (const s of ww.shots) oldest = Math.max(oldest, s.age); return {};
   });
-  assert.deepStrictEqual(dirs, [[0, 1], [-1, 0], [0, -1], [1, 0]]); assert.ok(oldest <= 32 / 60 + 1e-9 && oldest > 0.4, `oldest shot ${oldest.toFixed(3)} s`);
+  // (20 units up, one a frame up, 1/16 down: back to the floor after about 46 frames)
+  assert.deepStrictEqual(dirs, [[0, 1], [-1, 0], [0, -1], [1, 0]]); assert.ok(oldest < 48 / 60 && oldest > 43 / 60, `oldest shot ${oldest.toFixed(3)} s`);
 });
 // Panic Puppet 2 (watched in the emulator; see s3d.js GIMMICKS[19])
 test('Panic Puppet 2: cells shut behind the player; a belt along z; the lift ends the act', () => {
@@ -1018,6 +1019,25 @@ test('beam posts shoot across every 8 frames in their on steps (72 of 216 frames
   assert.strictEqual(at.length, 18, `two bursts of nine (${at.join(',')})`);
   assert.ok(at.every(t => t % 8 === 0) && at[9] - at[0] === 216, 'every 8 frames, 216 apart');
   assert.ok(lo[0] >= 10 && lo[1] >= 2 && hi[0] <= 11 && hi[1] <= 3 && hi[0] - lo[0] > 0.2, `kept in its square ${lo} ${hi}`);
+});
+test('the Panic Puppet boss: an arm follows the player, punches down to the floor, rests; a jump over its shoulder is a hit; the act ends', () => {
+  const arm = (x, sx) => ({ at: [x, 3, 2.5], rest: [x, 3, 2.5], zone: [x, 2.5], shoulder: [sx, 2.25, 2.5], cell: [Math.floor(sx), 2] });
+  const boss = { type: 'boss', kind: 'pp', x: 3, y: 3.5, z: 3, cruise: 3, hp: 8, vs: 1, stages: [{ pod: [3, 3, 3, 2.5], hitY: 1.5, arms: [arm(6, 4.5), arm(10, 8.5)] }] };
+  let w = GNG([boss]); w.ringCount = 50; place(w, 6.6, 2.5);
+  let slam = -1; run(w, 0x190 + 90, (f, ww) => { if (slam < 0 && ww.events.includes('armSlam')) slam = f; return {}; });
+  assert.ok(slam > 0x190, `slammed at ${slam}`); near(w.boss.arms[0].y, 1 + 1 / 32, 1e-6, 'the claw on the floor');
+  assert.ok(w.p.invuln > 0, 'the player under it was hurt');
+  w = GNG([boss]); w.ringCount = 50; place(w, 1.5, 2.5); w.boss.delay = 0;
+  const b = w.boss; let downs = 0, end = -1;
+  for (let f = 0; f < 2000 && end < 0; f++) {
+    const a = b.arms.find(q => q.hits > 0);
+    if (a && a.t === 0) Object.assign(a, { t: 0x60 });   // (as if it had punched and rests now)
+    if (a && a.t > 0x20 && a.t < 0x98 && w.p.invuln <= 0) Object.assign(w.p, { x: a.cell[0] + 0.5, z: a.cell[1] + 0.5, y: 1.6, vy: 0, grounded: false });
+    Sim.step(w, {}); w.ringCount = 50;
+    if (w.events.includes('armDown')) downs++;
+    if (w.events.includes('goal')) end = f;
+  }
+  assert.strictEqual(downs, 2, 'both arms broken'); assert.ok(b.arms.every(a => a.hits === 0) && end > 0 && w.cleared, `the act ended (${end})`);
 });
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

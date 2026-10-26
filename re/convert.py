@@ -102,6 +102,7 @@ GIMMICKS = {
          'shuts': [([(66, 87)], [(65, 86), (65, 87)], 0x55), ([(63, 34), (64, 34)], [(63, 33), (64, 33)], 0x91, 'shut'),
                    ([(cx, 46) for cx in range(66, 73)], [(67, 45), (68, 45), (71, 45), (72, 45)], 0x91, 'shut'), ([(89, 46)], [(89, 45)], 0x4D, 'doorShut')],
          'lifts': [(0x810, 0x82F, 0x620, 0x627, (0x820, 0x390, 0x628), 0x54, 30, 110)]},
+    21: {'mapSet': [(45, 44, 0x3D00)], 'mapClear': 185},   # Panic Puppet 3 (see s3d.js)
     20: {'updrafts': 0x55, 'zapCells': 0xAA, 'roofs': 0x13B00, 'slides': [(0xC3, [1, 0]), (0xF0, [0, 1])], 'cracks': [([(48, 48)], 840, [0, -1])],   # Panic Puppet 1 (see s3d.js)
          'gates': [([(68, 97), (68, 98)], 0x41, 0, 0, 1), ([(40, 62)], 0x61, 0, 0, 1)], 'keyOff': [(69, 98, 1, {'f': 1}), (40, 63, 1, {'f': 0})],
          'tubes2': (0x13464, 4, [], [(1, 1)], 8, 1),
@@ -133,7 +134,19 @@ BOSSES = {3: {'kind': 'gg', 'at': (1152, 350, 1152), 'home': (1088, 1088), 'crui
           14: {'kind': 'vv', 'at': (0x800, 0x1E8 + 8, 0x800), 'cruise': 0x58 + 8, 'low': 0x58 + 8, 'hitBox': (0x7F0, 0x830, 0x7F0, 0x830), 'minY': 0x60 + 8,
                'rise': (0x834, 0x5C + 8, 0x830), 'spikes': ((63, 64), (65, 64), (64, 63), (64, 65)), 'home': (0x800, 0x800), 'arena': (0x740, 0x8C0, 0x740, 0x8C0), 'hp': 8},
           18: {'kind': 'gng', 'at': (0xE04, 0x1D0 + 8, 0x240), 'cruise': 0x40 + 8, 'first': 0x40 + 8, 'high': 0x70 + 8, 'low': 0x20 + 8, 'belt': (0x1C8, 0x378),   # Gene Gadget 3
-               'lanes': (0xDD0, 32), 'end': 0x380, 'loads': (456, 408, 360, 312, 264, 216), 'drops': (-7, -18), 'dropZ': 6, 'home': (0xE04, 0x240), 'arena': (0xDC0, 0xE40, 0x200, 0x3A0), 'hp': 8}}
+               'lanes': (0xDD0, 32), 'end': 0x380, 'loads': (456, 408, 360, 312, 264, 216), 'drops': (-7, -18), 'dropZ': 6, 'home': (0xE04, 0x240), 'arena': (0xDC0, 0xE40, 0x200, 0x3A0), 'hp': 8},
+          21: {'kind': 'pp', 'at': (0x561, 0x390, 0x540), 'cruise': 0x200, 'home': (0x561, 0x540), 'arena': (0x520, 0x800, 0x500, 0x800), 'hp': 24,   # Panic Puppet 3 (see s3d.js)
+               'stages': [
+                   {'pod': (0x561, 0x540, 0x200, 0x180), 'hitY': 0x1F0, 'pad': (47, 41), 'lift': (0x5F0, 0x1E0, 0x530), 'to': (0x6F0, 0x2E0, 0x630),
+                    'arms': [{'at': (0x590, 0x220, 0x590), 'rest': (0x570, 0x220, 0x5B0), 'zone': (0x590, 0x5B0), 'shoulder': (0x558, 0x208, 0x570), 'cell': (42, 43)},
+                             {'at': (0x5B0, 0x220, 0x570), 'rest': (0x5D0, 0x220, 0x550), 'zone': (0x5D0, 0x570), 'shoulder': (0x590, 0x208, 0x538), 'cell': (44, 41)}],
+                    'shots': [(0x550, 0x222, 0x570), (0x590, 0x222, 0x530)]},
+                   {'pod': (0x661, 0x640, 0x1A0, 0xF0), 'hitY': 0x190, 'pad': (50, 54), 'lift': (0x650, 0x180, 0x6D0), 'to': (0x750, 0x280, 0x7D0),
+                    'arms': [{'rest': (0x688, 0x1A0, 0x6A8), 'shoulder': (0x658, 0x1A8, 0x670), 'cell': (50, 51), 't': 0x190},
+                             {'rest': (0x6C8, 0x1A0, 0x668), 'shoulder': (0x690, 0x1A8, 0x638), 'cell': (52, 49), 't': 0x2BC, 'phase': 0x400}]},
+                   {'pod': (0x761, 0x740, 0x140, 0xC0), 'hitY': 0x130,
+                    'arms': [{'rest': (0x788, 0x140, 0x7A8), 'shoulder': (0x758, 0x148, 0x770), 'cell': (58, 59), 't': 0x190},
+                             {'rest': (0x7C8, 0x140, 0x768), 'shoulder': (0x790, 0x148, 0x738), 'cell': (60, 57), 't': 0x2BC, 'phase': 0x400}]}]}}
 SCRIPTS = 0x25DF2
 
 
@@ -165,6 +178,10 @@ def convert(rom, level_id, vscale=1.0):
     h = HEADERS + (level_id - 1) * HSIZE
     mp, start_tab = struct.unpack('>I', rom[h + 4:h + 8])[0], struct.unpack('>I', rom[h + 0x20:h + 0x24])[0]
     w = struct.unpack('>16384H', rnc.unpack(rom, mp))
+    if GIMMICKS.get(level_id, {}).get('mapSet') or GIMMICKS.get(level_id, {}).get('mapClear'):   # (InitLevel's writes; see s3d.js)
+        w = list(w)
+        for cx, cz, v in GIMMICKS[level_id].get('mapSet', []): w[cz * 128 + cx] = v
+        for i in range(GIMMICKS[level_id].get('mapClear', 0)): w[i] = 0
     used = [(i % 128, i // 128) for i, v in enumerate(w) if v]
     x0, x1 = min(u[0] for u in used) - 1, max(u[0] for u in used) + 1
     z0, z1 = min(u[1] for u in used) - 1, max(u[1] for u in used) + 1
@@ -573,6 +590,22 @@ def convert(rom, level_id, vscale=1.0):
             e["hitBox"] = [jround(bs['hitBox'][0] / CELL - x0, 3), jround(bs['hitBox'][1] / CELL - x0, 3), jround(bs['hitBox'][2] / CELL - z0, 3), jround(bs['hitBox'][3] / CELL - z0, 3)]
             e["rise"] = [jround(bs['rise'][0] / CELL - x0, 3), Y(bs['rise'][1]), jround(bs['rise'][2] / CELL - z0, 3)]
             e["spikes"] = [[cx - x0, cz - z0] for cx, cz in bs['spikes'] if floor_cell(cx, cz)]
+        if bs['kind'] == 'pp':   # (see s3d.js)
+            X = lambda v: r3(v / CELL - x0); Y = lambda v: r3((v + 8) / CELL * vscale); Z = lambda v: r3(v / CELL - z0); P3 = lambda q: [X(q[0]), Y(q[1]), Z(q[2])]
+            e["y"] = Y(bs['at'][1]); e["cruise"] = Y(bs['cruise']); stages = []
+            for st in bs['stages']:
+                o = {"pod": [X(st['pod'][0]), Z(st['pod'][1]), Y(st['pod'][2]), Y(st['pod'][3])], "hitY": Y(st['hitY']), "arms": []}
+                for a in st['arms']:
+                    q = {"rest": P3(a['rest']), "shoulder": P3(a['shoulder']), "cell": [a['cell'][0] - x0, a['cell'][1] - z0]}
+                    if 'at' in a: q["at"] = P3(a['at'])
+                    if 'zone' in a: q["zone"] = [X(a['zone'][0]), Z(a['zone'][1])]
+                    if a.get('t'): q["t"] = a['t']
+                    if a.get('phase'): q["phase"] = a['phase']
+                    o["arms"].append(q)
+                if 'pad' in st: o["pad"] = [st['pad'][0] - x0, st['pad'][1] - z0]; o["lift"] = P3(st['lift']); o["to"] = P3(st['to'])
+                if 'shots' in st: o["shots"] = [P3(q) for q in st['shots']]
+                stages.append(o)
+            e["stages"] = stages
         if bs['kind'] == 'gng':
             Y = lambda v: r3(v / CELL * vscale); Z = lambda v: r3(v / CELL - z0)
             e["first"] = Y(bs['first']); e["high"] = Y(bs['high']); e["low"] = Y(bs['low']); e["belt"] = [Z(v) for v in bs['belt']]

@@ -793,6 +793,35 @@
         bombs: [0, 1, 2, 3].map(() => mk(0x164, () => { const m = new THREE.Sprite(mineMat); m.scale.set(0.7, 0.7, 1); m.userData.lift = 0.35; return m; })),
         lower: o.rom ? mk(0x168, null) : null };
     }
+    if (b.kind === 'pp') {   // Panic Puppet 3: a glass column in each arena, two arms of links and a claw (object 1A0, line 3), the serpent (138, line 1)
+      o.ball.visible = false; o.links.forEach(l => { l.visible = false; });
+      const metal = new THREE.MeshLambertMaterial({ color: 0x9aa4b8, emissive: 0x101820 }), dark = new THREE.MeshLambertMaterial({ color: 0x4a505c });
+      const glass = new THREE.MeshLambertMaterial({ color: 0xbfe6ff, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false });
+      const cols = b.stages.map(st => {
+        const g = new THREE.Group(), floor = st.arms[0].shoulder[1] - 1.25 * b.vs, R = 1.55;
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.08, R * 1.15, 0.9 * b.vs, 24), dark); base.position.y = 0.45 * b.vs;
+        const tube = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 9 * b.vs, 24, 1, true), glass); tube.position.y = 0.9 * b.vs + 4.5 * b.vs; tube.renderOrder = 3;
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(R * 1.02, 0.12, 8, 24), metal); ring.rotation.x = Math.PI / 2; ring.position.y = 0.9 * b.vs;
+        const cap = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.1, R * 1.1, 0.5, 24), metal); cap.position.y = 10 * b.vs;
+        g.add(base, tube, ring, cap); g.position.set(st.pod[0], floor, st.pod[1]); levelGroup.add(g); return g;
+      });
+      const claw = (k) => {
+        if (o.rom) { const sp = new THREE.Sprite(romBossMat(0x1A0, 0, ROM_CANVAS, 80, 3)); sp.center.set(0.5, OBJ_FOOT); sp.scale.set(ROM_SIZE, ROM_SIZE, 1); levelGroup.add(sp); return sp; }
+        const g = new THREE.Group(), head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 14, 10), new THREE.MeshLambertMaterial({ color: 0xc8463a }));
+        head.position.y = 0.32; g.add(head);
+        for (let i = 0; i < 3; i++) { const f = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.3, 6), metal); const a = i * 2.094; f.position.set(Math.sin(a) * 0.18, 0.08, Math.cos(a) * 0.18); f.rotation.x = Math.PI; g.add(f); }
+        levelGroup.add(g); return g;
+      };
+      const linkGeo = new THREE.SphereGeometry(0.17, 12, 8);
+      const arms = [0, 1].map(k => ({ links: Array.from({ length: 6 }, () => { const m = new THREE.Mesh(linkGeo, metal); levelGroup.add(m); return m; }), claw: claw(k) }));
+      const fr = o.rom ? romTypeFrames(0x138, 1) : [];
+      const serp = Array.from({ length: 5 }, (_, k) => {
+        const sp = new THREE.Sprite(fr.length ? fr[Math.min(fr.length - 1, k)] : puffMat);
+        if (fr.length) { sp.scale.set(ROM_SIZE * 1.2, ROM_SIZE * 1.2, 1); sp.center.set(0.5, OBJ_FOOT); } else sp.scale.setScalar(0.8 - k * 0.08);
+        sp.visible = false; levelGroup.add(sp); return sp;
+      });
+      o.pp = { cols, arms, serp };
+    }
     if (b.kind === 'vv') {   // the fire serpent: the original's flame frames (object 138, line 3) or our own fireballs
       o.ball.visible = false; o.links.forEach(l => { l.visible = false; });
       const fr = o.rom ? romTypeFrames(0x138, 3) : [];
@@ -986,6 +1015,17 @@
       o.gng.loads.forEach((m, k) => { const q = b.objs[k]; put(m, q.x, q.z, q.on && b.dead < 0); });
       o.gng.bombs.forEach((m, k) => { const q = b.bombs[k]; put(m, q ? q.x : 0, q ? q.z : 0, !!q); });
       if (o.gng.lower) { o.gng.lower.visible = o.g.visible; o.gng.lower.position.set(b.x - 2 / 32, b.y - 24 * b.vs / 32, b.z - 2 / 32); }
+    }
+    if (o.pp) {   // the pod in its column (gone once the last arena is beaten), the arms, the serpent
+      o.g.position.set(b.podX, b.y - (o.rom ? 8 * b.vs / 32 : 0), b.podZ); o.g.visible = b.pod < b.stages.length;
+      b.arms.forEach((a, k) => {
+        const pts = Sim.ppLinks(a), A = o.pp.arms[k], flash = world.time - a.hitAt < 0.6 && Math.floor(t * 16) % 2;
+        A.links.forEach((m, i) => { m.position.set(pts[i][0], pts[i][1] + 0.12, pts[i][2]); m.visible = !flash; });
+        const c = pts[6]; A.claw.position.set(c[0], c[1], c[2]); A.claw.visible = !flash;
+        const open = b.si === 0 ? a.t > 0x20 && a.t < 0x98 : a.t > 0 && a.t <= 0x78;   // (resting after a punch; stopped for its turn)
+        if (o.rom && A.claw.isSprite) A.claw.material = romBossMat(0x1A0, a.hits === 0 ? 2 : open ? 1 : 0, ROM_CANVAS, 80, 3);
+      });
+      o.pp.serp.forEach((sp, k) => { const q = b.serp && b.serp.segs[k]; sp.visible = !!q; if (q) sp.position.set(q[0], q[1], q[2]); });
     }
     if (o.vv) {
       if (o.rom) o.g.position.y = b.y - 8 * b.vs / 32;
@@ -1268,7 +1308,8 @@
     });
     turretSprites = world.turrets.map(tu => objSprite('turret', tu, turretMat, 0.95, 0.04));
     shotSprites = [];
-    for (let i = 0; i < (world.sprinklers.length ? 32 : 12); i++) { const s = new THREE.Sprite(shotMat); s.scale.set(world.sprinklers.length ? 0.25 : 0.35, world.sprinklers.length ? 0.25 : 0.35, 1); s.visible = false; levelGroup.add(s); shotSprites.push(s); }
+    const small = world.sprinklers.length || world.beams.length || (world.boss && world.boss.kind === 'pp');   // (small shots, many at once)
+    for (let i = 0; i < (small ? 40 : 12); i++) { const s = new THREE.Sprite(shotMat); s.scale.set(small ? 0.25 : 0.35, small ? 0.25 : 0.35, 1); s.visible = false; levelGroup.add(s); shotSprites.push(s); }
     // Gene Gadget: sprinklers (object 07C: 17 frames by their angle, mirrored past half a turn), the barriers' pylons (06C,
     // five frames, gone with their barrier) and zaps on the floor (068: lit, then eight frames of sparks); otherwise our
     // own: a purple drum with a nozzle, grey posts and a crackling sheet between them, a yellow glow and a spark

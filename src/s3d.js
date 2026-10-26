@@ -150,6 +150,7 @@ const S3D = (() => {
     // west or east by the lever value ($1A ? levers 8/9 : lever 7; 1 east): the first, east, throws him into ride 0x56
     // (roll, 7 a frame, pad held 220 frames, the key) and at its end puts him at (0x860, 0x100, 0xC40) (watched); the
     // second runs through a tunnel (hidden x 0x920..0xA80) to the column with the act's ring
+    21: { mapSet: [[45, 44, 0x3D00]], mapClear: 185 },   // Panic Puppet 3: InitLevel 0x1258C lowers the start cell and takes the first 370 bytes
     20: { updrafts: 0x55, zapCells: 0xAA, roofs: 0x13B00, slides: [[0xC3, [1, 0]], [0xF0, [0, 1]]], cracks: [[[[48, 48]], 840, [0, -1]]],
       gates: [[[[68, 97], [68, 98]], 0x41, 0, 0, 1], [[[40, 62]], 0x61, 0, 0, 1]], keyOff: [[69, 98, 1, { f: 1 }], [40, 63, 1, { f: 0 }]],
       tubes2: [0x13464, 4, [], [[1, 1]], 8, 1],
@@ -208,7 +209,29 @@ const S3D = (() => {
     // (records 8..13: first z of each; four lanes from x 0xDD0, 32 apart) ride from z 0x1C8 to 0x378; the end row from
     // z 0x380 hurts; bombs drop 7 and 18 units west of the pod and 6 south of it
     18: { kind: 'gng', at: [0xE04, 0x1D0 + 8, 0x240], cruise: 0x40 + 8, first: 0x40 + 8, high: 0x70 + 8, low: 0x20 + 8, belt: [0x1C8, 0x378],
-      lanes: [0xDD0, 32], end: 0x380, loads: [456, 408, 360, 312, 264, 216], drops: [-7, -18], dropZ: 6, home: [0xE04, 0x240], arena: [0xDC0, 0xE40, 0x200, 0x3A0], hp: 8 } };
+      lanes: [0xDD0, 32], end: 0x380, loads: [456, 408, 360, 312, 264, 216], drops: [-7, -18], dropZ: 6, home: [0xE04, 0x240], arena: [0xDC0, 0xE40, 0x200, 0x3A0], hp: 8 },
+    // Panic Puppet 3 (InitLevel 0x1258C, RunLevel_PPz3 0x1268A; heights in Sonic's frame, + 8 for the floor): three
+    // arenas down a diagonal; in each the pod sinks into a glass column (pod y, then lower once both arms are broken) and
+    // two arms (a claw on six links from a shoulder) fight. Arena 1 (routine 0x12BC2): an arm whose zone Sonic is within
+    // 48 units of follows him (half a unit a frame each way) and, over him, punches (24 frames up a unit, 11 frames down
+    // 8, rests, from 32 frames left rises 2 a frame); else it goes back to rest. Arenas 2 and 3 (0x12D4C, 0x12EC6): the
+    // arms sway about their rest (32 units, 8 a frame of 0x800; up and down 16, 0x12 a frame) and every so often (timer
+    // from `t`) stop: arena 2 lets a serpent go after Sonic (210 frames, five links), arena 3 sprays shots (a frame each,
+    // 2.5..3.5 units a frame south-east). An arm at rest (or stopped) is hit by Sonic in the air over its shoulder's
+    // corner cell (`cell`, y >= hitY); four hits each. After arenas 1 and 2 a pad cell lifts Sonic to the next arena
+    // (held 55 frames, put at `to` after 16); after arena 3 the act is over 360 frames later.
+    21: { kind: 'pp', at: [0x561, 0x390, 0x540], cruise: 0x200, home: [0x561, 0x540], arena: [0x520, 0x800, 0x500, 0x800], hp: 24,
+      stages: [
+        { pod: [0x561, 0x540, 0x200, 0x180], hitY: 0x1F0, pad: [47, 41], lift: [0x5F0, 0x1E0, 0x530], to: [0x6F0, 0x2E0, 0x630],
+          arms: [{ at: [0x590, 0x220, 0x590], rest: [0x570, 0x220, 0x5B0], zone: [0x590, 0x5B0], shoulder: [0x558, 0x208, 0x570], cell: [42, 43] },
+            { at: [0x5B0, 0x220, 0x570], rest: [0x5D0, 0x220, 0x550], zone: [0x5D0, 0x570], shoulder: [0x590, 0x208, 0x538], cell: [44, 41] }],
+          shots: [[0x550, 0x222, 0x570], [0x590, 0x222, 0x530]] },
+        { pod: [0x661, 0x640, 0x1A0, 0xF0], hitY: 0x190, pad: [50, 54], lift: [0x650, 0x180, 0x6D0], to: [0x750, 0x280, 0x7D0],
+          arms: [{ rest: [0x688, 0x1A0, 0x6A8], shoulder: [0x658, 0x1A8, 0x670], cell: [50, 51], t: 0x190 },
+            { rest: [0x6C8, 0x1A0, 0x668], shoulder: [0x690, 0x1A8, 0x638], cell: [52, 49], t: 0x2BC, phase: 0x400 }] },
+        { pod: [0x761, 0x740, 0x140, 0xC0], hitY: 0x130,
+          arms: [{ rest: [0x788, 0x140, 0x7A8], shoulder: [0x758, 0x148, 0x770], cell: [58, 59], t: 0x190 },
+            { rest: [0x7C8, 0x140, 0x768], shoulder: [0x790, 0x148, 0x738], cell: [60, 57], t: 0x2BC, phase: 0x400 }] }] } };
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
   // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
@@ -402,6 +425,8 @@ const S3D = (() => {
     const raw = rncUnpack(d, u32(d, h + 4));
     const map = new Uint16Array(128 * 128);
     for (let i = 0; i < map.length; i++) map[i] = u16(raw, i * 2);
+    for (const [cx, cz, v] of (GIMMICKS[id] || {}).mapSet || []) map[cz * 128 + cx] = v;   // (cells the act's InitLevel writes for good)
+    map.fill(0, 0, (GIMMICKS[id] || {}).mapClear || 0);   // (words the act uses for other things: Panic Puppet 3's serpent path)
     let x0 = 127, x1 = 0, z0 = 127, z1 = 0;
     for (let i = 0; i < map.length; i++) if (map[i]) { const x = i % 128, z = i >> 7; x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
     if (x1 < x0) throw new Error('this level has no floor');
@@ -803,6 +828,23 @@ const S3D = (() => {
         e.low = Y(bs.low); e.minY = Y(bs.minY); e.hitBox = [r3(bs.hitBox[0] / CELL - x0), r3(bs.hitBox[1] / CELL - x0), r3(bs.hitBox[2] / CELL - z0), r3(bs.hitBox[3] / CELL - z0)];
         e.rise = [r3(bs.rise[0] / CELL - x0), Y(bs.rise[1]), r3(bs.rise[2] / CELL - z0)]; e.spikes = bs.spikes.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
       }
+      if (bs.kind === 'pp') {   // (positions in metres, heights of the floor's frame: Sonic's + 8 units)
+        const X = v => r3(v / CELL - x0), Y = v => r3((v + 8) / CELL * vscale), Z = v => r3(v / CELL - z0), P3 = q => [X(q[0]), Y(q[1]), Z(q[2])];
+        e.y = Y(bs.at[1]); e.cruise = Y(bs.cruise);
+        e.stages = bs.stages.map(st => {
+          const o = { pod: [X(st.pod[0]), Z(st.pod[1]), Y(st.pod[2]), Y(st.pod[3])], hitY: Y(st.hitY), arms: st.arms.map(a => {
+            const q = { rest: P3(a.rest), shoulder: P3(a.shoulder), cell: [a.cell[0] - x0, a.cell[1] - z0] };
+            if (a.at) q.at = P3(a.at);
+            if (a.zone) q.zone = [X(a.zone[0]), Z(a.zone[1])];
+            if (a.t) q.t = a.t;
+            if (a.phase) q.phase = a.phase;
+            return q;
+          }) };
+          if (st.pad) { o.pad = [st.pad[0] - x0, st.pad[1] - z0]; o.lift = P3(st.lift); o.to = P3(st.to); }
+          if (st.shots) o.shots = st.shots.map(P3);
+          return o;
+        });
+      }
       if (bs.kind === 'gng') {
         const Y = v => r3(v / CELL * vscale), Z = v => r3(v / CELL - z0);
         e.first = Y(bs.first); e.high = Y(bs.high); e.low = Y(bs.low); e.belt = bs.belt.map(Z); e.lanes = [r3(bs.lanes[0] / CELL - x0), r3(bs.lanes[1] / CELL)];
@@ -1039,7 +1081,8 @@ const S3D = (() => {
       iceBreak: [0x59] /* Diamond Dust's ice spikes */, freeze: [0x80], frozenHop: [0x94], thaw: [0x80] /* routines 0x1B9CA, 0x3050 */,
       hover: [0xC1], pyramid: [0xAE], zapArm: [0x42], sprinkle: [0x4D], tubeNo: [0xB2], tubeYes: [0x3C] /* Gene Gadget 1's routine and objects */,
       lever: [0x76], launch: [0xAB], capsule: [0x3D], pellet: [0x9A], doorShut: [0x64], tubeIn: [0xAD] /* Panic Puppet 1's routine and objects */,
-      shut: [0xC9], beam: [0x78], liftUp: [0x3C], liftGo: [0xB6], lift: [0xD2] /* Panic Puppet 2's */ },
+      shut: [0xC9], beam: [0x78], liftUp: [0x3C], liftGo: [0xB6], lift: [0xD2] /* Panic Puppet 2's */,
+      armGo: [0x5A], armRise: [0xC3], armSlam: [0x81], armOpen: [0x92], armDown: [0x54], blast: [0x59] /* Panic Puppet 3's routine */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {
@@ -1169,6 +1212,8 @@ const S3D = (() => {
     const gfx = f[3], tabB = f[4], tabA = f[5];
     const mp = rncUnpack(d, f[1]), map = new Uint16Array(16384);
     for (let i = 0; i < 16384; i++) map[i] = u16(mp, i * 2);
+    for (const [cx, cz, v] of (GIMMICKS[id] || {}).mapSet || []) map[cz * 128 + cx] = v;   // (as the converter)
+    map.fill(0, 0, (GIMMICKS[id] || {}).mapClear || 0);
     const vr = new Uint8Array(0x10000);
     vr.set(rncUnpack(d, f[2]).subarray(0, 0x10000));
     for (let a = f[7]; ;) {

@@ -1078,10 +1078,10 @@ const Sim = (() => {
     // pyramid bumpers throw at 5.5 units a frame and take the pad 10 frames; sprinkler shots (units a frame)
     hoverLine: 48, hoverAcc: 0.125, zapAt: 22, zapFor: 12, pyrSpeed: 5.5 * 60 / 32, pyrLock: 10 / 60,
     sprinkleR: 80 / 32, sprinkleEvery: 16, sprinkleOut: 16, sprinkleUp: 17, sprinkleV: 2, sprinkleRise: 0.25, sprinkleG: 1 / 32,
-    // Panic Puppet 1 (watched): 178's shots (units, frames: 16 out, 20 over the floor, 2 a frame, 1 up, gravity 1/16, 32
-    // frames' life; fired only within shootRange m: the original's objects wake on screen); capsules throw 5 a frame up;
+    // Panic Puppet 1 (watched): 178's shots (units, frames: 16 out, 20 over the floor, 2 a frame, 1 up, gravity 1/16, gone
+    // where the floor rises over them; fired only within shootRange m: the original's objects wake on screen); capsules throw 5 a frame up;
     // belts carry a unit a frame (carrier "v")
-    shootEvery: 32, shootOut: 16, shootUp: 20, shootV: 2, shootRise: 1, shootG: 1 / 16, shootLife: 32, shootRange: 7, capsuleV: 5,
+    shootEvery: 32, shootOut: 16, shootUp: 20, shootV: 2, shootRise: 1, shootG: 1 / 16, shootRange: 7, capsuleV: 5,
     // Panic Puppet 2 (watched): beam posts step their animation every 9 frames through 24 steps, on in steps 13..20, a
     // shot every 8 frames while on (2 units a frame, 16 out, no fall); 17C picks a new way after up to 15 calls (30 frames)
     beamStep: 9, beamSteps: 24, beamOn: [13, 20], beamEvery: 8, beamV: 2, beamOut: 16, wanderTurn: 30,
@@ -1349,6 +1349,15 @@ const Sim = (() => {
               errs.push('A Gene Gadget boss needs "first", "high", "low", the "belt", its "lanes", the "end" and "loads" and "drops".'); break;
             }
             Object.assign(b, { first: e.first, high: e.high, low: e.low, belt: e.belt, lanes: e.lanes, end: e.end, loads: e.loads.filter(Number.isFinite), drops: e.drops, dropZ: e.dropZ || 0 });
+          }
+          // Panic Puppet 3: "stages" of {pod [x, z, height, height once beaten], hitY, arms [{rest, shoulder [x, y, z], cell
+          // [x, z], at, zone [x, z], t, phase}], pad [x, z], lift and to [x, y, z], shots [[x, y, z]]} (see s3d.js)
+          if (e.kind === 'pp') {
+            const v3 = v => Array.isArray(v) && v.length === 3 && v.every(Number.isFinite), v2 = v => Array.isArray(v) && v.length === 2 && v.every(Number.isFinite);
+            const ok = Array.isArray(e.stages) && e.stages.length && e.stages.every(st => Array.isArray(st.pod) && st.pod.length === 4 && Number.isFinite(st.hitY)
+              && Array.isArray(st.arms) && st.arms.length === 2 && st.arms.every(a => v3(a.rest) && v3(a.shoulder) && v2(a.cell)) && (!st.pad || (v2(st.pad) && v3(st.lift) && v3(st.to))));
+            if (!ok) { errs.push('A Panic Puppet boss needs "stages" with a pod, hitY and two arms (rest, shoulder, cell).'); break; }
+            b.stages = e.stages;
           }
           L.entities.push(b);
           break;
@@ -1622,7 +1631,7 @@ const Sim = (() => {
     }
     return out;
   }
-  const BOSS_KINDS = new Set(['gg', 'rr', 'ss', 'dd', 'vv', 'gng']);
+  const BOSS_KINDS = new Set(['gg', 'rr', 'ss', 'dd', 'vv', 'gng', 'pp']);
   function importLevel(raw) {
     const errs = [];
     if (!raw || typeof raw !== 'object') throw new LevelError(['The level data is not a JSON object.']);
@@ -1850,6 +1859,8 @@ const Sim = (() => {
     if (w.boss && b.kind === 'vv') Object.assign(w.boss, { ball: null, t: 0, head: null, path: [], segs: [], seed: 7 });
     if (w.boss && b.kind === 'gng') Object.assign(w.boss, { ball: null, t: 0, ph: 0, target: b.first, belt0: false, lanesOn: false, onBelt: false, seed: 11,
       objs: b.loads.map(z => ({ x: 0, z, on: false })), bombs: [] });
+    if (w.boss && b.kind === 'pp') Object.assign(w.boss, { ball: null, si: 0, pod: 0, podX: b.stages[0].pod[0], podZ: b.stages[0].pod[1], target: b.cruise,
+      delay: 0x190, arms: ppArms(b, 0), serp: null, lift: 0, end: -1, seed: 5 });
     if (w.boss && b.kind === 'rr') Object.assign(w.boss, { armX: b.arms, arms: [[32, 0], [32, 0]], cur: 0, si: 0, act: 2, par: false, boxes: [null, null], ball: null });
     w.plats = [];
   }
@@ -2129,6 +2140,148 @@ const Sim = (() => {
     } else b.segs = [];
     return false;
   }
+  // Panic Puppet 3 (see s3d.js BOSSES[21]; RunLevel_PPz3 0x1268A, watched): the arms of an arena
+  function ppArms(b, si) {
+    return b.stages[si].arms.map(a => {
+      const at = a.at || a.rest;
+      return { ...a, x: at[0], y: at[1], z: at[2], t: a.t || 0, hits: 4, idle: false, e: a.phase || 0, f: a.phase || 0, hitAt: -9 };
+    });
+  }
+  // the links of an arm: six from its shoulder an eighth of the way to its claw at a time, then the claw (routine 0x12FA2)
+  function ppLinks(a) {
+    const s = a.shoulder, out = [];
+    for (let k = 1; k <= 6; k++) out.push([s[0] + (a.x - s[0]) * k / 8, s[1] + (a.y - s[1]) * k / 8, s[2] + (a.z - s[2]) * k / 8]);
+    out.push([a.x, a.y, a.z]);
+    return out;
+  }
+  function ppStep(w) {
+    const b = w.boss, p = w.p, U = 1 / 32, V = b.vs / 32, T = Math.PI / 1024;
+    const rnd = () => { b.seed = (b.seed * 16807) % 2147483647; return b.seed & 0xFFFF; };
+    const st = b.stages[b.si], last = b.si === b.stages.length - 1;
+    // the pod sinks a unit a frame to its height; sunk once its arena is beaten, it goes to the next (or away)
+    if (b.pod < b.stages.length && b.y > b.target + 1e-9) {
+      b.y = Math.max(b.target, b.y - V);
+      if (b.y <= b.target + 1e-9 && b.target !== b.cruise && b.pod === b.si && b.arms.every(a => a.hits === 0)) {
+        b.pod++;
+        if (b.pod < b.stages.length) { const n = b.stages[b.pod].pod; b.podX = n[0]; b.podZ = n[1]; b.y = b.target = n[2]; }
+      }
+    }
+    if (b.end >= 0) {   // beaten: explosions, then the act is over (360 frames)
+      if (++b.end % 6 === 0) w.events.push('blast');
+      if (b.end >= 360 && !w.cleared) { w.cleared = true; w.events.push('goal'); }
+    }
+    const hitArm = (a, other) => {   // (routine 0x12C70; arenas 2 and 3 stagger the arms' next turns)
+      a.hits--; a.hitAt = w.time; p.invuln = Math.max(p.invuln, 70 / 60); w.events.push('bossHit');
+      if (b.si > 0) { if (other.hits > 0) { a.t = 0x294; other.t = 0x168; } else a.t = 0x168; } else a.t = 0x20;
+      if (a.hits === 0) w.events.push('armDown');
+    };
+    const onShoulder = a => Math.floor(p.x) === a.cell[0] && Math.floor(p.z) === a.cell[1] && p.y >= st.hitY - 1e-6;
+    if (b.delay > 0) b.delay--;
+    else if (b.si === 0) {
+      // arena 1 (routine 0x12BC2): follow Sonic within 48 units of the arm's zone, punch, rest, rise
+      b.arms.forEach((a, k) => {
+        a.idle = true;
+        if (a.hits === 0) return;
+        a.idle = false;
+        if (a.t > 0) {
+          const d = a.t--;
+          if (d === 0xA3) w.events.push('armRise');
+          if (d >= 0xA3) a.y += V;
+          else if (d >= 0x98) { if (d === 0x98) w.events.push('armSlam'); a.y -= 8 * V; }
+          else if (d <= 0x20) a.y += 2 * V;
+          else if (onShoulder(a)) hitArm(a, b.arms[1 - k]);
+          else if ((d & 7) === 0) w.events.push('armOpen');
+          return;
+        }
+        const near = Math.hypot(p.x - a.zone[0], p.z - a.zone[1]) < 48 * U, tx = near ? p.x : a.rest[0], tz = near ? p.z : a.rest[2];
+        const ix = Math.floor(a.x / U + 1e-6), iz = Math.floor(a.z / U + 1e-6), jx = Math.floor(tx / U + 1e-6), jz = Math.floor(tz / U + 1e-6);
+        if (ix === jx && iz === jz) { if (near) { a.t = 0xBB; w.events.push('armGo'); } else a.idle = true; return; }
+        if (ix !== jx) a.x += (jx > ix ? 0.5 : -0.5) * U;
+        if (iz !== jz) a.z += (jz > iz ? 0.5 : -0.5) * U;
+      });
+      // the shoulders' cannons lob shots while both arms rest at home (on the original's 32-frame count)
+      if (st.shots && b.arms.every(a => a.idle)) {
+        const ph = w.tick % 32, k = ph === 0 ? 1 : ph === 16 ? 0 : -1;
+        if (k >= 0 && b.arms[k].hits > 0) {
+          let vx = rnd() * 2 / 65536, vz = rnd() * 2 / 65536;
+          if (k === 1 ? vx < vz : vx > vz) [vx, vz] = [vz, vx];
+          const [sx, sy, sz] = st.shots[k];
+          w.shots.push({ x: sx, y: sy, z: sz, vx: vx * 60 * U, vz: vz * 60 * U, vy: 2 * 60 * V, g: 3600 * V / 16, age: 0 });
+          w.events.push('sprinkle');
+        }
+      }
+    } else {
+      // arenas 2 and 3 (routines 0x12D4C, 0x12EC6): sway about the rest place; a turn every so often: a serpent (arena 2)
+      // or a spray of shots (arena 3), the shoulder open meanwhile
+      const deadY = b.si === 1 ? (0x180 + 8) * V : (0x120 + 8) * V;
+      b.arms.forEach((a, k) => {
+        const o = b.arms[1 - k];
+        if (a.hits === 0) { if (a.y > deadY) a.y = Math.max(deadY, a.y - V); return; }
+        const d = --a.t;
+        if (d > 0x78) {
+          a.x = a.rest[0] + Math.sin(a.e * T) * 32 * U; a.z = a.rest[2] - Math.sin(a.e * T) * 32 * U; a.y = a.rest[1] + Math.sin(a.f * T) * 16 * V;
+          a.e = (a.e + 8) & 0x7FE; a.f = (a.f + 0x12) & 0x7FE;
+          return;
+        }
+        if (d === 0) { a.t = o.hits > 0 ? 0x258 : 0x12C; return; }
+        if (b.si === 1 && d === 0x78) {
+          const x = a.x + 0xB * U, z = a.z + 0xA * U;
+          b.serp = { life: 0xD2, hd: { x, y: a.y, z, h: 0 }, aim: [x + 0x100 * U, z + 0x100 * U], path: [], segs: [] };
+          w.events.push('serpent'); return;
+        }
+        if (b.si === 2) {   // a shot every frame, 2.5 to 3.5 units a frame south-east, falling (1/8)
+          const vx = 2.5 + rnd() / 65536, vz = 2.5 + rnd() / 65536;
+          w.shots.push({ x: a.x + 0xB * U, y: a.y, z: a.z + 0xA * U, vx: vx * 60 * U, vz: vz * 60 * U, vy: 0, g: 3600 * V / 8, age: 0 });
+          if (d % 8 === 0) w.events.push('beam');
+        }
+        if (onShoulder(a)) hitArm(a, o); else if ((d & 7) === 0) w.events.push('armOpen');
+      });
+    }
+    // both arms broken: Sonic is spared; the pod sinks, then a pad lifts Sonic to the next arena (or the act ends)
+    if (b.arms.every(a => a.hits === 0)) {
+      p.invuln = Math.max(p.invuln, 0.1);
+      if (last) { if (b.end < 0) { b.end = 0; b.target = st.pod[3]; w.events.push('bossDown'); } }
+      else if (b.pod === b.si) b.target = st.pod[3];
+      else if (st.pad) {
+        if (!b.lift) {
+          if (p.grounded && Math.floor(p.x) === st.pad[0] && Math.floor(p.z) === st.pad[1]) { b.lift = 0x37; w.events.push('liftUp'); }
+        } else {
+          b.lift--;
+          if (!b.lift) { b.si++; b.arms = ppArms(b, b.si); b.serp = null; w.events.push('liftGo'); }
+          else {
+            p.ball = true; p.lock = Math.max(p.lock, 2 / 60); p.vx = p.vz = 0;
+            if (b.lift > 0x27) { [p.x, p.y, p.z] = st.lift; p.vy = 0; p.grounded = false; }
+            else if (b.lift === 0x27) { [p.x, p.y, p.z] = st.to; p.vy = 0; p.grounded = false; w.warpedAt = w.time; w.events.push('warp'); }
+          }
+        }
+      }
+    }
+    // the serpent (Volcano Valley 3's routine 0xA3F2): heads for Sonic (first south-east), 2 units a frame
+    if (b.serp) {
+      const sp = b.serp, hd = sp.hd;
+      if (--sp.life <= 0) b.serp = null;
+      else {
+        const [ax, az] = sp.life < 0xC8 ? [p.x, p.z] : sp.aim, dx = ax - hd.x, dz = az - hd.z, adx = Math.abs(dx), adz = Math.abs(dz);
+        const diag = adz >= adx ? adz / 2 < adx : adz > adx / 2, along = adz >= adx ? 0 : 0x200, sx = dx < 0 ? -1 : 1, sz = dz < 0 ? -1 : 1;
+        const want = diag ? (sx > 0 ? (sz > 0 ? 0x100 : 0x300) : (sz > 0 ? 0x700 : 0x500)) : along ? (sx > 0 ? 0x200 : 0x600) : (sz > 0 ? 0 : 0x400);
+        const turn = 16 + (rnd() & 63), dd = (hd.h - want) & 0x7FE;
+        if (dd) hd.h = (hd.h + (dd <= 0x400 ? -turn : turn)) & 0x7FE;
+        hd.x += Math.sin(hd.h * T) * 2 * U; hd.z += Math.cos(hd.h * T) * 2 * U;
+        const ty = (sp.life < 0xC8 ? p.y : hd.y) + 16 * V;
+        hd.y += Math.abs(ty - hd.y) <= V ? ty - hd.y : Math.sign(ty - hd.y) * V;
+        sp.path.push([hd.x, hd.y, hd.z]); if (sp.path.length > 17) sp.path.shift();
+        sp.segs = []; for (let k = 0; k < 5; k++) { const q = sp.path[sp.path.length - 1 - 4 * k]; if (q) sp.segs.push(q); }
+      }
+    }
+    // what hurts: the claws and the links of the arms, the serpent (a hit on a shoulder just now spares the player)
+    if (!(p.inv > 0 || p.invuln > 0)) {
+      const pts = b.arms.flatMap(a => ppLinks(a)).concat(b.serp ? b.serp.segs : []);
+      for (const [x, y, z] of pts) {
+        if (Math.abs(p.x - x) < 14 * U && Math.abs(p.z - z) < 14 * U && p.y < y + 20 * V && p.y + 32 * V > y - 8 * V) { hurt(w, p.x - x, p.z - z); if (w.events.includes('respawn')) return true; break; }
+      }
+    }
+    return false;
+  }
   // Gene Gadget 3 (InitLevel 0x110BA, RunLevel_GnGdz3 0x11126; watched): the pod comes down, the belt starts at frame
   // 0x1B8 and carries the player south (pushed to 1.5 units a frame and more; facing north and pushing, held at 0.5 a
   // frame north; off it, at least 2 south); the end row hurts. Loads ride the belt a unit a frame in four lanes and blow
@@ -2193,6 +2346,7 @@ const Sim = (() => {
     return false;
   }
   function bossStep(w, pcy) {
+    if (w.boss.kind === 'pp') return ppStep(w);
     if (w.boss.kind === 'gng') return gngStep(w);
     if (w.boss.kind === 'vv') return vvStep(w);
     if (w.boss.kind === 'dd') return ddStep(w);
@@ -3018,7 +3172,7 @@ const Sim = (() => {
         const [sx, sz] = [[1, 0], [0, 1], [-1, 0], [0, -1]][en.shoot], U = 1 / 32, vs = L.rom ? L.rom.vscale : 1;
         en.shoot = (en.shoot + 1) & 3;
         w.shots.push({ x: en.x + sx * P.shootOut * U, y: en.y + P.shootUp * U * vs, z: en.z + sz * P.shootOut * U, vx: sx * P.shootV * 60 * U, vz: sz * P.shootV * 60 * U,
-          vy: P.shootRise * 60 * U * vs, g: P.shootG * 3600 * U * vs, age: 0, life: P.shootLife / 60 });
+          vy: P.shootRise * 60 * U * vs, g: P.shootG * 3600 * U * vs, age: 0 });
         w.events.push('pellet');
       }
       // a spike ball circling the enemy hurts whatever the player is doing; it cannot be broken
@@ -3266,7 +3420,7 @@ const Sim = (() => {
     p.invuln = P.hurtTime; w.events.push('hurt');
   }
 
-  return { P, LevelError, importLevel, floorAt, gradientAt, tileTopNear, createWorld, resetLevel, respawn, step, rrArm };
+  return { P, LevelError, importLevel, floorAt, gradientAt, tileTopNear, createWorld, resetLevel, respawn, step, rrArm, ppLinks };
 })();
 </script>
 
@@ -3969,6 +4123,7 @@ const S3D = (() => {
     // west or east by the lever value ($1A ? levers 8/9 : lever 7; 1 east): the first, east, throws him into ride 0x56
     // (roll, 7 a frame, pad held 220 frames, the key) and at its end puts him at (0x860, 0x100, 0xC40) (watched); the
     // second runs through a tunnel (hidden x 0x920..0xA80) to the column with the act's ring
+    21: { mapSet: [[45, 44, 0x3D00]], mapClear: 185 },   // Panic Puppet 3: InitLevel 0x1258C lowers the start cell and takes the first 370 bytes
     20: { updrafts: 0x55, zapCells: 0xAA, roofs: 0x13B00, slides: [[0xC3, [1, 0]], [0xF0, [0, 1]]], cracks: [[[[48, 48]], 840, [0, -1]]],
       gates: [[[[68, 97], [68, 98]], 0x41, 0, 0, 1], [[[40, 62]], 0x61, 0, 0, 1]], keyOff: [[69, 98, 1, { f: 1 }], [40, 63, 1, { f: 0 }]],
       tubes2: [0x13464, 4, [], [[1, 1]], 8, 1],
@@ -4027,7 +4182,29 @@ const S3D = (() => {
     // (records 8..13: first z of each; four lanes from x 0xDD0, 32 apart) ride from z 0x1C8 to 0x378; the end row from
     // z 0x380 hurts; bombs drop 7 and 18 units west of the pod and 6 south of it
     18: { kind: 'gng', at: [0xE04, 0x1D0 + 8, 0x240], cruise: 0x40 + 8, first: 0x40 + 8, high: 0x70 + 8, low: 0x20 + 8, belt: [0x1C8, 0x378],
-      lanes: [0xDD0, 32], end: 0x380, loads: [456, 408, 360, 312, 264, 216], drops: [-7, -18], dropZ: 6, home: [0xE04, 0x240], arena: [0xDC0, 0xE40, 0x200, 0x3A0], hp: 8 } };
+      lanes: [0xDD0, 32], end: 0x380, loads: [456, 408, 360, 312, 264, 216], drops: [-7, -18], dropZ: 6, home: [0xE04, 0x240], arena: [0xDC0, 0xE40, 0x200, 0x3A0], hp: 8 },
+    // Panic Puppet 3 (InitLevel 0x1258C, RunLevel_PPz3 0x1268A; heights in Sonic's frame, + 8 for the floor): three
+    // arenas down a diagonal; in each the pod sinks into a glass column (pod y, then lower once both arms are broken) and
+    // two arms (a claw on six links from a shoulder) fight. Arena 1 (routine 0x12BC2): an arm whose zone Sonic is within
+    // 48 units of follows him (half a unit a frame each way) and, over him, punches (24 frames up a unit, 11 frames down
+    // 8, rests, from 32 frames left rises 2 a frame); else it goes back to rest. Arenas 2 and 3 (0x12D4C, 0x12EC6): the
+    // arms sway about their rest (32 units, 8 a frame of 0x800; up and down 16, 0x12 a frame) and every so often (timer
+    // from `t`) stop: arena 2 lets a serpent go after Sonic (210 frames, five links), arena 3 sprays shots (a frame each,
+    // 2.5..3.5 units a frame south-east). An arm at rest (or stopped) is hit by Sonic in the air over its shoulder's
+    // corner cell (`cell`, y >= hitY); four hits each. After arenas 1 and 2 a pad cell lifts Sonic to the next arena
+    // (held 55 frames, put at `to` after 16); after arena 3 the act is over 360 frames later.
+    21: { kind: 'pp', at: [0x561, 0x390, 0x540], cruise: 0x200, home: [0x561, 0x540], arena: [0x520, 0x800, 0x500, 0x800], hp: 24,
+      stages: [
+        { pod: [0x561, 0x540, 0x200, 0x180], hitY: 0x1F0, pad: [47, 41], lift: [0x5F0, 0x1E0, 0x530], to: [0x6F0, 0x2E0, 0x630],
+          arms: [{ at: [0x590, 0x220, 0x590], rest: [0x570, 0x220, 0x5B0], zone: [0x590, 0x5B0], shoulder: [0x558, 0x208, 0x570], cell: [42, 43] },
+            { at: [0x5B0, 0x220, 0x570], rest: [0x5D0, 0x220, 0x550], zone: [0x5D0, 0x570], shoulder: [0x590, 0x208, 0x538], cell: [44, 41] }],
+          shots: [[0x550, 0x222, 0x570], [0x590, 0x222, 0x530]] },
+        { pod: [0x661, 0x640, 0x1A0, 0xF0], hitY: 0x190, pad: [50, 54], lift: [0x650, 0x180, 0x6D0], to: [0x750, 0x280, 0x7D0],
+          arms: [{ rest: [0x688, 0x1A0, 0x6A8], shoulder: [0x658, 0x1A8, 0x670], cell: [50, 51], t: 0x190 },
+            { rest: [0x6C8, 0x1A0, 0x668], shoulder: [0x690, 0x1A8, 0x638], cell: [52, 49], t: 0x2BC, phase: 0x400 }] },
+        { pod: [0x761, 0x740, 0x140, 0xC0], hitY: 0x130,
+          arms: [{ rest: [0x788, 0x140, 0x7A8], shoulder: [0x758, 0x148, 0x770], cell: [58, 59], t: 0x190 },
+            { rest: [0x7C8, 0x140, 0x768], shoulder: [0x790, 0x148, 0x738], cell: [60, 57], t: 0x2BC, phase: 0x400 }] }] } };
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
   // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
@@ -4221,6 +4398,8 @@ const S3D = (() => {
     const raw = rncUnpack(d, u32(d, h + 4));
     const map = new Uint16Array(128 * 128);
     for (let i = 0; i < map.length; i++) map[i] = u16(raw, i * 2);
+    for (const [cx, cz, v] of (GIMMICKS[id] || {}).mapSet || []) map[cz * 128 + cx] = v;   // (cells the act's InitLevel writes for good)
+    map.fill(0, 0, (GIMMICKS[id] || {}).mapClear || 0);   // (words the act uses for other things: Panic Puppet 3's serpent path)
     let x0 = 127, x1 = 0, z0 = 127, z1 = 0;
     for (let i = 0; i < map.length; i++) if (map[i]) { const x = i % 128, z = i >> 7; x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
     if (x1 < x0) throw new Error('this level has no floor');
@@ -4622,6 +4801,23 @@ const S3D = (() => {
         e.low = Y(bs.low); e.minY = Y(bs.minY); e.hitBox = [r3(bs.hitBox[0] / CELL - x0), r3(bs.hitBox[1] / CELL - x0), r3(bs.hitBox[2] / CELL - z0), r3(bs.hitBox[3] / CELL - z0)];
         e.rise = [r3(bs.rise[0] / CELL - x0), Y(bs.rise[1]), r3(bs.rise[2] / CELL - z0)]; e.spikes = bs.spikes.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
       }
+      if (bs.kind === 'pp') {   // (positions in metres, heights of the floor's frame: Sonic's + 8 units)
+        const X = v => r3(v / CELL - x0), Y = v => r3((v + 8) / CELL * vscale), Z = v => r3(v / CELL - z0), P3 = q => [X(q[0]), Y(q[1]), Z(q[2])];
+        e.y = Y(bs.at[1]); e.cruise = Y(bs.cruise);
+        e.stages = bs.stages.map(st => {
+          const o = { pod: [X(st.pod[0]), Z(st.pod[1]), Y(st.pod[2]), Y(st.pod[3])], hitY: Y(st.hitY), arms: st.arms.map(a => {
+            const q = { rest: P3(a.rest), shoulder: P3(a.shoulder), cell: [a.cell[0] - x0, a.cell[1] - z0] };
+            if (a.at) q.at = P3(a.at);
+            if (a.zone) q.zone = [X(a.zone[0]), Z(a.zone[1])];
+            if (a.t) q.t = a.t;
+            if (a.phase) q.phase = a.phase;
+            return q;
+          }) };
+          if (st.pad) { o.pad = [st.pad[0] - x0, st.pad[1] - z0]; o.lift = P3(st.lift); o.to = P3(st.to); }
+          if (st.shots) o.shots = st.shots.map(P3);
+          return o;
+        });
+      }
       if (bs.kind === 'gng') {
         const Y = v => r3(v / CELL * vscale), Z = v => r3(v / CELL - z0);
         e.first = Y(bs.first); e.high = Y(bs.high); e.low = Y(bs.low); e.belt = bs.belt.map(Z); e.lanes = [r3(bs.lanes[0] / CELL - x0), r3(bs.lanes[1] / CELL)];
@@ -4858,7 +5054,8 @@ const S3D = (() => {
       iceBreak: [0x59] /* Diamond Dust's ice spikes */, freeze: [0x80], frozenHop: [0x94], thaw: [0x80] /* routines 0x1B9CA, 0x3050 */,
       hover: [0xC1], pyramid: [0xAE], zapArm: [0x42], sprinkle: [0x4D], tubeNo: [0xB2], tubeYes: [0x3C] /* Gene Gadget 1's routine and objects */,
       lever: [0x76], launch: [0xAB], capsule: [0x3D], pellet: [0x9A], doorShut: [0x64], tubeIn: [0xAD] /* Panic Puppet 1's routine and objects */,
-      shut: [0xC9], beam: [0x78], liftUp: [0x3C], liftGo: [0xB6], lift: [0xD2] /* Panic Puppet 2's */ },
+      shut: [0xC9], beam: [0x78], liftUp: [0x3C], liftGo: [0xB6], lift: [0xD2] /* Panic Puppet 2's */,
+      armGo: [0x5A], armRise: [0xC3], armSlam: [0x81], armOpen: [0x92], armDown: [0x54], blast: [0x59] /* Panic Puppet 3's routine */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {
@@ -4988,6 +5185,8 @@ const S3D = (() => {
     const gfx = f[3], tabB = f[4], tabA = f[5];
     const mp = rncUnpack(d, f[1]), map = new Uint16Array(16384);
     for (let i = 0; i < 16384; i++) map[i] = u16(mp, i * 2);
+    for (const [cx, cz, v] of (GIMMICKS[id] || {}).mapSet || []) map[cz * 128 + cx] = v;   // (as the converter)
+    map.fill(0, 0, (GIMMICKS[id] || {}).mapClear || 0);
     const vr = new Uint8Array(0x10000);
     vr.set(rncUnpack(d, f[2]).subarray(0, 0x10000));
     for (let a = f[7]; ;) {
@@ -6553,6 +6752,35 @@ const Art = (() => {
         bombs: [0, 1, 2, 3].map(() => mk(0x164, () => { const m = new THREE.Sprite(mineMat); m.scale.set(0.7, 0.7, 1); m.userData.lift = 0.35; return m; })),
         lower: o.rom ? mk(0x168, null) : null };
     }
+    if (b.kind === 'pp') {   // Panic Puppet 3: a glass column in each arena, two arms of links and a claw (object 1A0, line 3), the serpent (138, line 1)
+      o.ball.visible = false; o.links.forEach(l => { l.visible = false; });
+      const metal = new THREE.MeshLambertMaterial({ color: 0x9aa4b8, emissive: 0x101820 }), dark = new THREE.MeshLambertMaterial({ color: 0x4a505c });
+      const glass = new THREE.MeshLambertMaterial({ color: 0xbfe6ff, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false });
+      const cols = b.stages.map(st => {
+        const g = new THREE.Group(), floor = st.arms[0].shoulder[1] - 1.25 * b.vs, R = 1.55;
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.08, R * 1.15, 0.9 * b.vs, 24), dark); base.position.y = 0.45 * b.vs;
+        const tube = new THREE.Mesh(new THREE.CylinderGeometry(R, R, 9 * b.vs, 24, 1, true), glass); tube.position.y = 0.9 * b.vs + 4.5 * b.vs; tube.renderOrder = 3;
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(R * 1.02, 0.12, 8, 24), metal); ring.rotation.x = Math.PI / 2; ring.position.y = 0.9 * b.vs;
+        const cap = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.1, R * 1.1, 0.5, 24), metal); cap.position.y = 10 * b.vs;
+        g.add(base, tube, ring, cap); g.position.set(st.pod[0], floor, st.pod[1]); levelGroup.add(g); return g;
+      });
+      const claw = (k) => {
+        if (o.rom) { const sp = new THREE.Sprite(romBossMat(0x1A0, 0, ROM_CANVAS, 80, 3)); sp.center.set(0.5, OBJ_FOOT); sp.scale.set(ROM_SIZE, ROM_SIZE, 1); levelGroup.add(sp); return sp; }
+        const g = new THREE.Group(), head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 14, 10), new THREE.MeshLambertMaterial({ color: 0xc8463a }));
+        head.position.y = 0.32; g.add(head);
+        for (let i = 0; i < 3; i++) { const f = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.3, 6), metal); const a = i * 2.094; f.position.set(Math.sin(a) * 0.18, 0.08, Math.cos(a) * 0.18); f.rotation.x = Math.PI; g.add(f); }
+        levelGroup.add(g); return g;
+      };
+      const linkGeo = new THREE.SphereGeometry(0.17, 12, 8);
+      const arms = [0, 1].map(k => ({ links: Array.from({ length: 6 }, () => { const m = new THREE.Mesh(linkGeo, metal); levelGroup.add(m); return m; }), claw: claw(k) }));
+      const fr = o.rom ? romTypeFrames(0x138, 1) : [];
+      const serp = Array.from({ length: 5 }, (_, k) => {
+        const sp = new THREE.Sprite(fr.length ? fr[Math.min(fr.length - 1, k)] : puffMat);
+        if (fr.length) { sp.scale.set(ROM_SIZE * 1.2, ROM_SIZE * 1.2, 1); sp.center.set(0.5, OBJ_FOOT); } else sp.scale.setScalar(0.8 - k * 0.08);
+        sp.visible = false; levelGroup.add(sp); return sp;
+      });
+      o.pp = { cols, arms, serp };
+    }
     if (b.kind === 'vv') {   // the fire serpent: the original's flame frames (object 138, line 3) or our own fireballs
       o.ball.visible = false; o.links.forEach(l => { l.visible = false; });
       const fr = o.rom ? romTypeFrames(0x138, 3) : [];
@@ -6746,6 +6974,17 @@ const Art = (() => {
       o.gng.loads.forEach((m, k) => { const q = b.objs[k]; put(m, q.x, q.z, q.on && b.dead < 0); });
       o.gng.bombs.forEach((m, k) => { const q = b.bombs[k]; put(m, q ? q.x : 0, q ? q.z : 0, !!q); });
       if (o.gng.lower) { o.gng.lower.visible = o.g.visible; o.gng.lower.position.set(b.x - 2 / 32, b.y - 24 * b.vs / 32, b.z - 2 / 32); }
+    }
+    if (o.pp) {   // the pod in its column (gone once the last arena is beaten), the arms, the serpent
+      o.g.position.set(b.podX, b.y - (o.rom ? 8 * b.vs / 32 : 0), b.podZ); o.g.visible = b.pod < b.stages.length;
+      b.arms.forEach((a, k) => {
+        const pts = Sim.ppLinks(a), A = o.pp.arms[k], flash = world.time - a.hitAt < 0.6 && Math.floor(t * 16) % 2;
+        A.links.forEach((m, i) => { m.position.set(pts[i][0], pts[i][1] + 0.12, pts[i][2]); m.visible = !flash; });
+        const c = pts[6]; A.claw.position.set(c[0], c[1], c[2]); A.claw.visible = !flash;
+        const open = b.si === 0 ? a.t > 0x20 && a.t < 0x98 : a.t > 0 && a.t <= 0x78;   // (resting after a punch; stopped for its turn)
+        if (o.rom && A.claw.isSprite) A.claw.material = romBossMat(0x1A0, a.hits === 0 ? 2 : open ? 1 : 0, ROM_CANVAS, 80, 3);
+      });
+      o.pp.serp.forEach((sp, k) => { const q = b.serp && b.serp.segs[k]; sp.visible = !!q; if (q) sp.position.set(q[0], q[1], q[2]); });
     }
     if (o.vv) {
       if (o.rom) o.g.position.y = b.y - 8 * b.vs / 32;
@@ -7028,7 +7267,8 @@ const Art = (() => {
     });
     turretSprites = world.turrets.map(tu => objSprite('turret', tu, turretMat, 0.95, 0.04));
     shotSprites = [];
-    for (let i = 0; i < (world.sprinklers.length ? 32 : 12); i++) { const s = new THREE.Sprite(shotMat); s.scale.set(world.sprinklers.length ? 0.25 : 0.35, world.sprinklers.length ? 0.25 : 0.35, 1); s.visible = false; levelGroup.add(s); shotSprites.push(s); }
+    const small = world.sprinklers.length || world.beams.length || (world.boss && world.boss.kind === 'pp');   // (small shots, many at once)
+    for (let i = 0; i < (small ? 40 : 12); i++) { const s = new THREE.Sprite(shotMat); s.scale.set(small ? 0.25 : 0.35, small ? 0.25 : 0.35, 1); s.visible = false; levelGroup.add(s); shotSprites.push(s); }
     // Gene Gadget: sprinklers (object 07C: 17 frames by their angle, mirrored past half a turn), the barriers' pylons (06C,
     // five frames, gone with their barrier) and zaps on the floor (068: lit, then eight frames of sparks); otherwise our
     // own: a purple drum with a nozzle, grey posts and a crackling sheet between them, a yellow glow and a spark

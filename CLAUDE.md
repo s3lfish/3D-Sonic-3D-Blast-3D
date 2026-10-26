@@ -193,7 +193,7 @@ serves index.html from main.
   launches ride 0x56 whose end is (0x860, 0x100, 0xC40) walking at 7 a frame, pad held 220 frames; belt 2 hidden in
   its tunnel); tubes2 with 8-byte records and `hidden` rides (`p.hidden`, no glass tube); `capsule` (19C: box `half`
   to `top`, walls; landed on: vy 5 units a frame, frees its Flicky; `w.capsules`); 178 enemy `shoot` (every 32 ticks,
-  E S W N, `P.shoot*`, shots with `life`). Enemies carry `flicky` (byte +0x19: 1..4 colour, 0 none; holders(w) counts
+  E S W N, `P.shoot*`, gone where the floor rises over them; shots may carry a `life`). Enemies carry `flicky` (byte +0x19: 1..4 colour, 0 none; holders(w) counts
   for the ring) and `line` (sprite palette, bits 13-14 of +0x16). Patrols move half a unit a frame (measured, all zones).
 - Panic Puppet 2 (`GIMMICKS[19]`, RunLevel 0x13B7E labelled PPz1): no rings; the act ends `clear` seconds after the
   lift hole is taken (`ride.clear`, `w.clearAt`, 'goal'); `carrier` gains `axis` 'z', a fixed `way` (1/-1), `lo` null
@@ -201,6 +201,17 @@ serves index.html from main.
   (open until stepped into, then raised for good, reopened on respawn; drawn as doors); `beamPost` (180: 24 steps of
   9 frames, on in 13..20, a shot every 8 frames, `P.beam*`, frames `BEAM_FRAMES`); 17C `wander` [x0, z0, size];
   18C lifts as `jetLift` (31-unit square, plain metal); slides with `skipX`; cracked wall (67, 63).
+- PP3 boss `pp` (`ppStep`, BOSSES[21], RunLevel_PPz3 0x1268A): three arenas (`stages`), the pod in a glass column
+  (drawn: `o.pp.cols`), sinking a unit a frame to its height and, once an arena is beaten, lower, then on to the next
+  (`b.pod`); two arms each (claw + six links from the shoulder, `Sim.ppLinks`; links and claws hurt). Arena 1: an arm
+  follows the player within 48 units of its zone (half a unit a frame each way), punches (25 frames up, 11 down 8 a
+  frame), rests 119 frames (beep 0x92 every 8), rises 2 a frame for 32; the shoulders lob shots while both arms rest.
+  Arenas 2 and 3: sway about the rest (32 units, 16 up and down); at timer 0x78 a serpent (VV3's chase, 5 links, 210
+  frames) or a spray of shots (a frame each, 2.5..3.5 south-east, gravity 1/8); hit window timer 1..0x77, then 0x258
+  (0x12C alone). A hit: the player in the air (y >= `hitY`) over the shoulder's corner cell (`cell`) while the arm rests
+  or has stopped; 4 hits an arm. Beaten arenas 1 and 2: a pad cell lifts the player (`b.lift`: held 16 frames, put at
+  `to`, falls; 55 frames). Arena 3 beaten: 360 frames, then 'goal'. Converters: `mapSet`/`mapClear` (InitLevel's map
+  writes: PP3's start cell, and its first 370 bytes, the serpent's path buffer); the art baker applies them too.
 - Converted levels, all zones (watched in GnG1 and GG1): a roll bounces off walls (`rollBounce`, facing turned); corner
   pieces (one corner two steps over three level ones, both neighbours by it without floor; `L.diag`, findDiagonals) are
   diagonal walls (that half solid, rest flat), met as a point (`P.rDiag`); walls keep `P.rOrig` 0.12 m; slope pull
@@ -278,8 +289,10 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
+- 2026-10-27: Panic Puppet 3 boss (three arenas, punching and swaying arms, the serpent, the spray, the lifts between);
+  114 sim tests. Next: Final Fight (22: Init 0x14170, Run 0x142C0).
 - 2026-10-27: Panic Puppet 2 (the lift that ends it, belts both ways, cells that shut behind, beam posts, wanderers,
-  lifts); 113 sim tests; flow.py: the lift is reached. Next: PP3 boss (21: Init 0x1258C, Run 0x1268A), Final Fight (22).
+  lifts); 113 sim tests; flow.py: the lift is reached.
 - 2026-10-27: Panic Puppet 1 (belts and levers, the hidden run, doors, capsules, shooting robots, hidden tubes, the
   cracked wall); Flickies only from their holders (byte +0x19); patrols at the measured half a unit a frame; 111 sim
   tests; flow.py: PP1 can be finished.
