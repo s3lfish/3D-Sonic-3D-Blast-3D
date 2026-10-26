@@ -8,6 +8,7 @@
 const S3D = (() => {
   'use strict';
   const HEADERS = 0x1AB62, HSIZE = 0x2A, CELL = 32, STEP = 8, RING_TABLE = 0x1936, RING_HOVER = 18;
+  const HUNTER_ORBIT = 23.5, HUNTER_BALL_Y = 20;   // units: spike ball circle radius (measured) and height (estimated)
   // object types, identified by watching the game run: player start, springs, monitors, the act-end ring, main enemies
   const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
@@ -185,9 +186,14 @@ const S3D = (() => {
       if (!kind || !floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) continue;
       if (kind === 'start') { start = [x / CELL, z / CELL]; continue; }
       const e = { type: kind, x: r3(x / CELL - x0), z: r3(z / CELL - z0) };
-      // Green Grove guide + emulator: Hunters (0C) stand still, Scouters (58) chase; monitor kind = word +0x26 / 0x80
-      // (icon order in the ROM); a supercharger fires along z, towards +z when bit 0x800 of word +0x16 is set
-      if (kind === 'enemy') { e.radius = t === 0x0C ? 0 : 1.0; if (t === 0x58) e.chase = 1; }
+      // Green Grove guide + emulator: Hunters (0C) stand still with a spike ball circling them (radius 23.5 units,
+      // measured; about 20 units up, estimated), Scouters (58) chase; monitor kind = word +0x26 / 0x80 (icon order in
+      // the ROM); a supercharger fires along z, towards +z when bit 0x800 of word +0x16 is set
+      if (kind === 'enemy') {
+        e.radius = t === 0x0C ? 0 : 1.0;
+        if (t === 0x58) e.chase = 1;
+        if (t === 0x0C) { e.orbit = r3(HUNTER_ORBIT / CELL); e.orbitY = r3(HUNTER_BALL_Y / CELL * vscale); }
+      }
       if (kind === 'monitor') e.kind = MONITOR_KINDS[u16(ob, o + 0x26) >> 7] || 'rings';
       if (kind === 'booster') e.dir = (u16(ob, o + 0x16) & 0x800) ? [0, 1] : [0, -1];
       if (kind === 'spring') e.power = springPower(vscale);
@@ -244,7 +250,9 @@ const S3D = (() => {
   // Sprite pieces seen in the running game, by object type: [x, y, tiles wide, tiles high, h-flip, v-flip,
   // palette line, ROM address of the raw tiles]. Only positions and addresses live here; pixels come from the ROM.
   const RECIPES = {
-    '00C': [[9,-17,4,4,0,0,3,0x028BC2],[17,-25,2,1,0,0,3,0x028DC2],[-10,-22,4,3,1,0,3,0x030788],[-10,-38,3,2,1,0,3,0x030908],[-18,-14,1,2,1,0,3,0x0309C8],[-10,-46,2,1,1,0,3,0x030A08]],
+    // the Hunter without its spike ball, and the ball alone with its middle on the anchor
+    'SPK': [[-16,-16,4,4,0,0,3,0x028BC2],[-8,-24,2,1,0,0,3,0x028DC2]],
+    '00C': [[-10,-22,4,3,1,0,3,0x030788],[-10,-38,3,2,1,0,3,0x030908],[-18,-14,1,2,1,0,3,0x0309C8],[-10,-46,2,1,1,0,3,0x030A08]],
     '018': [[-5,-18,4,4,0,0,2,0x0340C6],[-13,-18,1,3,0,0,2,0x0342C6]],
     '03C': [[-15,-36,4,4,0,0,3,0x03CC5C],[-15,-4,4,1,0,0,3,0x03CE5C]],
     '008': [[-16,-36,4,4,0,0,3,0x028E14],[-8,-44,2,1,0,0,3,0x029014]],

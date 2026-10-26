@@ -44,7 +44,7 @@ untested.
 - Green Grove sections: Flickies freed from enemies open each big ring; holes carry you to the next section.
   Reaching the last ring ends the act and moves on to the next one.
 - Monitors show their icon and give rings, a shield, a gold shield, invincibility, speed shoes or a 1-up.
-- Mines, Turrets, chasing and standing enemies, and superchargers (stand on one and press jump).
+- Mines, Turrets, chasing enemies, Hunters with their circling spike balls, and superchargers (stand on one and press jump).
 - The original's act results screen, then the next act.
 - With your own Sonic Jam (Saturn) disc image: a 3D Sonic using the Saturn game's own model, textures and moves
   (including his skid), and Sonic World's palm trees, springs, big ring and Flickies in place of the flat sprites.

@@ -332,6 +332,24 @@ test('scattered Flickies do not hop off a big drop', () => {
   run(w, 600, (f, ww) => { for (const fl of ww.flickies) if (fl.state === 'free') low = Math.min(low, fl.y); return { mx: 0, mz: 0 }; });
   assert.ok(low > 3.5, `a Flicky got down to y ${low}`);
 });
+test("a Hunter's spike ball circles it and hurts a player standing in its path", () => {
+  const w = world(arena([{ type: 'enemy', x: 6.5, z: 2.5, radius: 0, speed: 0, orbit: 0.73, orbitY: 0.6 }]));
+  w.ringCount = 5; w.p.invuln = 0; w.p.x = 6.5 + 0.73; w.p.z = 2.5;   // on the circle, east of the Hunter
+  const seen = [];
+  let hit = false;
+  run(w, 300, (f, ww) => { seen.push([ww.enemies[0].ball.x, ww.enemies[0].ball.z]); if (ww.ringCount === 0) hit = true; return { mx: 0, mz: 0 }; });
+  assert.ok(hit, 'the ball hit the player');
+  // it stays on its circle and turns clockwise seen from above (x east, z south: the angle from east grows toward south)
+  for (const [x, z] of seen.slice(1)) assert.ok(Math.abs(Math.hypot(x - 6.5, z - 2.5) - 0.73) < 0.01);
+  const a0 = Math.atan2(seen[1][1] - 2.5, seen[1][0] - 6.5), a1 = Math.atan2(seen[2][1] - 2.5, seen[2][0] - 6.5);
+  assert.ok(((a1 - a0 + 3 * Math.PI) % (2 * Math.PI)) - Math.PI > 0, "clockwise from above");
+  assert.strictEqual(w.enemies[0].alive, true, 'the ball is not the Hunter: touching it does not defeat it');
+});
+test('jumping on a Hunter still defeats it', () => {
+  const w = world(arena([{ type: 'enemy', x: 4.5, z: 2.5, radius: 0, speed: 0, orbit: 0.73, orbitY: 0.6 }]));
+  run(w, 90, (f) => ({ mx: 1, mz: 0, jump: f > 5 && f < 30 }));
+  assert.strictEqual(w.enemies[0].alive, false);
+});
 test('a ring with no Flickies left in the level still opens', () => {
   const w = world(Object.assign(arena([{ type: 'goal', x: 6.5, z: 2.5 }]), { flickies: 5 }));
   run(w, 90, { mx: 1, mz: 0 });

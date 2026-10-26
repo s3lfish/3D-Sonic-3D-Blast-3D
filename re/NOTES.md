@@ -32,6 +32,7 @@ original art. The browser code carries reading rules only.
 | `anim_recipe.py` | Find animated static tiles (water, lava) written at run time |
 | `artcheck.py`, `artcompare.py`, `occl.py`, `gaps.py` | Alignment, emulator comparison, face visibility, section gaps |
 | `edgeprobe.py`, `edgejump.py`, `stepprobe2.py`, `springprobe.py`, `holeprobe.py`, `flickyprobe2.py` | Emulator measurements |
+| `huntram.py N FRAMES` | Sonic beside GG1 Hunter N: its RAM record and nearby sprites per frame (spike ball orbit) |
 | `objwatch.py LEVEL TYPE N` | Put Sonic beside (or with `DROP=` on) one object, optionally press jump (`JUMP=`), log and photograph |
 | `monicons.py LEVEL` | Photograph every monitor and list its sprite pieces with their raw ROM addresses |
 | `emu_run.py`, `vdp.py`, `mkstart.py`, `mkstate.py`, `bootto.py`, `typesheet.py` | Emulator helpers |
@@ -136,9 +137,12 @@ original art. The browser code carries reading rules only.
   speed shoes, a red shield (then score digits). Icons are 2 x 2 raw tiles at 0x13C7D8 + kind * 0x80, palette line 2,
   drawn 2 px right and 13 px down from the body's top left (`monicons.py`). GG1 holds 3 rings, 2 blue, 2 gold,
   1 invincibility, 1 speed shoes, matching the guide.
-- Hunter (0C): stands still but turns to face Sonic, with a spike ball orbiting it (Sonic Retro "Hunter" page); in the
-  emulator the ball swings round above and in front of it, and the Hunter at times stretches up tall with no ball.
-  Orbit size and timing not measured: the Hunter is only drawn with Sonic and the camera where the game expects them.
+- Hunter (0C): stands still but turns to face Sonic, with a spike ball orbiting it (Sonic Retro "Hunter" page).
+  Measured (`huntram.py`: Sonic two cells away, camera left to the game; the Hunter wakes only once on screen, about
+  160 frames after a teleport): the ball (sprite tiles at 0x028BC2, 4 x 4 plus a 2 x 1 spike) runs a flat circle of
+  radius 23.5 units (fit residual 1.8) in 253 frames (taken as 256: one 256th of a turn a frame), clockwise seen from
+  above. Its height, about 20 units, is estimated from the screen. The Hunter at times stretched up tall with no ball
+  in an earlier run with the camera poked; not modelled.
 - Cannon (GG1, GG2): behind a cracked wall; jump onto its front end, press jump again and Sonic is fired through the sky
   (GG1: back to the lowered area where Knuckles waits; GG2: back to the first area) (StrategyWiki guide). Not decoded.
 - Sprite recipes 008 (mine) and 054 (turret) captured with `recipe.py`; the 008 snapshot also caught a spring and

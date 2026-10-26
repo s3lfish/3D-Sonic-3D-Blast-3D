@@ -671,7 +671,7 @@
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
   let mineSprites = [], turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
-  let jamSprings = [], jamFlickies = [];
+  let jamSprings = [], jamFlickies = [], ballSprites = [];
   const SPRING_REST = 0.3;   // how far the Jam spring's coil stands at rest (fired: 1)
   function buildLevelObjects() {
     if (levelGroup) {
@@ -731,6 +731,14 @@
       const g = springDrum(dm, sp); levelGroup.add(g); return g;
     });
     enemySprites = world.enemies.map(en => objSprite('enemy', en, enemyMat(0, 0, false), 1.05, 0.04));
+    // Hunters' spike balls: the ROM's ball (its middle on the anchor) or the scribbled spiky ball
+    ballSprites = world.enemies.map(en => {
+      if (!en.ball) return null;
+      const rm = rom ? romObjMat('enemy', 'SPK', false) : null;
+      const s = new THREE.Sprite(rm || mineMat);
+      if (rm) { s.center.set(0.5, OBJ_FOOT); s.scale.set(ROM_SIZE, ROM_SIZE, 1); } else s.scale.set(0.6, 0.6, 1);
+      levelGroup.add(s); return s;
+    });
     monitorSprites = world.monitors.map(mo => {
       const box = rom ? romMonitorBox(mo.kind) : null;
       if (box) { box.position.set(mo.x, mo.y, mo.z); box.userData.rom = true; levelGroup.add(box); return box; }
@@ -1626,10 +1634,17 @@
         s.scale.set(z * (1 + k), z * (1 - k), 1); continue;
       }
       s.visible = true; s.scale.set(s.userData.size, s.userData.size, 1);
-      const dx = en.x - s.position.x, dz = en.z - s.position.z, sx = dx * rx + dz * rz;
+      // a moving enemy faces the way it goes; one that stands (a Hunter) turns to face the player
+      const still = !(en.radius > 0) && !en.chase;
+      const dx = still ? world.p.x - en.x : en.x - s.position.x, dz = still ? world.p.z - en.z : en.z - s.position.z, sx = dx * rx + dz * rz;
       s.position.set(en.x, en.y, en.z);
       if (Math.abs(sx) > 1e-4) s.userData.left = sx < 0;
       s.material = s.userData.rom ? s.userData.rom[s.userData.left ? 0 : 1] : enemyMat(Math.floor(t * 6) % 2, (Math.floor(t * 8) + q) % 3, !!s.userData.left);
+    }
+    for (let q = 0; q < ballSprites.length; q++) {
+      const b = ballSprites[q], en = world.enemies[q];
+      if (!b) continue;
+      b.visible = en.alive; if (en.alive) b.position.set(en.ball.x, en.ball.y, en.ball.z);
     }
     for (let q = 0; q < monitorSprites.length; q++) {
       const s = monitorSprites[q], broken = world.monitors[q].broken;

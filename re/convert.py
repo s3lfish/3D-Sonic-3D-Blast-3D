@@ -86,6 +86,8 @@ def convert(rom, level_id, vscale=1.0):
         if kind == 'enemy':
             e["radius"] = 0 if t == 0x0C else 1.0
             if t == 0x58: e["chase"] = 1
+            if t == 0x0C:   # spike ball: circle radius 23.5 units (measured), about 20 units up (estimated)
+                e["orbit"] = jround(23.5 / CELL, 3); e["orbitY"] = jround(20 / CELL * vscale, 3)
         if kind == 'monitor':
             k2 = struct.unpack('>H', r[0x26:0x28])[0] >> 7
             e["kind"] = MONITOR_KINDS[k2] if k2 < len(MONITOR_KINDS) else 'rings'

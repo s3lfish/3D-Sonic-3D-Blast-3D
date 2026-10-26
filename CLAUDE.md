@@ -53,7 +53,9 @@ serves index.html from main.
   floor drawn in front stay painted. GG1: 58 pieces (palms, flowers, flower beds, a cannon).
 - Objects added 2026-10-26: `mine` (hurts, then gone), `turret` (shot every 2.5 s within 8 m), `booster` {dir}
   (supercharger: jump on it, held `P.boostWait`, fired at `P.boostSpeed`); monitor `kind` (rings, shield, gold, invincible,
-  speed, oneup, fire); enemy `chase` (Scouter 58) and radius 0 (Hunter 0C stands still). Player: `shield`, `inv`, `fast`
+  speed, oneup, fire); enemy `chase` (Scouter 58) and radius 0 (Hunter 0C stands still, turns to face the player;
+  `orbit`/`orbitY`: spike ball circling at 23.5 units, one turn per 256 frames, `P.ballR`, hurts, cannot be broken;
+  ROM sprite recipe 'SPK', Hunter recipe 00C without the ball). Player: `shield`, `inv`, `fast`
   timers; shields take a hit without losing rings; gold shield dashes on a second jump press in the air.
 - Spin dash: hold dash to brake and rev (any speed), release to launch; a tap under 0.12 s while running rolls.
 - Monitors in the ROM look: a 0.56 m box (`romMonitorBox`) in the sprite's commonest colour, the ROM icon
@@ -120,7 +122,7 @@ serves index.html from main.
 - 2026-10-26: ROM results screen, Saturn screen option, ROM music and effects by emulation (GG1 music checked against
   the reference emulator: same notes at the same tempo, top-note agreement 0.53 vs 0.14 chance). 3D Sonic from Bill's Sonic Jam USA disc (formats from Sonic Retro SCHG),
   with skid, and Jam palms (GG 16/36/4), springs, big ring and Flickies; European disc; monitor boxes. 66 sim tests.
-  Open: Hunter spike ball (orbit not measured), cannons and cracked walls, Flicky body is a flat quad (edge-on from the side).
+  Hunter spike ball measured and in. 68 sim tests. Open: cannons and cracked walls, Flicky body is a flat quad (edge-on from the side).
 - 2026-10-26: Springs measured (140 units), monitors with ROM icons and effects, mines, turrets, superchargers, Scouters
   chase, Hunters stand, Flickies coloured in turn, act end moves to the next act, sound effects, spin dash on hold. 64 sim tests.
 - 2026-10-26: Published on GitHub (s3lfish/3D-Sonic-3D-Blast-3D), Pages at https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/.
