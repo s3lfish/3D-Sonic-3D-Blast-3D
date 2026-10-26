@@ -2207,8 +2207,7 @@ const Sim = (() => {
       ball: { x: b.x, y: b.y - 40 / 32 * b.vs, z: b.z, vx: 0, vy: 0, vz: 0, state: 'held', hops: 0 } } : null;
     if (w.boss && b.kind === 'ss') Object.assign(w.boss, { ball: null, t: 0, c: 0, target: b.cruise, hang0: b.hang, hangT: b.hang, a: 0, h: 0,
       fistAt: b.fists.map(() => [b.x, b.y, b.z]), slam: b.fists.map(() => 0) });
-    if (w.boss && b.kind === 'dd') Object.assign(w.boss, { ball: null, t: 0, si: 0, fresh: true, act: 1, h: 0, target: b.low, blowA: 0, blowT: 0, dropT: 0,
-      snowmen: [], balls: [], puffs: [], puffK: 7, puffWait: 0 });
+    if (w.boss && b.kind === 'dd') Object.assign(w.boss, { ball: null, act: 1, h: 0, target: b.low, blowA: 0, snowmen: [], balls: [], puffs: [] });
     if (w.boss && b.kind === 'vv') Object.assign(w.boss, { ball: null, t: 0, head: null, path: [], segs: [], seed: 7 });
     if (w.boss && b.kind === 'gng') Object.assign(w.boss, { ball: null, t: 0, ph: 0, target: b.first, belt0: false, lanesOn: false, onBelt: false, seed: 11,
       objs: b.loads.map(z => ({ x: 0, z, on: false })), bombs: [] });
@@ -2373,52 +2372,61 @@ const Sim = (() => {
   // when Sonic is within 48 units each way, and 40 frames later throws 8 snowballs (1 unit a frame out each way, 4 up)
   // and breaks; touching it hurts unless attacking (that breaks it). Generic boss check (0xF794) for hits; 8 hits.
   function ddStep(w) {
-    const b = w.boss, p = w.p, L = w.L, U = 1 / 32, V = b.vs / 32, T = Math.PI / 1024;
+    const b = w.boss, p = w.p, L = w.L, U = 1 / 32, V = b.vs / 32, S = 65536, sin = P.orig.sin, o = L.rom ? L.rom.origin : [0, 0];
     const attacking = p.ball || p.jumping || p.rolling || p.charge > 0, safe = p.inv > 0 || p.invuln > 0;
-    if (b.cool > 0) b.cool -= P.dt;
-    else if (b.dead < 0 && Math.hypot(p.x - b.x, p.z - b.z) <= 32 * U && p.y >= b.y - 32 * V && p.y <= b.y + 64 * V) {
-      b.cool = 1;
-      if (p.y >= b.y + 8 * V && attacking) {
-        p.vx = -p.vx; p.vz = -p.vz; p.vy = 5 * 60 / 32 * b.vs; p.grounded = false; p.jumping = false; p.lock = 30 / 60;
-        b.hits++; w.events.push('bossHit'); b.si = b.hitAt; b.t = 0; b.fresh = true;
-        if (b.hits >= b.hp) { b.dead = 0; w.events.push('bossDown'); }
-      } else if (!safe) { hurt(w, p.x - b.x, p.z - b.z); if (w.events.includes('respawn')) return true; }
+    // (the routine's own units: x, z 16.16 longs, y and Sonic's place in whole units)
+    if (b.X === undefined) { b.X = Math.round((b.x + o[0]) * 32) * S; b.Z = Math.round((b.z + o[1]) * 32) * S; b.Yw = Math.round(b.y / V) - 8;
+      b.c38 = 0; b.c20 = 0; b.c1c = 0; b.c14 = 0; b.c22 = 0; b.c26 = 0; b.c30 = 0; b.h = 0; b.act = 1; b.slots = Array.from({ length: 8 }, () => ({ on: false })); b.bl = []; }
+    const yw = v => Math.round(v / V) - 8, sync = () => { b.x = b.X / S / 32 - o[0]; b.z = b.Z / S / 32 - o[1]; b.y = (b.Yw + 8) * V; };
+    const SX = Math.floor(Math.round((p.x + o[0]) * 32 * S) / S), SZ = Math.floor(Math.round((p.z + o[1]) * 32 * S) / S), SY = Math.floor(p.y / V - 8 + 1e-6);
+    // the generic boss check (0xF794): within 32 units (squares of whole units), Sonic's y from the pod's - 32 to + 64;
+    // from 8 over it in the jump ball: a hit, else hurt; 60 frames apart
+    if (b.c38 === 0 && b.dead < 0 && !(p.knockT > 0) && SY >= b.Yw - 0x20 && SY <= b.Yw + 0x40) {
+      const dx = SX - Math.floor(b.X / S), dz = SZ - Math.floor(b.Z / S), d2 = dx * dx + dz * dz;
+      if (d2 <= 0x400) {
+        b.c38 = 60;
+        if (SY >= b.Yw + 8 && (L.rom ? p.ball && !p.rolling : attacking)) {
+          p.vx = -p.vx; p.vz = -p.vz; p.vy = 5 * 60 / 32 * b.vs; p.grounded = false; p.jumping = false; p.lock = 30 / 60;
+          b.hits++; w.events.push('bossHit'); b.c1c = b.hitAt; b.c20 = 0; b.c3a = 1;
+          if (b.hits >= b.hp) { b.dead = 0; w.events.push('bossDown'); }
+        } else { b.c3a = 0; if (!safe) { hurt(w, p.x - b.x, p.z - b.z); if (w.events.includes('respawn')) return true; } }
+      }
     }
+    if (b.c38 > 0) b.c38--;
+    b.cool = b.c3a && b.c38 > 0 ? b.c38 / 60 : 0;   // (the pod flashes while $38 counts after a hit, $3A)
     if (b.dead >= 0) {
-      b.dead += P.dt; b.y += V; b.puffs.length = 0;
+      b.dead += P.dt; b.Yw += 1; sync(); b.puffs.length = 0; b.slots.forEach(q => { q.on = false; });
       if (b.dead > 4 && !w.cleared) { w.cleared = true; w.events.push('goal'); }
       return false;
     }
-    // the script
-    if (--b.t <= 0) {
-      if (!b.fresh) b.si++;
-      b.fresh = false;
-      for (let guard = 0; guard < 4 && b.script[b.si] && b.script[b.si][0] < 0; guard++) b.si = b.script[b.si][1];
-      const [a, n] = b.script[b.si] || [1, 60];
-      b.act = a; b.t = n;
-      if (a === 1) b.h = 0;
-      if (a === 2) { b.dropT = 60; w.events.push('ddDrop'); }
+    // the script ($1C entry, $20 frames left): [0 chase / 1 wait / 2 drop, frames], [-1, entry] goes back
+    if (--b.c20 <= 0) {
+      for (let guard = 0; guard < 4 && b.script[b.c1c] && b.script[b.c1c][0] < 0; guard++) b.c1c = b.script[b.c1c][1];
+      const [a, n] = b.script[b.c1c] || [1, 60];
+      b.act = a; b.c20 = n; b.c1c++;
+      if (a === 2) w.events.push('ddDrop');
     }
     const left = b.hp - b.hits;
     if (b.act === 0) {
-      const dx = p.x - b.x, dz = p.z - b.z, ax = Math.abs(dx), az = Math.abs(dz);
-      const diag = az >= ax ? az / 2 < ax : az > ax / 2, along = az >= ax ? 0 : 0x200;
-      const sx = dx < 0 ? -1 : 1, sz = dz < 0 ? -1 : 1;
-      const want = diag ? (sx > 0 ? (sz > 0 ? 0x100 : 0x300) : (sz > 0 ? 0x700 : 0x500)) : along ? (sx > 0 ? 0x200 : 0x600) : (sz > 0 ? 0 : 0x400);
-      const sp = 6 - (left >> 1), d = (b.h - want) & 0x7FE;
-      if (d) b.h = (b.h + (d <= 0x400 ? -4 * sp : 4 * sp)) & 0x7FE;
-      b.x += Math.sin(b.h * T) * sp / 2 * U; b.z += Math.cos(b.h * T) * sp / 2 * U;
-      if (b.t === 400) b.target = b.low;
-      if (b.t === 100) b.target = b.high;
-    }
-    const [ax0, ax1, az0, az1] = b.arena, [dlo, dhi, slo, shi] = b.oct;
-    if (b.x < ax0) b.h = 0x200; if (b.x > ax1) b.h = 0x600;
-    if (b.z < az0) b.h = 0; if (b.z > az1) b.h = 0x400;
-    if (b.x - b.z >= dhi) b.h = 0x700; if (b.x - b.z <= dlo) b.h = 0x300;
-    if (b.x + b.z <= slo) b.h = 0x100; if (b.x + b.z >= shi) b.h = 0x500;
-    b.y += Math.abs(b.target - b.y) <= V ? b.target - b.y : Math.sign(b.target - b.y) * V;
+      // heading by octant (table 0xDBEE) to Sonic from the pod's last place, turned 4 x speed a frame, speed 6 - left / 2
+      const want = octantTo(SX - Math.floor(b.X / S), SZ - Math.floor(b.Z / S)), sp = 6 - (left >> 1), d = (b.h - want) & 0x7FE;
+      if (b.h !== want) b.h = (b.h + (d <= 0x400 ? -4 * sp : 4 * sp)) & 0x7FE;
+      b.X += sin[b.h >> 1] * sp; b.Z += sin[(b.h >> 1) + 0x100] * sp;
+      if (b.c20 === 0x190) b.target = b.low;
+      if (b.c20 === 0x64) b.target = b.high;
+    } else if (b.act === 1) b.h = 0;
+    else if (b.act === 2) b.c14 = 60;
+    // turned back inside its octagon (words)
+    { const x = Math.floor(b.X / S), z = Math.floor(b.Z / S), u = (v, c) => Math.round((v + c) * 32);
+      const [ax0, ax1, az0, az1] = b.arena, [dlo, dhi, slo, shi] = b.oct;
+      if (x < u(ax0, o[0])) b.h = 0x200; if (x > u(ax1, o[0])) b.h = 0x600;
+      if (z < u(az0, o[1])) b.h = 0; if (z > u(az1, o[1])) b.h = 0x400;
+      if (x - z >= u(dhi, o[0] - o[1])) b.h = 0x700; if (x - z <= u(dlo, o[0] - o[1])) b.h = 0x300;
+      if (x + z <= u(slo, o[0] + o[1])) b.h = 0x100; if (x + z >= u(shi, o[0] + o[1])) b.h = 0x500; }
+    const tw = yw(b.target); if (b.Yw < tw) b.Yw++; else if (b.Yw > tw) b.Yw--;
+    sync();
     // a snowman, half a second after the drop order
-    if (b.dropT > 0 && --b.dropT === 30 && b.snowmen.length < 2) {
+    if (b.c14 > 0 && --b.c14 === 30 && b.snowmen.length < 2) {
       b.snowmen.push({ x: b.x - 2 * U, y: b.dropY, z: b.z - 2 * U, state: 'fall', t: 0 }); w.events.push('snowman');
     }
     for (let i = b.snowmen.length - 1; i >= 0; i--) {
@@ -2442,23 +2450,39 @@ const Sim = (() => {
       if (!Number.isFinite(f) || q.y < f) { b.balls.splice(i, 1); continue; }
       if (!safe && Math.hypot(p.x - q.x, p.z - q.z) < 0.4 && Math.abs(p.y + 0.4 - q.y) < 0.5) { hurt(w, p.x - q.x, p.z - q.z); if (w.events.includes('respawn')) return true; }
     }
-    // the blowers circle; at the low height they puff snow in turn for 120 of every 180 frames
+    // the blowers (one per hit left) 32 units out at the angle $24 + k x 0x100 (then $24 + 0xC); at the low height ($30
+    // counting to 180, under 120), one puff slot a step of the 3-count $0AF6, the slots 0, 7, 6, ... (0xF6F8)
+    { const x = Math.floor(b.X / S) - 1, z = Math.floor(b.Z / S) + 1;
+      for (let k = 0; k < left && k < 8; k++) { const a = (b.blowA + k * 0x100) & 0x7FE; b.bl[k] = { a, x: x + (sin[a >> 1] >> 10), z: z + (sin[(a >> 1) + 0x100] >> 10) }; } }
     b.blowA = (b.blowA + 0xC) & 0x7FE;
-    if (Math.abs(b.y - b.low) < 1e-6) {
-      b.blowT = (b.blowT + 1) % 180;
-      if (b.blowT < 120 && --b.puffWait <= 0) {
-        b.puffWait = 3; const k = b.puffK; b.puffK = (b.puffK + 7) % 8;
-        if (k < left) { b.puffs.push({ k, ax: 0, az: 0, x: b.x, y: b.y, z: b.z, t: 0 }); if (k === 7 || k === left - 1) w.events.push('snowPuff'); }
-      }
-    } else b.blowT = 0;
-    for (let i = b.puffs.length - 1; i >= 0; i--) {
-      // (object 0FC: 8 units past its blower and out along the blower's turning way 2 units a frame, so it curls)
-      const q = b.puffs[i], a = (b.blowA + q.k * 0x100) * T, sx = Math.sin(a), sz = Math.cos(a);
-      if (++q.t > 24 || q.k >= left) { b.puffs.splice(i, 1); continue; }
-      q.ax += sx * 2 * U; q.az += sz * 2 * U;
-      q.x = b.x + sx * 40 * U + q.ax; q.z = b.z + sz * 40 * U + q.az; q.y = b.y - 16 * V;
-      if (p.frozen <= 0 && Math.hypot(p.x - q.x, p.z - q.z) < 16 * U + P.r && Math.abs(p.y - q.y) < 24 * V) { p.frozen = P.freezeHops; p.charge = 0; w.events.push('freeze'); }
+    if (b.Yw === yw(b.low)) {
+      if (++b.c30 < 120) {
+        if (gZero(w, 3)) {
+          const k = b.c26, q = b.slots[k];
+          if (k < left) { Object.assign(q, { on: true, n: 0, fr: 0x20, last: -1, ax: 0, az: 0 }); w.events.push('snowPuff'); } else q.on = false;
+          b.c26 = k === 0 ? 7 : k - 1;
+        }
+      } else if (b.c30 >= 180) b.c30 = 0;
     }
+    // each puff (object 0FC, handler 0x165CA): its frame steps on the 2-count; it touches (bytes 27, 24) unless the frame
+    // drawn last was the last (0x20); y the pod's - 16; x, z: its blower + sine x 8 + a sum of sine x 2 a frame (it curls)
+    b.puffs.length = 0;
+    const PUFF = [0x20, 0x20, 0, 4, 8, 0xC, 0x10, 0x14, 0x18, 0x1C, 0x20];
+    b.slots.forEach((q, k) => {
+      if (!q.on) return;
+      if (!gZero(w, 2) && q.n < 10) q.fr = PUFF[++q.n];
+      const touch = q.last !== 0x20, bl = b.bl[k], s0 = sin[bl.a >> 1], c0 = sin[(bl.a >> 1) + 0x100];
+      q.ax += s0 * 4; q.az += c0 * 4;
+      q.X = bl.x * S + s0 * 16 + q.ax; q.Z = bl.z * S + c0 * 16 + q.az; q.Y = b.Yw - 16;
+      q.last = q.fr;
+      q.x = q.X / S / 32 - o[0]; q.z = q.Z / S / 32 - o[1]; q.y = (q.Y + 8) * V;
+      if (q.fr !== 0x20) b.puffs.push({ x: q.x, y: q.y, z: q.z, f: q.fr >> 2, k });
+      const kPrev = q.K; q.K = Math.floor((q.X + q.Z) / 2 / S);
+      if (touch && p.frozen <= 0 && !(p.knockT > 0) && !safe && (L.rom ? origTouch(L, p, { X: q.X, Z: q.Z, touch: [27, 24], win: [0, 0, 0, 0, q.Y], y: 0, y0: 0 },
+          kPrev === undefined || b.sK === undefined ? undefined : Math.sign(kPrev - b.sK))
+        : Math.hypot(p.x - q.x, p.z - q.z) < 16 * U + P.r && Math.abs(p.y - q.y) < 24 * V)) { p.frozen = P.freezeHops; p.charge = 0; w.events.push('freeze'); }
+    });
+    b.sK = Math.floor((Math.round((p.x + o[0]) * 32 * S) + Math.round((p.z + o[1]) * 32 * S)) / 2 / S);   // (his key for the next frame's order)
     return false;
   }
   // Volcano Valley 3 (InitLevel 0x9DF8, RunLevel_VVz3 0x9EBA): the pod comes down into the crater (1 unit a frame) to its
@@ -3148,7 +3172,7 @@ const Sim = (() => {
   }
   // The original's global counts (decremented every frame from the act's start: $0AFC.. $0B06 with periods 6, 8, 10,
   // 16, 32 and 60); objects act when theirs is 0. `w.gcOff` shifts them (replays from a saved game set it).
-  const gZero = (w, n) => (w.tick + (w.gcOff || 0)) % n === n - 1;
+  const gZero = (w, n) => (w.tick + (w.gcOffN && w.gcOffN[n] !== undefined ? w.gcOffN[n] : w.gcOff || 0)) % n === n - 1;   // (gcOffN: per count, for replays)
   function stepInner(w, inp) {
     const L = w.L, p = w.p, dt = P.dt;
     w.events.length = 0; p.pre = null;
@@ -3176,10 +3200,16 @@ const Sim = (() => {
       if (p.force.jumpAt && !p.force.jumped && p.force.el >= p.force.jumpAt) { p.force.jumped = true; p.vy = p.force.jumpV; p.grounded = false; p.jumping = false; w.events.push('jump'); }
       if (p.force.t <= 0) p.force = null; else inp = p.force.dir ? { mx: p.force.dir[0], mz: p.force.dir[1] } : {};
     }
-    // frozen by snow: the pad taken; each landing a hop, the last one breaks the ice (routine 0x3050)
+    // frozen by snow: the pad taken; a hop, the last one breaks the ice (routine 0x3050). Original movement: a hop only
+    // when he stands and the jump word ($46, read first) is 1, so the jump button hops him free; held, it goes to -1
+    let frozenJb = false;
     if (p.frozen > 0) {
+      const orig = L.rom && L.phys.orig;
+      if (orig) { frozenJb = true; p.jb = !inp.jump ? 0 : !p.jb || p.jb === 2 ? (p.grounded ? 1 : 2) : -1; }
+      const hop = orig ? p.grounded && p.jb === 1 : p.grounded;
+      if (orig && !hop && p.jb) p.jb = -1;
       inp = {};
-      if (p.grounded) {
+      if (hop) {
         p.vy = P.freezeHop * (L.rom ? L.rom.vscale : 1); p.grounded = false; p.jumping = false; p.rolling = false; p.frozen--;
         if (p.frozen <= 0) { p.invuln = Math.max(p.invuln, P.thawSafe); w.events.push('thaw'); } else w.events.push('frozenHop');
       }
@@ -3209,8 +3239,8 @@ const Sim = (() => {
     p.prevJump = !!inp.jump; p.prevDash = !!inp.dash;
     // (the original's jump word $46, 0x2E0E, at the start of his frame: let go 0; pressed anew or still pending, 1 (a
     // jump) if grounded, else 2 (pending while held: he jumps as he lands); held on, -1)
-    if (L.rom && L.phys.orig) p.jb = !inp.jump ? 0 : !p.jb || p.jb === 2 ? (p.grounded ? 1 : 2) : -1;
-    let groundJump = L.rom && L.phys.orig ? p.jb === 1 : jumpPress;
+    if (L.rom && L.phys.orig && !frozenJb) p.jb = !inp.jump ? 0 : !p.jb || p.jb === 2 ? (p.grounded ? 1 : 2) : -1;
+    let groundJump = frozenJb ? false : L.rom && L.phys.orig ? p.jb === 1 : jumpPress;
     let speed = Math.hypot(p.vx, p.vz);
     if (p.inv > 0) p.inv -= dt;
     if (p.fast > 0) p.fast -= dt;
@@ -4749,11 +4779,17 @@ const Sim = (() => {
     const o = L.rom.origin, S = 65536, f = en.fr || [0, 0];
     return [Math.round((en.x + o[0]) * 32) * S + f[0], Math.round((en.z + o[1]) * 32) * S + f[1]];
   };
-  function origTouch(L, p, en) {
+  function origTouch(L, p, en, order) {
     const o = L.rom.origin, vs = L.rom.vscale, S = 65536, [b4, b5] = en.touch;
     const X = Math.round((p.x + o[0]) * 32 * S), Z = Math.round((p.z + o[1]) * 32 * S), Y = Math.floor(p.y * 32 / vs - 8 + 1e-6);
     const [EX, EZ] = enLong(L, en), EY = en.win[4] + Math.round((en.y - en.y0) * 32 / vs);
-    return Math.abs(Math.floor((X - Z) / S) - Math.floor((EX - EZ) / S)) <= 0x2C - b4 && Math.abs(Math.floor((X + Z) / 2 / S) - Math.floor((EX + EZ) / 2 / S)) <= 0x20 - b4 && Math.abs(Y - EY) <= b5;
+    const dK = Math.floor((EX + EZ) / 2 / S) - Math.floor((X + Z) / 2 / S);
+    // (0x1B846: the display list, sorted by the keys of the frame before, is walked out from Sonic: one after him needs
+    // dK + 32 over 0 and, as a signed byte, at least b4; one before him 32 - dK the same. In order the two make |dK| <=
+    // 32 - b4; an object that jumped past him since the sort (a puff started anew) is judged from the side it was on.)
+    const sb = v => ((v & 0xFF) ^ 0x80) - 0x80;
+    const keyOk = order === undefined ? Math.abs(dK) <= 0x20 - b4 : order <= 0 ? dK + 0x20 > 0 && sb(dK + 0x20) >= sb(b4) : 0x20 - dK > 0 && sb(0x20 - dK) >= sb(b4);
+    return Math.abs(Math.floor((X - Z) / S) - Math.floor((EX - EZ) / S)) <= 0x2C - b4 && keyOk && Math.abs(Y - EY) <= b5;
   }
   // The original's scroll (0x19A4, each frame after Sonic moves): a lead ($0866, $0868) from his facing ((sin, cos)
   // high bytes of -(facing + 0x100): x / 2 - 160 stepping 2 a frame, y / 4 - 124 stepping 1) added to his picture point
@@ -4880,6 +4916,7 @@ const Sim = (() => {
   // diagonals) and 5 up, set each frame till he lands (100 frames at most), then 120 frames safe (step's p.knockT)
   function origKnock(w) {
     const p = w.p; hitPre(p);
+    if (p.frozen > 0) { p.frozen = 0; w.events.push('iceShatter'); }   // (0x1B794: a hit breaks the ice, no safe time of its own)
     const U = 60 / 32, k = Math.floor(Math.round(origFace(p)) / 0x100) & 7,   // (his facing is a whole number: 0x2FF.99 is 0x300)
       m = (k & 1 ? 0x54DA : 0x7800) * 4 / 65536;
     let a = -k / 8 * 2 * Math.PI; if (a <= -Math.PI) a += 2 * Math.PI;
@@ -8766,8 +8803,8 @@ const Art = (() => {
       const q = b.puffs[k]; o.visible = !!q;
       if (!q) return;
       o.position.set(q.x, q.y, q.z);
-      if (d.rom) o.material = romBossMat(0xFC, Math.min(7, q.t >> 2), 64, 32, 0);
-      else { const k2 = q.t / 24; o.scale.setScalar(0.5 + k2 * 0.9); o.material.opacity = 1 - k2 * 0.7; }
+      if (d.rom) o.material = romBossMat(0xFC, q.f, 64, 32, 0);   // (frames 0..7 as the puff's list steps them)
+      else { const k2 = q.f / 8; o.scale.setScalar(0.5 + k2 * 0.9); o.material.opacity = 1 - k2 * 0.7; }
     });
   }
   // Rusty Ruin 3's statue, of our own drawing in stone colours (the original's statue sprites are not read): a body

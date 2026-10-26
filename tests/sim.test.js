@@ -596,18 +596,23 @@ test('the Diamond Dust boss: comes down, chases, puffs freezing snow when low, d
   near(b().y, 18.25 - 400 / 32, 1e-6, 'a unit a frame down'); near(b().x, 8.125, 1e-9, 'waiting');
   run(w, 300, {}); assert.ok(Math.hypot(b().x - 4, b().z - 4) < Math.hypot(4.125, 4) - 1, 'chasing');
   // snow at the low height freezes a player near it
-  w = world(lvl); w.p.inv = 1e9; run(w, 560, {}); Object.assign(w.boss, { x: 4, z: 6, y: 2, target: 2, blowT: 0 });
-  let froze = false; run(w, 60, (f, ww) => { ww.p.inv = 1e9; if (ww.events.includes('freeze')) froze = true; return {}; });
+  // (not while invulnerable: the original's touch does nothing while his safe count runs)
+  w = world(lvl); w.p.inv = 1e9; run(w, 560, {}); Object.assign(w.boss, { x: 4, z: 5.6, y: 2, target: 2, X: undefined }); w.p.inv = 0; w.ringCount = 50;
+  let froze = false; run(w, 60, (f, ww) => { if (ww.events.includes('freeze')) froze = true; return {}; });
   assert.ok(froze, 'frozen by snow');
+  w = world(lvl); w.p.inv = 1e9; run(w, 560, {}); Object.assign(w.boss, { x: 4, z: 5.6, y: 2, target: 2, X: undefined });
+  froze = false; run(w, 60, (f, ww) => { if (ww.events.includes('freeze')) froze = true; return {}; });
+  assert.ok(!froze, 'not while invulnerable');
   // a dropped snowman wakes near the player and throws snowballs
-  w = world(lvl); w.p.inv = 0; w.ringCount = 5; Object.assign(w.boss, { x: 5.06, z: 4.06, y: 4.5, target: 4.5, t: 1, si: 2, fresh: false });
+  w = world(lvl); w.p.inv = 0; w.ringCount = 5; Sim.step(w, {});
+  Object.assign(w.boss, { X: (5.06 * 32 | 0) * 65536, Z: (4.06 * 32 | 0) * 65536, Yw: 4.5 * 32 - 8, target: 4.5, c20: 1, c1c: 3 });
   let balls = 0, hurt = false; run(w, 160, (f, ww) => { balls = Math.max(balls, ww.boss.balls.length); if (ww.events.includes('hurt')) hurt = true; return {}; });
   assert.ok(balls === 8 && hurt, `snowballs ${balls}, hurt ${hurt}`);
   // eight spins from above
   w = world(lvl); w.p.inv = 1e9; run(w, 400, {});
   let hits = 0;
   for (let k = 0; k < 8; k++) {
-    for (let f = 0; f < 200 && b().cool > 0; f++) Sim.step(w, {});
+    for (let f = 0; f < 200 && b().c38 > 0; f++) Sim.step(w, {});
     Object.assign(w.p, { x: b().x, z: b().z, y: b().y + 0.4, vy: -1, grounded: false, ball: true, jumping: true });
     Sim.step(w, {}); if (w.events.includes('bossHit')) hits++;
   }

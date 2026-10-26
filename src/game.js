@@ -929,8 +929,8 @@
       const q = b.puffs[k]; o.visible = !!q;
       if (!q) return;
       o.position.set(q.x, q.y, q.z);
-      if (d.rom) o.material = romBossMat(0xFC, Math.min(7, q.t >> 2), 64, 32, 0);
-      else { const k2 = q.t / 24; o.scale.setScalar(0.5 + k2 * 0.9); o.material.opacity = 1 - k2 * 0.7; }
+      if (d.rom) o.material = romBossMat(0xFC, q.f, 64, 32, 0);   // (frames 0..7 as the puff's list steps them)
+      else { const k2 = q.f / 8; o.scale.setScalar(0.5 + k2 * 0.9); o.material.opacity = 1 - k2 * 0.7; }
     });
   }
   // Rusty Ruin 3's statue, of our own drawing in stone colours (the original's statue sprites are not read): a body

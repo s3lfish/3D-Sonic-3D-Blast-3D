@@ -532,8 +532,20 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - At y = 0xB0: $30 counts 0..179; under 120, one puff slot a step (one every 3 frames or so) is started if its
   blower is on (sound 0xC8). Puff (0FC, handler 0x165CA): y = pod - 16; position = blower + sin/cos x 8 + a sum of
   sin/cos x 2 a frame along the blower's current angle (it curls). Touching 0E4 or 0FC freezes (0x1B9CA): $88 = 4,
-  $8E = 1, $94 = 0x12, sound 0x80. Frozen (0x3050): ice table, no pad; each landing a hop (vy 2 up, sound 0x94) and
-  $88 - 1; at 0 the ice breaks (debris, $3E = 50, sound 0x80).
+  $8E = 1, $94 = 0x12, sound 0x80 (only while $3E and $64 are 0: 0x1B9A2). Frozen (0x3050, each frame): $56 = 2;
+  grounded with the jump word $46 = 1: a hop (vy 2 up, $72, sound 0x94), $88 - 1, at 0 the ice breaks (debris, $3E = 50,
+  sound 0x80); else the pad is cleared (d7 0xFF) and $46, if not 0, set to -1. So the jump button hops him free. A hit
+  (0x1B794) clears $88 and throws the debris (no safe time of its own).
+- Puffs exactly (dd3 traces, puffrep.py, tch.py, kick.py): a slot ($26: 0, then 0x16C down by 0x34) starts when the pod
+  record's y is 0xB0, $30 + 1 < 120 and the 3-count $0AF6 is 0: $1E = 0, $1C = 0x20, $1A = self, sums cleared (if its
+  blower's $12 is off the slot is switched off instead). Handler 0x165CA: on the 2-count ($0AF4 not 0) its list 0x16646
+  steps ($1C: 0x20, 0, 4, .. 0x1C, 0x20, held); touch bytes 27/24 unless $1A (the frame drawn last frame) is 0x20; y = pod
+  - 16; x = blower x word (pod - 1 + sin >> 10, fraction 0) + sin x 16 + (sum += sin x 4), z with cos (pod + 1). The
+  blowers' angle is $24 before this frame's + 0xC. The chase's octant uses Sonic after his move and the pod record from
+  the frame before. Touch (0x1B846): the display list is sorted by the keys (record word 0) of the frame before; objects
+  after Sonic pass when K - Ks + 0x20 > 0 and, as a signed byte, >= b4; before him 0x20 - (K - Ks) the same; then the
+  picture boxes. A puff restarted past him this frame keeps its old side (seen: expl frame 479). The trace start state
+  is 119 frames into the act (pod y 458 descending, $20 283, $24 0x588).
 - Drop: at $14 = 30 a snowman (type 0E0, sound 0x51) at pod x - 2, z - 2, y 0xE0; it falls 4 a frame to the floor
   (records 2/3). Snowman handler 0x16992: attacked: broken; Sonic within 48 units each way: wakes ($1E = 6); at
   animation frame 0x2A: over 8 frames 8 snowballs (table 0x16A58: 1 unit a frame out in 8 ways, about 4 up), then it

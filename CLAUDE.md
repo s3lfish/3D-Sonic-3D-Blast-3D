@@ -138,8 +138,9 @@ serves index.html from main.
   jumpV} (a cell that sets a forced run and a jump on cue, `p.force.jumpAt`); `sled` {box, at, dir, accel, t} (pulled
   to `at`, then carried); `current` {box, dir, accel, top, leave} (pushed along up to `top`, `leave` on jumping off);
   `hops` (snowdrift springs as `springCells`); ride `force` [frames, dir, roll]; snowblowers are flames with `freeze`
-  (`p.frozen` = hops left: the original's routine 0x3050, 4 counts, a 2-unit hop at each landing, ice table, no input,
-  50 frames safe after; no rings lost; game.js draws an ice block `iceBlock`). On the original's levels (`L.rom`) an airborne player
+  (`p.frozen` = hops left: the original's routine 0x3050, 4 counts, ice table, no input; ROM levels: a 2-unit hop only
+  when standing with the jump word 1 (the jump button hops him free; built-in levels hop at each landing); 50 frames
+  safe after the last; a hit breaks the ice (0x1B794); no freezing while safe (0x1B9A2); game.js draws `iceBlock`). On the original's levels (`L.rom`) an airborne player
   within stepUp of a ledge top is lifted onto it (measured in DD1). The game starts Sonic at the start table (header
   +0x20), not the 030 object (both converters). The chute (RunLevel 0x10168): each frame rolling, animation 0xF, facing
   down it, +0.25 a frame along, 0.25 a frame across toward x 1280 until past it, then put on it (`bx.st`). Its ride
@@ -154,11 +155,15 @@ serves index.html from main.
   cells = 'H' spikes; 0x55 = `bumpers`. DD2: ride 0x803E at (78, 95), dash (50, 45), current east into spikes.
 - DD3 boss `dd` (`ddStep`, InitLevel 0xF1CA, RunLevel_DDz3 0xF280): heights in the feet frame (+8 units); script
   0xF2FA [0 chase / 1 wait / 2 drop, frames], [-1, entry] loops, hit entry 10; at 400 frames left of a chase it goes
-  low (184), at 100 high (264); octagon `oct`; blowers (one per hit left, `blowA` += 0xC) puff snow (object 0FC: 8
-  past the blower, out 2 a frame along its turning angle, 24 frames) for 120 of 180 frames while low: freezes; snowmen
+  low (184), at 100 high (264); octagon `oct`; blowers (one per hit left, `blowA` += 0xC) puff snow (object 0FC, 8
+  slots `b.slots`, started 0, 7, 6, .. on the 3-count while low and $30 < 120 of 180; frames stepped on the 2-count;
+  8 past the blower plus a sum of 2 a frame along its angle; touch 27/24 unless the last frame drawn was 0x20): freezes; snowmen
   (0E0: fall 4 a frame from `dropY`, wake within 48 units, 40 frames later 8 snowballs and break; attack breaks them).
   Drawn with ROM art (blowers 0F8 line 3, 17 frames + mirror by angle against the camera; 0E0, 0FC line 0) or our own.
-  Checked against the emulator (dd3watch.py, ddprobe.js): pod track and timings match until the player moves.
+  The pod, script, generic check (0xF794: squares of whole units, ball from 8 over) and puffs run in the routine's own
+  units (`b.X`, `b.Z` 16.16, `b.Yw`, `b.c38`/`c20`/`c1c`/`c14`/`c30`/`c26`), the chase aimed from Sonic's place after his
+  move: exact over the three private scripts (PRE 119; replays set `w.gcOffN` for the 2- and 3-counts). Snowmen and
+  snowballs are still our model (snowballs are particles, template 0xD9B8).
 - Volcano Valley 1 (`GIMMICKS[13]`, RunLevel 0xA620 labelled VVz2 — VV2 is 0xAE20 labelled VVz1, VV3 0x9EBA): pads 110;
   `lava` (low byte 0x55, helper 0xB5C8: grounded, hurts unless `p.shield === 'fire'`; the red monitor now gives the
   fire shield, drawn orange); `rocks` [x, z, top] (0xBBC0: raised 16 units via `L.up`; landing in a ball breaks one,
@@ -247,7 +252,9 @@ serves index.html from main.
   at a wall; enemy-made
   ones move in their first frame) with its particle touch (`partTouch`: x - z within 20, depth within 8, y -16..32);
   enemies with `touch` [b4, b5] (record +4/+5) use its box (`origTouch`: x - z within 0x2C - b4, depth within 0x20 - b4,
-  y within b5; measured); enemies carry `fr` [x, z] (record +8/+0x10, the position's 16-bit fractions; `enLong`) when
+  y within b5; measured; `order` (sign of the object's last key against Sonic's): the display list is sorted by the
+  last frame's keys and walked out from Sonic with signed-byte tests (0x1B846), so an object that jumped past him since
+  is judged from the side it was on (DD3's restarted puffs)); enemies carry `fr` [x, z] (record +8/+0x10, the position's 16-bit fractions; `enLong`) when
   not zero, used by their moves and touch. A defeated enemy throws an airborne Sonic exactly 5 up. Not modelled: objects and shots keep
   running while he rises dying (the sim waits; the reload puts them back anyway).
 - Converted levels, all zones: corner pieces (one corner two steps over three level ones, both neighbours by it without
@@ -409,8 +416,9 @@ serves index.html from main.
   138 sim tests. Private exploration traces (one pad script, all 22 acts): position, animation and scroll exact in
   GG1, GG2, GnG2, RR2, RR1, DD1, DD2, VV1, VV2, PP2, PP1, PP3 (low roofs, DD1 chute and ride, ride snap, enemy fractions).
   VV2 too (its balls' angle at the trace start fitted: 0x348). VV3 (lava: whole-unit feet y exactly 0x40, 0xA2C2) and
-  FF (cannons and fists touch 16 / 24 by their bytes) exact on all three scripts; DD3 to frame 380+ (walls stop the
-  axis part whichever way it points, after a diagonal turn). A hit shows from the next frame (`p.pre` {anim, facing}:
+  FF (cannons and fists touch 16 / 24 by their bytes) exact on all three scripts; DD3 too (walls stop the axis part
+  whichever way it points, after a diagonal turn; the pod and puffs in the routine's units, the touch's list order, the
+  frozen hop on the jump button). All regular acts and every boss but GG3 exact on the three scripts. A hit shows from the next frame (`p.pre` {anim, facing}:
   the original's player ran before it); the knock-back's eighth is taken from the whole facing; 2 s safe is 120
   frames (the timer snaps to 0). SS1 and SS2 too: the jump word $46 (`p.jb`, 0x2E0E: pressed in the air and held,
   he jumps as he lands), floor springs' exact speed, the scroll after springs. A second private script (jumps, rolls,
@@ -422,7 +430,7 @@ serves index.html from main.
   else VV1's [52, 34]); SS spike fields count on the original's 4-frame count ($0AF8, `gZero(w, 4)`); the start
   faces the start table's way, bosses too (SS3's is not toward the boss). Still off: GnG1 after its reload (51 blank frames, VV1 52: not modelled), the 13
   frames after a reload when the original shows frame 0 (its player not yet run), RR3's boss scroll targets
-  ($084A/$084C), GG3 and DD3 in places (boss state at a trace's start; their models), a fall onto a no-floor cell (the original lands at map
+  ($084A/$084C), GG3 in places (boss state at a trace's start; their models), a fall onto a no-floor cell (the original lands at map
   height 0; the act never lets him there). 144 sim tests.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;
