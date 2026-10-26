@@ -56,7 +56,9 @@ GIMMICKS = {
         'cracks': [([(101, 60)], 336, [-1, 0])]},
 }
 DOOR_PUSH = {0: (0, 4), 2: (-4, 0), 4: (0, -4)}
-BOSSES = {3: {'kind': 'gg', 'at': (1152, 350, 1152), 'home': (1088, 1088), 'cruise': 160, 'arena': (800, 1375), 'hp': 5}}
+BOSSES = {3: {'kind': 'gg', 'at': (1152, 350, 1152), 'home': (1088, 1088), 'cruise': 160, 'arena': (800, 1375, 800, 1375), 'hp': 5},
+          8: {'kind': 'rr', 'at': (1856, 330, 2080), 'cruise': 160, 'cap': 350, 'arms': (1792, 1920), 'root': (136, 2080),
+              'reach': (2144, 2190), 'script': 0x7170, 'home': (1856, 2080), 'arena': (1760, 1983, 2080, 2271), 'hp': 5}}
 SCRIPTS = 0x25DF2
 
 
@@ -214,9 +216,19 @@ def convert(rom, level_id, vscale=1.0):
             ents.append(e)
     bs = BOSSES.get(level_id)
     if bs:
-        ents.append({"type": "boss", "kind": bs['kind'], "x": jround(bs['at'][0] / CELL - x0, 3), "y": jround(bs['at'][1] / CELL * vscale, 3), "z": jround(bs['at'][2] / CELL - z0, 3),
-                     "home": [jround(bs['home'][0] / CELL - x0, 3), jround(bs['home'][1] / CELL - z0, 3)], "cruise": jround(bs['cruise'] / CELL * vscale, 3),
-                     "arena": [jround(bs['arena'][0] / CELL - x0, 3), jround(bs['arena'][1] / CELL - x0, 3), jround(bs['arena'][0] / CELL - z0, 3), jround(bs['arena'][1] / CELL - z0, 3)], "hp": bs['hp'], "vs": vscale})
+        e = {"type": "boss", "kind": bs['kind'], "x": jround(bs['at'][0] / CELL - x0, 3), "y": jround(bs['at'][1] / CELL * vscale, 3), "z": jround(bs['at'][2] / CELL - z0, 3),
+             "home": [jround(bs['home'][0] / CELL - x0, 3), jround(bs['home'][1] / CELL - z0, 3)], "cruise": jround(bs['cruise'] / CELL * vscale, 3),
+             "arena": [jround(bs['arena'][0] / CELL - x0, 3), jround(bs['arena'][1] / CELL - x0, 3), jround(bs['arena'][2] / CELL - z0, 3), jround(bs['arena'][3] / CELL - z0, 3)], "hp": bs['hp'], "vs": vscale}
+        if bs['kind'] == 'rr':
+            Y = lambda v: jround(v / CELL * vscale, 3); Z = lambda v: jround(v / CELL - z0, 3)
+            e["arms"] = [jround(x / CELL - x0, 3) for x in bs['arms']]; e["root"] = [Y(bs['root'][0]), Z(bs['root'][1])]; e["cap"] = Y(bs['cap']); e["reach"] = [Z(bs['reach'][0]), Z(bs['reach'][1])]
+            sc = []; o = bs['script']
+            while len(sc) < 64:
+                a, n = struct.unpack('>hh', rom[o:o + 4]); o += 4
+                if a < 0: e["loop"] = len(sc) - n // 4; break
+                sc.append([a // 4, n])
+            e["script"] = sc
+        ents.append(e)
     if table_rings:
         for k in range(3):
             x, z = struct.unpack('>h', rom[st + 0x14 + 6 * k:st + 0x16 + 6 * k])[0], struct.unpack('>h', rom[st + 0x18 + 6 * k:st + 0x1A + 6 * k])[0]
@@ -260,7 +272,10 @@ def convert(rom, level_id, vscale=1.0):
         mx, mz = sum(c[0] for c in cells) / len(cells), sum(c[1] for c in cells) / len(cells)
         bx, bz = min(cells, key=lambda c: (c[0] - mx) ** 2 + (c[1] - mz) ** 2)
         start = (bx + 0.5, bz + 0.5)
-    ents.insert(0, {"type": "start", "x": start[0] - x0, "z": start[1] - z0})
+    st0 = {"type": "start", "x": start[0] - x0, "z": start[1] - z0}
+    if bs:   # in a boss arena the player starts facing the boss (compass degrees)
+        st0["facing"] = (math.floor(math.atan2(bs['at'][0] / CELL - start[0], start[1] - bs['at'][2] / CELL) * 180 / math.pi + 0.5) + 360) % 360
+    ents.insert(0, st0)
     return {"version": 1, "format": "tiles", "name": f"ROM level {level_id}", "width": W, "depth": D,
             "killY": jround(min(min(t["c"]) for t in tiles if t["t"] != "W") - 3, 2), "tiles": tiles, "entities": ents,
             "physics": physics_for(vscale), "rom": {"level": level_id, "origin": [x0, z0], "vscale": vscale},

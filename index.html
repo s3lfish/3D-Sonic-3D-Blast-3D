@@ -1241,8 +1241,17 @@ const Sim = (() => {
         // a boss (its kind names its routine): start [x, y, z], "home" [x, z], "cruise" height, "arena" [x0, x1, z0, z1], "hp"
         case 'boss': {
           if (!inBounds(e.x, e.z) || !Number.isFinite(e.y) || !BOSS_KINDS.has(e.kind)) { errs.push(`A boss needs a known "kind" and a place on the map.`); break; }
-          L.entities.push({ type: 'boss', kind: e.kind, x: e.x, y: e.y, z: e.z, home: e.home || [e.x, e.z], cruise: e.cruise ?? e.y,
-            arena: e.arena || [0, L.width, 0, L.depth], hp: e.hp || 5, vs: e.vs || 1 });
+          const b = { type: 'boss', kind: e.kind, x: e.x, y: e.y, z: e.z, home: e.home || [e.x, e.z], cruise: e.cruise ?? e.y,
+            arena: e.arena || [0, L.width, 0, L.depth], hp: e.hp || 5, vs: e.vs || 1 };
+          // Rusty Ruin 3: arm roots' x, the root [y, z], the cap's start height, the reach limits [z, z] and the script
+          if (e.kind === 'rr') {
+            const two = v => Array.isArray(v) && v.length === 2 && v.every(Number.isFinite);
+            if (!two(e.arms) || !two(e.root) || !two(e.reach) || !Array.isArray(e.script) || !e.script.length || !e.script.every(two)) {
+              errs.push('A Rusty Ruin boss needs "arms", "root", "reach" and a "script" of [action, frames] pairs.'); break;
+            }
+            Object.assign(b, { arms: e.arms, root: e.root, reach: e.reach, script: e.script, loop: Math.max(0, Math.min(e.script.length - 1, e.loop || 0)), cap: e.cap ?? e.y });
+          }
+          L.entities.push(b);
           break;
         }
         // fan tiles: standing on one sets the player whirling (Rusty Ruin)
@@ -1323,7 +1332,7 @@ const Sim = (() => {
     }
     return out;
   }
-  const BOSS_KINDS = new Set(['gg']);
+  const BOSS_KINDS = new Set(['gg', 'rr']);
   function importLevel(raw) {
     const errs = [];
     if (!raw || typeof raw !== 'object') throw new LevelError(['The level data is not a JSON object.']);
@@ -1429,7 +1438,7 @@ const Sim = (() => {
       cannons: L.entities.filter(e => e.type === 'cannon').map(e => ({ ...e, firedAt: -9 })), cracks: [],
       fans: new Set(L.entities.filter(e => e.type === 'fan').flatMap(e => e.cells.map(([cx, cz]) => cz * L.width + cx))),
       slides: new Map(L.entities.filter(e => e.type === 'slide').flatMap(e => e.cells.map(([cx, cz]) => [cz * L.width + cx, e.dir]))),
-      flickies: [], delivered: 0, trail: [], seed: 12345,
+      flickies: [], delivered: 0, trail: [], seed: 12345, plats: [],
       p: null,
     };
     resetLevel(w);
@@ -1468,8 +1477,88 @@ const Sim = (() => {
     const b = w.L.entities.find(e => e.type === 'boss');
     w.boss = b ? { ...b, phase: 0, step: 0, t: 0, cool: 0, sub: 0, dead: -1, hits: 0,
       ball: { x: b.x, y: b.y - 40 / 32 * b.vs, z: b.z, vx: 0, vy: 0, vz: 0, state: 'held', hops: 0 } } : null;
+    if (w.boss && b.kind === 'rr') Object.assign(w.boss, { armX: b.arms, arms: [[32, 0], [32, 0]], cur: 0, si: 0, act: 2, par: false, boxes: [null, null], ball: null });
+    w.plats = [];
+  }
+  // Rusty Ruin 3's arms (routine 0x727C): an arm is [reach, lift] (units) from its root, a two-link arm with links 64
+  // long: the elbow bends up and back; four links from the root to the elbow, three from the elbow to the wrist (root +
+  // [reach, lift]) and the fist record 20 units over the wrist. Joints in metres, [x, y, z]: links root to wrist, fist.
+  function rrArm(b, k) {
+    const [p0, p1] = b.arms[k], U = 1 / 32, V = b.vs / 32, x = b.armX[k];
+    const l2 = 2 * Math.hypot(p0, p1), q = l2 > 0 ? Math.sqrt(Math.max(0, 65536 - l2 * l2)) / l2 : 0;
+    const ez = (p0 + p1 * q) / 2, ey = (p1 - p0 * q) / 2;
+    const at = (z, y) => [x, b.root[0] + y * V, b.root[1] + z * U], links = [];
+    for (let i = 1; i <= 4; i++) links.push(at(ez * i / 4, ey * i / 4));
+    for (let j = 3; j >= 1; j--) links.push(at(p0 - (p0 - ez) * j / 4, p1 - (p1 - ey) * j / 4));
+    return { links, fist: at(p0, p1 + 20) };
+  }
+  // Rusty Ruin 3 (see s3d.js BOSSES): the routine's script moves the arms; any touch on the pod is a hit. Measured in the
+  // emulator: the links hurt (within 16 units across, 12 along); the fist's top (one unit under its record) is a floor
+  // over x -4..+20, z -2..+36 of the record that carries Sonic; a fist coming down on him hurts.
+  function rrStep(w) {
+    const b = w.boss, p = w.p, U = 1 / 32, V = b.vs / 32;
+    b.par = !b.par;
+    if (b.cool > 0) b.cool -= P.dt;
+    else if (b.dead < 0 && Math.hypot(p.x - b.x, p.z - b.z) <= 32 * U && p.y >= b.y - 32 * V && p.y <= b.y + 64 * V) {
+      p.vx = -p.vx; p.vz = -p.vz; p.vy = 5 * 60 / 32 * b.vs; p.grounded = false; p.jumping = false; p.lock = 30 / 60;
+      b.cool = 1; b.hits++; w.events.push('bossHit');
+      if (b.hits >= b.hp) { b.dead = 0; w.events.push('bossDown'); }
+    }
+    if (b.dead >= 0) {   // beaten: the cap lifts, the pod rises in explosions, then the act is over
+      b.dead += P.dt; b.y += V; b.cap = Math.min(b.cap + 4 * V, (0x154 + 8) * V);
+      if (b.dead > 4 && !w.cleared) { w.cleared = true; w.events.push('goal'); }
+    } else {
+      if (--b.t <= 0) { if (b.si >= b.script.length) b.si = b.loop; [b.act, b.t] = b.script[b.si++]; }
+      const a = b.arms[b.cur], o = b.arms[1 - b.cur];
+      switch (b.act) {
+        case 0: {   // reach out to at least the first limit, then on towards Sonic (16 units short) up to the second
+          const z = b.root[1] + a[0] * U;
+          if (z < b.reach[0] || (z < p.z - 16 * U && z < b.reach[1])) a[0]++; else b.t = 0;
+          break;
+        }
+        case 1: if (--a[0] < 32) { a[0] = 32; b.t = 0; } break;
+        case 3: if (b.t === 1) w.events.push('bossSlam'); a[1] = -64 + Math.ceil(64 * Math.sin((b.t - 1) * Math.PI / 32) - 1e-9); break;
+        case 4: a[1]++; break;
+        case 5: b.cur = 1 - b.cur; break;
+        case 6: if (b.par) b.y -= V; break;
+        case 7: b.cap -= 4 * V; if (b.t === 1) w.events.push('bossCap'); break;
+        case 8: o[0] += 2; o[1]--; break;
+        case 9: o[0] -= 2; o[1]++; break;
+      }
+    }
+    // the arms
+    const inside = (q, m = 0) => p.x >= q.x0 - m && p.x <= q.x1 + m && p.z >= q.z0 - m && p.z <= q.z1 + m;
+    w.plats.length = 0;
+    for (let k = 0; k < 2; k++) {
+      const A = rrArm(b, k), f = A.fist, top = f[1] - V;
+      const box = { x0: f[0] - 4 * U, x1: f[0] + 20 * U, z0: f[2] - 2 * U, z1: f[2] + 36 * U, top }, old = b.boxes[k];
+      if (old && p.grounded && inside(old) && Math.abs(p.y - old.top) < 0.05) { p.x += box.x0 - old.x0; p.z += box.z0 - old.z0; p.y = top; }
+      b.boxes[k] = box; w.plats.push(box);
+      if (inside(box) && p.y < top - 0.05 && p.y + 0.9 > top - 28 * V) {
+        if (b.dead < 0 && b.act === 3 && k === b.cur) { if (p.inv <= 0 && p.invuln <= 0) { hurt(w, 0, 1); if (w.events.includes('respawn')) return true; } }
+        else {   // its sides are a wall
+          const e = [[p.x - box.x0, -1, 0], [box.x1 - p.x, 1, 0], [p.z - box.z0, 0, -1], [box.z1 - p.z, 0, 1]].sort((u, v) => u[0] - v[0])[0];
+          p.x += e[1] * (e[0] + 0.01); p.z += e[2] * (e[0] + 0.01);
+          if (e[1] && p.vx * e[1] < 0) p.vx = 0; if (e[2] && p.vz * e[2] < 0) p.vz = 0;
+        }
+      }
+      if (p.inv > 0 || p.invuln > 0) continue;
+      for (const l of A.links) {
+        if (Math.abs(p.x - l[0]) <= 16 * U && Math.abs(p.z - l[2]) <= 12 * U && Math.abs(p.y + 12 * V - l[1]) < 20 * V) {
+          hurt(w, 0, 1); if (w.events.includes('respawn')) return true; break;
+        }
+      }
+    }
+    return false;
+  }
+  // the floor under the player, with the boss's moving tops (a fist) taken into account; a top counts once the player
+  // is on it or above it (no stepping up onto one)
+  function platFloor(w, p, f, up) {
+    for (const q of w.plats) if (p.x >= q.x0 && p.x <= q.x1 && p.z >= q.z0 && p.z <= q.z1 && q.top <= p.y + up && !(q.top <= f)) f = q.top;
+    return f;
   }
   function bossStep(w, pcy) {
+    if (w.boss.kind === 'rr') return rrStep(w);
     const b = w.boss, p = w.p, L = w.L, U = 1 / 32, V = b.vs / 32, ball = b.ball;
     const toward = (v, t, s) => (Math.abs(t - v) <= s ? t : v + Math.sign(t - v) * s);
     if (b.dead >= 0) {   // beaten: it rises in a string of explosions, then the act is over
@@ -1546,7 +1635,7 @@ const Sim = (() => {
     w.p = { x: s.x, y: floorAt(w.L, s.x, s.z), z: s.z, vx: 0, vy: 0, vz: 0, grounded: true, coyote: 0,
       rolling: false, ball: false, sprung: false, charge: 0, facing: s.facing, jumping: false, prevJump: false, prevDash: false, invuln: 0,
       shield: null, inv: 0, fast: 0, boost: null, goldUsed: false, dashHeld: 0, cannon: null, flyT: 0, whirl: false, whirlHold: 0,
-      ride: null, auto: null, pad: null, slideT: 0, slideDir: null };
+      ride: null, auto: null, pad: null, slideT: 0, slideDir: null, lock: 0 };
     if (s.auto) w.p.auto = autoWalk(w);
     if (w.boss) initBoss(w);
     // starting again on a pad (a ring stands over one) does not set it off until the player steps off it
@@ -1559,6 +1648,8 @@ const Sim = (() => {
     w.events.length = 0;
     w.time += dt;
     // after a ring that puts the player in a pocket, the original walks them to the way out (input is the routine's)
+    // a boss's knock-back takes the pad for a moment (Rusty Ruin 3: 30 frames)
+    if (p.lock > 0) { p.lock -= dt; inp = {}; }
     if (p.auto && !p.ride) {
       if (p.auto.t > 0) { p.auto.t -= dt; inp = {}; }
       else { const dx = p.auto.x - p.x, dz = p.auto.z - p.z, l = Math.hypot(dx, dz) || 1; inp = { mx: dx / l, mz: dz / l }; }
@@ -1785,7 +1876,8 @@ const Sim = (() => {
         const dot = p.vx * nrm[0] + p.vz * nrm[1], kb = p.whirl ? 1 + P.whirlBounce : 1;   // a whirl bounces off
         if (dot < 0) { p.vx -= nrm[0] * dot * kb; p.vz -= nrm[1] * dot * kb; }
       }
-      const f = floorAt(L, p.x, p.z);
+      let f = floorAt(L, p.x, p.z);
+      if (w.plats.length) f = platFloor(w, p, f, p.grounded ? L.phys.stepUp : 0.02);
       if (p.grounded) {
         if (!Number.isFinite(f) || p.y - f > L.phys.snapDown) { p.grounded = false; p.coyote = P.coyote; p.vy = 0; }
         else p.y = f;
@@ -2078,7 +2170,7 @@ const Sim = (() => {
     p.invuln = P.hurtTime; w.events.push('hurt');
   }
 
-  return { P, LevelError, importLevel, floorAt, gradientAt, tileTopNear, createWorld, resetLevel, respawn, step };
+  return { P, LevelError, importLevel, floorAt, gradientAt, tileTopNear, createWorld, resetLevel, respawn, step, rrArm };
 })();
 </script>
 
@@ -2677,7 +2769,16 @@ const S3D = (() => {
   // (it falls and hops five times towards Sonic, 2 units a frame out, 2 up, 0.125 gravity), goes back home (1 a frame),
   // sinks to the ball's height + 40, takes the ball back and rises. A hit: Sonic within 32 units, at the pod's height
   // + 8 or above; five hits, 60 frames apart. All inside the arena square.
-  const BOSSES = { 3: { kind: 'gg', at: [1152, 350, 1152], home: [1088, 1088], cruise: 160, arena: [800, 1375], hp: 5 } };
+  // Rusty Ruin 3 (RunLevel_RRz3 0x6DE8): the pod comes down into a stone statue's head (322 to 152, one unit every other
+  // frame) under a cap (342 to 162, 4 a frame) between two arms. Each arm is [reach, lift] from its root (y 128, z 2080)
+  // and drawn by the routine at 0x727C as a two-link arm (links 64 long): four links root to elbow, the fist at
+  // root + (lift + 20, reach), three links between. A script of [action, frames] (table 0x7170, ended by -1 and a step
+  // back) reaches a fist out towards Sonic, raises the other arm, slams (sine table 0x27AC8), rests, lifts, pulls back
+  // and swaps arms. Heights here are 8 units up on the emulator's (Sonic stands at 56 on a floor the map gives as 64).
+  // Any touch on the pod (within 32 units, from 32 below to 64 above it) is a hit, 60 frames apart; five.
+  const BOSSES = { 3: { kind: 'gg', at: [1152, 350, 1152], home: [1088, 1088], cruise: 160, arena: [800, 1375, 800, 1375], hp: 5 },
+    8: { kind: 'rr', at: [1856, 330, 2080], cruise: 160, cap: 350, arms: [1792, 1920], root: [136, 2080],
+      reach: [2144, 2190], script: 0x7170, home: [1856, 2080], arena: [1760, 1983, 2080, 2271], hp: 5 } };
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
   // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
@@ -2963,9 +3064,19 @@ const S3D = (() => {
       ents.push(e);
     }
     const bs = BOSSES[id];
-    if (bs) ents.push({ type: 'boss', kind: bs.kind, x: r3(bs.at[0] / CELL - x0), y: r3(bs.at[1] / CELL * vscale), z: r3(bs.at[2] / CELL - z0),
-      home: [r3(bs.home[0] / CELL - x0), r3(bs.home[1] / CELL - z0)], cruise: r3(bs.cruise / CELL * vscale),
-      arena: [r3(bs.arena[0] / CELL - x0), r3(bs.arena[1] / CELL - x0), r3(bs.arena[0] / CELL - z0), r3(bs.arena[1] / CELL - z0)], hp: bs.hp, vs: vscale });
+    if (bs) {
+      const e = { type: 'boss', kind: bs.kind, x: r3(bs.at[0] / CELL - x0), y: r3(bs.at[1] / CELL * vscale), z: r3(bs.at[2] / CELL - z0),
+        home: [r3(bs.home[0] / CELL - x0), r3(bs.home[1] / CELL - z0)], cruise: r3(bs.cruise / CELL * vscale),
+        arena: [r3(bs.arena[0] / CELL - x0), r3(bs.arena[1] / CELL - x0), r3(bs.arena[2] / CELL - z0), r3(bs.arena[3] / CELL - z0)], hp: bs.hp, vs: vscale };
+      if (bs.kind === 'rr') {
+        const Y = v => r3(v / CELL * vscale), Z = v => r3(v / CELL - z0);
+        e.arms = bs.arms.map(x => r3(x / CELL - x0)); e.root = [Y(bs.root[0]), Z(bs.root[1])]; e.cap = Y(bs.cap); e.reach = [Z(bs.reach[0]), Z(bs.reach[1])];
+        const sc = [];
+        for (let o = bs.script; sc.length < 64; o += 4) { const a = s16(d, o), n = s16(d, o + 2); if (a < 0) { e.loop = sc.length - n / 4; break; } sc.push([a / 4, n]); }
+        e.script = sc;
+      }
+      ents.push(e);
+    }
     if (tableRings) for (let k = 0; k < 3; k++) {
       const x = s16(d, st + 0x14 + 6 * k), z = s16(d, st + 0x18 + 6 * k);
       if (!x) break;
@@ -3011,7 +3122,10 @@ const S3D = (() => {
         const dd = (x - mx) ** 2 + (z - mz) ** 2; if (dd < best) { best = dd; start = [x + 0.5, z + 0.5]; }
       }
     }
-    ents.unshift({ type: 'start', x: start[0] - x0, z: start[1] - z0 });
+    const st0 = { type: 'start', x: start[0] - x0, z: start[1] - z0 };
+    // in a boss arena the player starts facing the boss (compass degrees)
+    if (bs) st0.facing = (Math.floor(Math.atan2(bs.at[0] / CELL - start[0], start[1] - bs.at[2] / CELL) * 180 / Math.PI + 0.5) + 360) % 360;
+    ents.unshift(st0);
     const name = (LEVELS.find(l => l[0] === id) || [id, 'Level ' + id])[1];
     return {
       version: 1, format: 'tiles', name: name + ' (from your ROM)', width: W, depth: D,
@@ -3171,7 +3285,8 @@ const S3D = (() => {
       hurt: [0xB9], shot: [0x4D], boom: [0x9A], goal: [0x6A], boostIn: [0xAB], boost: [0xB6], goldDash: [0xB6],
       shieldLost: [0xB9], section: [0xAC] /* near the big ring routine */,
       cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */,
-      bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */ },
+      bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */,
+      bossSlam: [0x5F], bossCap: [0x9E] /* RR3's routine */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {
@@ -4408,6 +4523,8 @@ const Art = (() => {
       bossHop: () => tone('triangle', 120, 60, 0.12, 0.3),
       bossGrab: () => tone('square', 150, 600, 0.25, 0.15),
       bossDown: () => { noise(1.2, 0.9, 500); tone('sine', 90, 30, 1.2, 0.6); },
+      bossSlam: () => { noise(0.5, 0.9, 300); tone('sine', 70, 35, 0.4, 0.5); },
+      bossCap: () => { noise(0.3, 0.6, 600); tone('square', 120, 90, 0.2, 0.2); },
       padOut: () => { tone('triangle', 180, 1400, 0.32, 0.4); noise(0.2, 0.3, 2000); },
       boost: () => { noise(0.35, 0.6, 2500); tone('square', 700, 120, 0.4, 0.25); },
       enemy: () => { noise(0.22, 0.7, 1400); tone('square', 520, 90, 0.2, 0.3); },
@@ -4795,6 +4912,52 @@ const Art = (() => {
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
   // spiked ball on a chain, and a burst of fireballs when beaten
   function buildBoss() {
+    const o = buildBossPod(), b = world.boss;
+    if (b.kind === 'rr') { o.rr = buildRrStatue(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
+    return o;
+  }
+  // Rusty Ruin 3's statue, of our own drawing in stone colours (the original's statue sprites are not read): a body
+  // under the pod, shoulders on a bar, a helmet (the routine's cap) that comes down over the pod, and per arm the
+  // routine's seven links and a flat hand the size of the fist's floor in the sim
+  let stoneTexture = null;
+  function stoneTex() {
+    if (stoneTexture) return stoneTexture;
+    const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+    let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    g.fillStyle = '#b8b29c'; g.fillRect(0, 0, 64, 64);
+    for (let i = 0; i < 260; i++) { const v = 150 + rnd() * 70 | 0; g.fillStyle = `rgb(${v},${v - 4},${v - 22})`; g.fillRect(rnd() * 64 | 0, rnd() * 64 | 0, 1 + rnd() * 4 | 0, 1 + rnd() * 3 | 0); }
+    g.strokeStyle = 'rgba(70,66,52,0.5)'; g.lineWidth = 1;
+    for (let i = 0; i < 6; i++) { g.beginPath(); let x = rnd() * 64, y = rnd() * 64; g.moveTo(x, y); for (let k = 0; k < 4; k++) { x += rnd() * 12 - 6; y += rnd() * 12 - 6; g.lineTo(x, y); } g.stroke(); }
+    stoneTexture = new THREE.CanvasTexture(c); stoneTexture.wrapS = stoneTexture.wrapT = THREE.RepeatWrapping;
+    return stoneTexture;
+  }
+  function buildRrStatue(b) {
+    const stone = new THREE.MeshLambertMaterial({ map: stoneTex(), color: 0xd0cab4 }), seam = new THREE.MeshLambertMaterial({ color: 0x77735f });
+    const g = new THREE.Group(), U = 1 / 32, V = b.vs / 32, floor = Sim.floorAt(L, b.x, b.z + 0.5);
+    const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m; };
+    const bodyH = Math.max(0.5, b.cruise - floor - 0.15);   // behind the arena's edge (the sim has no wall for it)
+    add(new THREE.CylinderGeometry(0.95, 1.15, bodyH, 12), stone, b.x, floor + bodyH / 2, b.z - 0.25);
+    add(new THREE.CylinderGeometry(1.0, 1.0, 0.16, 12), seam, b.x, floor + bodyH - 0.1, b.z - 0.25);
+    const span = b.armX[1] - b.armX[0];
+    add(new THREE.BoxGeometry(span, 0.5 * b.vs, 0.7), stone, (b.armX[0] + b.armX[1]) / 2, b.root[0] - 0.1, b.root[1] - 0.5);
+    for (const x of b.armX) add(new THREE.SphereGeometry(0.5, 14, 10), stone, x, b.root[0], b.root[1]);
+    const cap = add(new THREE.SphereGeometry(1.05, 18, 9, 0, Math.PI * 2, 0, Math.PI / 2), stone, b.x, b.cap, b.z);
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 0.14, 18), seam); cap.add(rim);
+    const linkGeo = new THREE.SphereGeometry(0.3, 10, 8);
+    const arms = [0, 1].map(() => {
+      const links = Array.from({ length: 7 }, () => add(linkGeo, stone, 0, 0, 0));
+      // the hand: a palm the size of the fist's floor (24 x 38 units, 28 high) and four fingers to the south
+      const hand = new THREE.Group(), ph = 28 * V;
+      const palm = new THREE.Mesh(new THREE.BoxGeometry(24 * U, ph, 30 * U), stone); palm.position.set(0, -ph / 2, -4 * U); hand.add(palm);
+      for (let k = 0; k < 4; k++) {
+        const f = new THREE.Mesh(new THREE.BoxGeometry(5 * U, ph * 0.55, 9 * U), stone); f.position.set((k - 1.5) * 6 * U, -ph * 0.7, 15 * U); hand.add(f);
+      }
+      g.add(hand); return { links, hand };
+    });
+    levelGroup.add(g);
+    return { g, cap, arms };
+  }
+  function buildBossPod() {
     if (romOn()) {   // the original's own pod and ball
       const pod = new THREE.Sprite(romBossMat(0x48, 0, 128, 100)); pod.center.set(0.5, 1 - 100 / 128); pod.scale.set(128 * 0.025, 128 * 0.025, 1);
       const ball = new THREE.Sprite(romBossMat(0x50, 0, 64, 40)); ball.center.set(0.5, 1 - 40 / 64); ball.scale.set(64 * 0.025, 64 * 0.025, 1);
@@ -4825,16 +4988,24 @@ const Art = (() => {
     if (!b || !o) return;
     o.g.position.set(b.x, b.y, b.z);
     o.g.visible = (b.dead < 0 || b.dead < 2 || Math.floor(t * 20) % 2 === 0) && !(b.cool > 0 && Math.floor(t * 16) % 2);
-    const bl = b.ball;
+    if (o.rr) {   // the cap over the pod, the arms where the routine puts them
+      o.rr.cap.position.y = b.cap + 0.95 * b.vs;
+      o.rr.arms.forEach((a, k) => {
+        const A = Sim.rrArm(b, k), U = 1 / 32;
+        a.links.forEach((m, i) => m.position.set(A.links[i][0], A.links[i][1], A.links[i][2]));
+        a.hand.position.set(A.fist[0] + 8 * U, A.fist[1] - b.vs / 32, A.fist[2] + 17 * U);
+      });
+    }
+    const bl = b.ball || { x: b.x, y: b.y, z: b.z, state: 'none' };
     if (o.pod) {   // frames 0-7 while whole, 9-11 cracked as its hits run out
       const left = b.hp - b.hits;
       o.pod.material = romBossMat(0x48, left <= 3 && b.hits ? 9 + (3 - Math.max(1, left)) : Math.floor(t * 8) % 8, 128, 100);
-      o.ball.material = romBossMat(0x50, Math.floor(t * 12) % 8, 64, 40);
+      if (b.ball) o.ball.material = romBossMat(0x50, Math.floor(t * 12) % 8, 64, 40);
     } else {
       o.lamp.material.color.setHex(b.cool > 0 && Math.floor(t * 16) % 2 ? 0xffffff : 0xff3020);
       o.rotors.forEach((r, k) => { r.rotation.y = t * 30 + k; });
     }
-    o.ball.position.set(bl.x, bl.y + (o.rom ? 0.3 : 0.45), bl.z);
+    if (b.ball) o.ball.position.set(bl.x, bl.y + (o.rom ? 0.3 : 0.45), bl.z);
     o.links.forEach((l, i) => { l.visible = bl.state === 'held'; l.position.set(b.x, b.y - (i + 1) * 0.3, b.z); });
     if (b.dead >= 0) for (let q = 0; q < puffSprites.length; q++) {
       const s = puffSprites[q], k = (t * 3 + q * 0.37) % 1;
@@ -5381,6 +5552,13 @@ const Art = (() => {
       let d = Math.atan2(-p.vx, -p.vz) - yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
       yaw += d * Math.min(1, dt * 1.6 * Math.min(1, (sp - Sim.P.run) / 8));
     }
+    // a boss: swing round behind the player so it stays in front (gently, and not when it is right overhead)
+    const bo = world.boss && world.boss.dead < 0 ? world.boss : null;
+    if (bo && !looking) {
+      const bd = Math.hypot(fx - bo.x, fz - bo.z);
+      let d = Math.atan2(fx - bo.x, fz - bo.z) - yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+      yaw += d * Math.min(1, dt * 1.2 * Math.min(1, Math.max(0, bd - 1.5) / 2));
+    }
     // Mario 64 style obstacle handling: stay inside the level, rise to look over walls,
     // swing toward open space, and only pull in close as a last resort.
     let best = roomAt(yaw, view.pitch, fx, focusY, fz), pitchUse = view.pitch;
@@ -5405,6 +5583,9 @@ const Art = (() => {
     if (Number.isFinite(floorHere) && view.pos.y < floorHere + 0.4) view.pos.y = floorHere + 0.4;
     chaseCam.position.copy(view.pos);
     view.look.set(fx, focusY - 0.15, fz);
+    if (bo) {   // and tilt up towards it, so a boss overhead is in the picture
+      view.look.x += (bo.x - fx) * 0.3; view.look.z += (bo.z - fz) * 0.3; view.look.y += Math.max(0, bo.y - focusY) * 0.45;
+    }
     chaseCam.lookAt(view.look);
     view.target.set(fx, focusY, fz);
   }

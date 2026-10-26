@@ -46,7 +46,16 @@ const S3D = (() => {
   // (it falls and hops five times towards Sonic, 2 units a frame out, 2 up, 0.125 gravity), goes back home (1 a frame),
   // sinks to the ball's height + 40, takes the ball back and rises. A hit: Sonic within 32 units, at the pod's height
   // + 8 or above; five hits, 60 frames apart. All inside the arena square.
-  const BOSSES = { 3: { kind: 'gg', at: [1152, 350, 1152], home: [1088, 1088], cruise: 160, arena: [800, 1375], hp: 5 } };
+  // Rusty Ruin 3 (RunLevel_RRz3 0x6DE8): the pod comes down into a stone statue's head (322 to 152, one unit every other
+  // frame) under a cap (342 to 162, 4 a frame) between two arms. Each arm is [reach, lift] from its root (y 128, z 2080)
+  // and drawn by the routine at 0x727C as a two-link arm (links 64 long): four links root to elbow, the fist at
+  // root + (lift + 20, reach), three links between. A script of [action, frames] (table 0x7170, ended by -1 and a step
+  // back) reaches a fist out towards Sonic, raises the other arm, slams (sine table 0x27AC8), rests, lifts, pulls back
+  // and swaps arms. Heights here are 8 units up on the emulator's (Sonic stands at 56 on a floor the map gives as 64).
+  // Any touch on the pod (within 32 units, from 32 below to 64 above it) is a hit, 60 frames apart; five.
+  const BOSSES = { 3: { kind: 'gg', at: [1152, 350, 1152], home: [1088, 1088], cruise: 160, arena: [800, 1375, 800, 1375], hp: 5 },
+    8: { kind: 'rr', at: [1856, 330, 2080], cruise: 160, cap: 350, arms: [1792, 1920], root: [136, 2080],
+      reach: [2144, 2190], script: 0x7170, home: [1856, 2080], arena: [1760, 1983, 2080, 2271], hp: 5 } };
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
   // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
@@ -332,9 +341,19 @@ const S3D = (() => {
       ents.push(e);
     }
     const bs = BOSSES[id];
-    if (bs) ents.push({ type: 'boss', kind: bs.kind, x: r3(bs.at[0] / CELL - x0), y: r3(bs.at[1] / CELL * vscale), z: r3(bs.at[2] / CELL - z0),
-      home: [r3(bs.home[0] / CELL - x0), r3(bs.home[1] / CELL - z0)], cruise: r3(bs.cruise / CELL * vscale),
-      arena: [r3(bs.arena[0] / CELL - x0), r3(bs.arena[1] / CELL - x0), r3(bs.arena[0] / CELL - z0), r3(bs.arena[1] / CELL - z0)], hp: bs.hp, vs: vscale });
+    if (bs) {
+      const e = { type: 'boss', kind: bs.kind, x: r3(bs.at[0] / CELL - x0), y: r3(bs.at[1] / CELL * vscale), z: r3(bs.at[2] / CELL - z0),
+        home: [r3(bs.home[0] / CELL - x0), r3(bs.home[1] / CELL - z0)], cruise: r3(bs.cruise / CELL * vscale),
+        arena: [r3(bs.arena[0] / CELL - x0), r3(bs.arena[1] / CELL - x0), r3(bs.arena[2] / CELL - z0), r3(bs.arena[3] / CELL - z0)], hp: bs.hp, vs: vscale };
+      if (bs.kind === 'rr') {
+        const Y = v => r3(v / CELL * vscale), Z = v => r3(v / CELL - z0);
+        e.arms = bs.arms.map(x => r3(x / CELL - x0)); e.root = [Y(bs.root[0]), Z(bs.root[1])]; e.cap = Y(bs.cap); e.reach = [Z(bs.reach[0]), Z(bs.reach[1])];
+        const sc = [];
+        for (let o = bs.script; sc.length < 64; o += 4) { const a = s16(d, o), n = s16(d, o + 2); if (a < 0) { e.loop = sc.length - n / 4; break; } sc.push([a / 4, n]); }
+        e.script = sc;
+      }
+      ents.push(e);
+    }
     if (tableRings) for (let k = 0; k < 3; k++) {
       const x = s16(d, st + 0x14 + 6 * k), z = s16(d, st + 0x18 + 6 * k);
       if (!x) break;
@@ -380,7 +399,10 @@ const S3D = (() => {
         const dd = (x - mx) ** 2 + (z - mz) ** 2; if (dd < best) { best = dd; start = [x + 0.5, z + 0.5]; }
       }
     }
-    ents.unshift({ type: 'start', x: start[0] - x0, z: start[1] - z0 });
+    const st0 = { type: 'start', x: start[0] - x0, z: start[1] - z0 };
+    // in a boss arena the player starts facing the boss (compass degrees)
+    if (bs) st0.facing = (Math.floor(Math.atan2(bs.at[0] / CELL - start[0], start[1] - bs.at[2] / CELL) * 180 / Math.PI + 0.5) + 360) % 360;
+    ents.unshift(st0);
     const name = (LEVELS.find(l => l[0] === id) || [id, 'Level ' + id])[1];
     return {
       version: 1, format: 'tiles', name: name + ' (from your ROM)', width: W, depth: D,
@@ -540,7 +562,8 @@ const S3D = (() => {
       hurt: [0xB9], shot: [0x4D], boom: [0x9A], goal: [0x6A], boostIn: [0xAB], boost: [0xB6], goldDash: [0xB6],
       shieldLost: [0xB9], section: [0xAC] /* near the big ring routine */,
       cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */,
-      bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */ },
+      bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */,
+      bossSlam: [0x5F], bossCap: [0x9E] /* RR3's routine */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {

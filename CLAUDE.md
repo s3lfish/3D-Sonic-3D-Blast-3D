@@ -97,6 +97,12 @@ serves index.html from main.
   back at 30) / rise. Hit = within 32 units and at pod y + 8 or above; 5 hits, 60 frames apart; beaten: rises 4 s,
   then `goal`. ROM look: object art by type (`S3D.typeArt`: 0x280E8 + type): 48 pod (frames 0-7, 9-11 cracked),
   50 ball, 4C claw (unused), level palette line 3 (`romBossMat`); otherwise a drone of our own design.
+  RR3 (`rr`, RunLevel_RRz3 0x6DE8, `rrStep`): pod 330 to 160 (every other frame), cap 350 to 170; script of [action,
+  frames] read from 0x7170 (`script`, `loop`); arms [reach, lift] from `root`, joints by `Sim.rrArm` (routine 0x727C:
+  two links of 64); links hurt, a slam on the player hurts, the fist's top is a floor (`w.plats`, `platFloor`, box
+  x -4..+20, z -2..+36 units) that carries him; any pod touch is a hit (knock-back locks the pad 30 frames, `p.lock`).
+  Drawn as a stone statue of our own (`buildRrStatue`; ROM pod sprite). Start faces the boss in boss arenas; the
+  chase cam swings behind the player away from a boss and tilts up to it. Notes in re/NOTES.md "Bosses".
 - Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
   ROM look draws springs as 3D drums coloured from the ROM sprite (`romSpringMats`).
 - Act end: the `goal` event shows `#clearCard`, flashes, and after 5 s converts the next act in `S3D.LEVELS` order.
@@ -159,6 +165,7 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
+- 2026-10-27: RR3 boss (statue arms, slams, fist rides; checked in the emulator and the page); 81 sim tests.
 - 2026-10-27 early: RR2 gimmicks; pads with the original sequence (GG too); maces (`mace`: tables 0x75C2/0x80B8, ball 64
   units out, 2048 a turn) and flamethrowers (`flame`: tables 0x7548/0x7EC4, box 128x64 units, a fireball every 6
   frames, `w.puffs`); GG3 boss; 80 sim tests. Open: 0AC crawler (patrols 1 unit a frame, hurts), other bosses.

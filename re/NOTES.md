@@ -256,3 +256,34 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   in the emulator. The original's facing word: 0 south, 0x200 west, 0x400 north, 0x600 east.
 - The pocket walk: while $0A18 counts down, the pad byte is replaced by $0A1A (0xFF: nothing); the routine holds
   Sonic still about a second, then he walks to the ride's cell (modelled as walking straight at it, sliding on walls).
+
+## Rusty Ruin 2 (2026-10-27; padwatch.py, rr2pit.py, slideprobe.py, tramp.py, ridescript.py)
+- Act routine 0x7CFC. Pads (objects 1C/090, code 0xC75A in, 0xC642 out): a slow (under 2 units a frame) grounded
+  Sonic inside x+3..x+27, z-7..z+17 is held 100 frames, sinks 56 units from frame 51 over 21 frames, waits 47 units
+  under the other pad 95 frames and is thrown up (127 units in GG, 138 in RR). Slides: low byte 0xC3 east, 0xF0 south,
+  0.25 a frame per frame up to 4, and for 15 frames after. Trampolines 08C rise 94 units; slabs 098 sink 84 units
+  about 1 s after landing. Maces: tables 0x75C2/0x80B8, ball 64 units out, 2048 a turn. Flamethrowers: tables
+  0x7548/0x7EC4, a box 128 x 64 units in front, a fireball every 6 frames. The pit under pillar (85, 101) fires ride
+  0x2E below 32 units.
+
+## Bosses (bosswatch.py, rr3watch.py, armstand.py, armgrid.py)
+- Object art by type: the long at 0x280E8 + type. Type 48 is Robotnik's pod in every boss (frames 0-7, 9-11 cracked,
+  12 front); GG3: 50 ball, 4C claw.
+- GG3 (RunLevel_GGz3 0xDDE4): see CLAUDE.md "Bosses"; measured to the unit.
+- RR3 (InitLevel 0x6D84, RunLevel_RRz3 0x6DE8). Level vars (a4 = 0xFFFF0B6C): arm 1 [reach, lift], arm 2, script
+  offset $8, action $A, timer $C, pod y $E (0x142 to 152), cap y $10 (0x156 to 162), active arm pointer $12, hits left
+  $3C (5). Hit: Sonic within 32 units of the pod (0xCCD8/0xCCE0) and y in [pod - 32, pod + 64], his $3E not negative,
+  $38 clear: vx, vz negated, vy = -5 (up), pad locked 30 frames, $38 = 60, sound 0x59; at 3/2/1 left the pod frame
+  changes ($CCF0 = 0x34/0x3A/0x40); at 0, $3E = 240 frames of explosions (cap rises 4 a frame to 0x154), then the act ends.
+- Script table 0x7170: [action, frames] pairs, -1 then a step back to loop. Each frame: timer - 1, at 0 the next pair.
+  Actions (/4): 0 reach (+1 while the wrist z is under 2144, or under both Sonic z - 16 and 2190), 1 pull back (-1 to
+  32), 2 idle, 3 slam (lift = -64 + ceil(64 sin((t - 1) pi / 32)) from the sine table 0x27AC8; sound 0x5F at t = 1),
+  4 lift + 1, 5 swap arms, 6 pod - 1 (only when $0AF4 is clear: every other frame), 7 cap - 4 (sound 0x9E at t = 1),
+  8 other arm reach + 2, lift - 1, 9 the reverse, 10/11/12 picture and camera only.
+- Arm joints (0x727C, checked against the records in RAM): root (y 128, z 2080); r = [reach, lift]; with L = 2|r| and
+  h = sqrt(65536 - L^2), the elbow is root + (r + perp(r) h / L) / 2 (links 64 long, the elbow up and back); records
+  0BC: four from the root to the elbow, three from the wrist (root + r) back to it; record 0C0 the fist, 20 over the wrist.
+- Touch (armgrid.py, armstand.py): links hurt within about 16 units across and 12 along; the fist's top (one unit under
+  its record) holds Sonic over x -4..+20, z -2..+36 of the record and carries him as it lifts and pulls back; a slam
+  coming down on him hurts. From a raised fist a jump reaches the pod.
+- Not used: cells 0x4172/0x4174 with z <= 0x830 and y <= 0x70 set Sonic's $3E to -1 (no hits there).

@@ -500,6 +500,52 @@ test('the Green Grove boss comes down, drops its ball to hop at the player, sink
   let goal = false; run(w, 300, (f, ww) => { if (ww.events.includes('goal')) goal = true; return {}; });
   assert.ok(goal && w.cleared, 'the act ends');
 });
+test('the Rusty Ruin boss: the pod comes down, an arm reaches to the player and slams, its fist carries the player up, and five touches beat it', () => {
+  // the converted act's boss (RR3 at true height); the script is the routine's table read by the converter
+  const script = [[6, 140], [12, 1], [6, 200], [7, 45], [2, 20], [11, 1], [2, 30], [0, 500], [8, 25], [3, 16], [2, 20], [10, 1], [2, 100], [4, 64], [9, 25], [1, 500], [5, 1]];
+  const boss = { type: 'boss', kind: 'rr', x: 4, y: 10.313, z: 1, home: [4, 1], cruise: 5, arena: [1, 6.969, 1, 6.969], hp: 5, vs: 1,
+    arms: [2, 6], root: [4.25, 1], cap: 10.938, reach: [3, 4.438], loop: 7, script };
+  const lvl = grid(Array.from({ length: 8 }, () => '8'.repeat(8)), { entities: [{ type: 'start', x: 3, z: 4 }, boss] });
+  const w = world(lvl), b = () => w.boss, U = 1 / 32;
+  // the player waits beside the fist's path at z 2176 (the emulator's (1830, 2176)): the pod settles at 152 + 8 units,
+  // the cap at 162 + 8
+  const seen = new Set();
+  for (let f = 0; f < 437; f++) { Sim.step(w, {}); for (const e of w.events) seen.add(e); }
+  near(b().y, 10.313 - 170 * U, 1e-6, 'pod down'); near(b().cap, 10.938 - 180 * U, 1e-6, 'cap down');
+  // the left arm reaches 16 units short of the player (wrist at z 2160: reach 80), the right one rises, the left slams
+  let slamAt = -1;
+  for (let f = 0; f < 120 && slamAt < 0; f++) { Sim.step(w, {}); if (w.events.includes('bossSlam')) slamAt = f; }
+  assert.ok(slamAt > 0, 'slammed');
+  assert.strictEqual(JSON.stringify(b().arms), '[[80,-64],[82,-25]]', 'arms as the emulator logged them');
+  const A = Sim.rrArm(b(), 0);
+  near(A.links[3][1], 4.25 - 62 * U, 0.02, 'elbow height (66 + 8)'); near(A.links[3][2], 1 + 16 * U, 0.02, 'elbow z (2096)');
+  near(A.fist[1], (84 + 8) * U, 1e-9, 'fist height'); near(A.fist[2], 1 + 80 * U, 1e-9, 'fist z');
+  assert.ok(seen.has('bossCap'), 'the cap came down');
+  // ride this fist up: it carries the player as it lifts and pulls back
+  Object.assign(w.p, { x: 2.25, z: 4, y: 3.2, vx: 0, vy: 0, vz: 0, grounded: false });
+  run(w, 20, {});
+  near(w.p.y, (83 + 8) * U, 1e-6, 'standing on the slammed fist');
+  run(w, 101 + 64 + 25, {});
+  near(w.p.y, (147 + 8) * U, 1e-6, 'lifted with it'); near(b().arms[0][1], 0, 0, 'lift done');
+  run(w, 49, {});
+  near(w.p.z, 4 - 48 * U, 0.02, 'carried back as it pulls in (2176 to 2128)');
+  // any touch on the pod is a hit, 60 frames apart; five beat it
+  let hits = 0; w.p.inv = 1e9;
+  for (let k = 0; k < 5; k++) {
+    for (let f = 0; f < 200 && b().cool > 0; f++) Sim.step(w, {});
+    Object.assign(w.p, { x: b().x - 0.5, z: b().z + 0.5, y: b().y + 0.3, vx: 0, vy: -0.5, vz: 0, grounded: false });
+    Sim.step(w, {}); if (w.events.includes('bossHit')) hits++;
+    assert.ok(w.p.vy > 5, 'knocked up');
+  }
+  assert.strictEqual(hits, 5, 'five hits'); assert.ok(b().dead >= 0, 'beaten');
+  let goal = false; run(w, 300, (f, ww) => { if (ww.events.includes('goal')) goal = true; return {}; });
+  assert.ok(goal && w.cleared, 'the act ends');
+  // a fist coming down on a player hurts (the emulator: Sonic at (1800, 2176) under the slam)
+  const w2 = world(grid(lvl.heights, { entities: [{ type: 'start', x: 2.25, z: 4 }, boss] })); w2.ringCount = 10;
+  let hurtUnder = false;
+  run(w2, 437 + 120, (f, ww) => { if (ww.events.includes("hurt")) hurtUnder = true; return {}; });
+  assert.ok(hurtUnder, 'hurt under the slam');
+});
 test('converted spike blocks (H) hurt', () => {
   const tiles = []; for (let k = 0; k < 15; k++) tiles.push({ c: [1, 1, 1, 1], t: k === 7 ? 'H' : 'F' });
   const w = world({ version: 1, format: 'tiles', width: 5, depth: 3, tiles, entities: [{ type: 'start', x: 0.5, z: 1.5 }] });

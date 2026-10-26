@@ -342,6 +342,8 @@
       bossHop: () => tone('triangle', 120, 60, 0.12, 0.3),
       bossGrab: () => tone('square', 150, 600, 0.25, 0.15),
       bossDown: () => { noise(1.2, 0.9, 500); tone('sine', 90, 30, 1.2, 0.6); },
+      bossSlam: () => { noise(0.5, 0.9, 300); tone('sine', 70, 35, 0.4, 0.5); },
+      bossCap: () => { noise(0.3, 0.6, 600); tone('square', 120, 90, 0.2, 0.2); },
       padOut: () => { tone('triangle', 180, 1400, 0.32, 0.4); noise(0.2, 0.3, 2000); },
       boost: () => { noise(0.35, 0.6, 2500); tone('square', 700, 120, 0.4, 0.25); },
       enemy: () => { noise(0.22, 0.7, 1400); tone('square', 520, 90, 0.2, 0.3); },
@@ -729,6 +731,52 @@
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
   // spiked ball on a chain, and a burst of fireballs when beaten
   function buildBoss() {
+    const o = buildBossPod(), b = world.boss;
+    if (b.kind === 'rr') { o.rr = buildRrStatue(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
+    return o;
+  }
+  // Rusty Ruin 3's statue, of our own drawing in stone colours (the original's statue sprites are not read): a body
+  // under the pod, shoulders on a bar, a helmet (the routine's cap) that comes down over the pod, and per arm the
+  // routine's seven links and a flat hand the size of the fist's floor in the sim
+  let stoneTexture = null;
+  function stoneTex() {
+    if (stoneTexture) return stoneTexture;
+    const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+    let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    g.fillStyle = '#b8b29c'; g.fillRect(0, 0, 64, 64);
+    for (let i = 0; i < 260; i++) { const v = 150 + rnd() * 70 | 0; g.fillStyle = `rgb(${v},${v - 4},${v - 22})`; g.fillRect(rnd() * 64 | 0, rnd() * 64 | 0, 1 + rnd() * 4 | 0, 1 + rnd() * 3 | 0); }
+    g.strokeStyle = 'rgba(70,66,52,0.5)'; g.lineWidth = 1;
+    for (let i = 0; i < 6; i++) { g.beginPath(); let x = rnd() * 64, y = rnd() * 64; g.moveTo(x, y); for (let k = 0; k < 4; k++) { x += rnd() * 12 - 6; y += rnd() * 12 - 6; g.lineTo(x, y); } g.stroke(); }
+    stoneTexture = new THREE.CanvasTexture(c); stoneTexture.wrapS = stoneTexture.wrapT = THREE.RepeatWrapping;
+    return stoneTexture;
+  }
+  function buildRrStatue(b) {
+    const stone = new THREE.MeshLambertMaterial({ map: stoneTex(), color: 0xd0cab4 }), seam = new THREE.MeshLambertMaterial({ color: 0x77735f });
+    const g = new THREE.Group(), U = 1 / 32, V = b.vs / 32, floor = Sim.floorAt(L, b.x, b.z + 0.5);
+    const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m; };
+    const bodyH = Math.max(0.5, b.cruise - floor - 0.15);   // behind the arena's edge (the sim has no wall for it)
+    add(new THREE.CylinderGeometry(0.95, 1.15, bodyH, 12), stone, b.x, floor + bodyH / 2, b.z - 0.25);
+    add(new THREE.CylinderGeometry(1.0, 1.0, 0.16, 12), seam, b.x, floor + bodyH - 0.1, b.z - 0.25);
+    const span = b.armX[1] - b.armX[0];
+    add(new THREE.BoxGeometry(span, 0.5 * b.vs, 0.7), stone, (b.armX[0] + b.armX[1]) / 2, b.root[0] - 0.1, b.root[1] - 0.5);
+    for (const x of b.armX) add(new THREE.SphereGeometry(0.5, 14, 10), stone, x, b.root[0], b.root[1]);
+    const cap = add(new THREE.SphereGeometry(1.05, 18, 9, 0, Math.PI * 2, 0, Math.PI / 2), stone, b.x, b.cap, b.z);
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 0.14, 18), seam); cap.add(rim);
+    const linkGeo = new THREE.SphereGeometry(0.3, 10, 8);
+    const arms = [0, 1].map(() => {
+      const links = Array.from({ length: 7 }, () => add(linkGeo, stone, 0, 0, 0));
+      // the hand: a palm the size of the fist's floor (24 x 38 units, 28 high) and four fingers to the south
+      const hand = new THREE.Group(), ph = 28 * V;
+      const palm = new THREE.Mesh(new THREE.BoxGeometry(24 * U, ph, 30 * U), stone); palm.position.set(0, -ph / 2, -4 * U); hand.add(palm);
+      for (let k = 0; k < 4; k++) {
+        const f = new THREE.Mesh(new THREE.BoxGeometry(5 * U, ph * 0.55, 9 * U), stone); f.position.set((k - 1.5) * 6 * U, -ph * 0.7, 15 * U); hand.add(f);
+      }
+      g.add(hand); return { links, hand };
+    });
+    levelGroup.add(g);
+    return { g, cap, arms };
+  }
+  function buildBossPod() {
     if (romOn()) {   // the original's own pod and ball
       const pod = new THREE.Sprite(romBossMat(0x48, 0, 128, 100)); pod.center.set(0.5, 1 - 100 / 128); pod.scale.set(128 * 0.025, 128 * 0.025, 1);
       const ball = new THREE.Sprite(romBossMat(0x50, 0, 64, 40)); ball.center.set(0.5, 1 - 40 / 64); ball.scale.set(64 * 0.025, 64 * 0.025, 1);
@@ -759,16 +807,24 @@
     if (!b || !o) return;
     o.g.position.set(b.x, b.y, b.z);
     o.g.visible = (b.dead < 0 || b.dead < 2 || Math.floor(t * 20) % 2 === 0) && !(b.cool > 0 && Math.floor(t * 16) % 2);
-    const bl = b.ball;
+    if (o.rr) {   // the cap over the pod, the arms where the routine puts them
+      o.rr.cap.position.y = b.cap + 0.95 * b.vs;
+      o.rr.arms.forEach((a, k) => {
+        const A = Sim.rrArm(b, k), U = 1 / 32;
+        a.links.forEach((m, i) => m.position.set(A.links[i][0], A.links[i][1], A.links[i][2]));
+        a.hand.position.set(A.fist[0] + 8 * U, A.fist[1] - b.vs / 32, A.fist[2] + 17 * U);
+      });
+    }
+    const bl = b.ball || { x: b.x, y: b.y, z: b.z, state: 'none' };
     if (o.pod) {   // frames 0-7 while whole, 9-11 cracked as its hits run out
       const left = b.hp - b.hits;
       o.pod.material = romBossMat(0x48, left <= 3 && b.hits ? 9 + (3 - Math.max(1, left)) : Math.floor(t * 8) % 8, 128, 100);
-      o.ball.material = romBossMat(0x50, Math.floor(t * 12) % 8, 64, 40);
+      if (b.ball) o.ball.material = romBossMat(0x50, Math.floor(t * 12) % 8, 64, 40);
     } else {
       o.lamp.material.color.setHex(b.cool > 0 && Math.floor(t * 16) % 2 ? 0xffffff : 0xff3020);
       o.rotors.forEach((r, k) => { r.rotation.y = t * 30 + k; });
     }
-    o.ball.position.set(bl.x, bl.y + (o.rom ? 0.3 : 0.45), bl.z);
+    if (b.ball) o.ball.position.set(bl.x, bl.y + (o.rom ? 0.3 : 0.45), bl.z);
     o.links.forEach((l, i) => { l.visible = bl.state === 'held'; l.position.set(b.x, b.y - (i + 1) * 0.3, b.z); });
     if (b.dead >= 0) for (let q = 0; q < puffSprites.length; q++) {
       const s = puffSprites[q], k = (t * 3 + q * 0.37) % 1;
@@ -1315,6 +1371,13 @@
       let d = Math.atan2(-p.vx, -p.vz) - yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
       yaw += d * Math.min(1, dt * 1.6 * Math.min(1, (sp - Sim.P.run) / 8));
     }
+    // a boss: swing round behind the player so it stays in front (gently, and not when it is right overhead)
+    const bo = world.boss && world.boss.dead < 0 ? world.boss : null;
+    if (bo && !looking) {
+      const bd = Math.hypot(fx - bo.x, fz - bo.z);
+      let d = Math.atan2(fx - bo.x, fz - bo.z) - yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+      yaw += d * Math.min(1, dt * 1.2 * Math.min(1, Math.max(0, bd - 1.5) / 2));
+    }
     // Mario 64 style obstacle handling: stay inside the level, rise to look over walls,
     // swing toward open space, and only pull in close as a last resort.
     let best = roomAt(yaw, view.pitch, fx, focusY, fz), pitchUse = view.pitch;
@@ -1339,6 +1402,9 @@
     if (Number.isFinite(floorHere) && view.pos.y < floorHere + 0.4) view.pos.y = floorHere + 0.4;
     chaseCam.position.copy(view.pos);
     view.look.set(fx, focusY - 0.15, fz);
+    if (bo) {   // and tilt up towards it, so a boss overhead is in the picture
+      view.look.x += (bo.x - fx) * 0.3; view.look.z += (bo.z - fz) * 0.3; view.look.y += Math.max(0, bo.y - focusY) * 0.45;
+    }
     chaseCam.lookAt(view.look);
     view.target.set(fx, focusY, fz);
   }

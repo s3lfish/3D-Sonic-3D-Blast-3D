@@ -49,7 +49,8 @@ untested.
   trampolines, sinking slabs, teleport pads, maces, flamethrowers, and the original's own scripted rides through
   tunnels and arches.
 - Monitors show their icon and give rings, a shield, a gold shield, invincibility, speed shoes or a 1-up.
-- The Green Grove boss, moving as the original's routine moves it (five hits from above).
+- The Green Grove and Rusty Ruin bosses, moving as the original's routines move them: in Rusty Ruin, ride a stone
+  fist up after it slams and jump at the pod.
 - Mines, Turrets, chasing enemies, Hunters with their circling spike balls, and superchargers (stand on one and press jump).
 - The original's act results screen, then the next act.
 - With your own Sonic Jam (Saturn) disc image (.chd, .iso, .bin, .img, .mdf, .nrg, .ecm, or zipped): a 3D Sonic using the Saturn game's own model, textures and moves
@@ -58,7 +59,7 @@ untested.
 - With your ROM: the original music and sound effects, played by an emulated Mega Drive sound chip running the
   game's own sound program from your ROM. Without a ROM: simple sound effects made in the browser. M turns sound off.
 
-Not done yet: section gimmicks after Rusty Ruin 2 (lifts, tubes, slides, objects that change the map), bosses. See `re/NOTES.md` for what is known and what is not.
+Not done yet: section gimmicks after Rusty Ruin (lifts, tubes, slides, objects that change the map), bosses after Rusty Ruin. See `re/NOTES.md` for what is known and what is not.
 
 ## Working on it
 
