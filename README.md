@@ -85,7 +85,8 @@ untested.
   steel grating over a river, rings to collect, spiked balls to dodge and steps to jump, gates that want 50, 100 and
   150 rings, and a Chaos Emerald at the end. With all seven, the Final Fight follows Panic Puppet 3.
 - Three lives, 1-ups from monitors; a death puts the act back as it was (rings, enemies, monitors) and you start
-  again at the last big ring, as in the original.
+  again at the last big ring, as in the original. Ten Sonic heads (often high over a spring) make a continue; with
+  no continue left it is game over.
 - The original's act results screen, with its own bonuses, then the next act.
 - With your own Sonic Jam (Saturn) disc image (.chd, .iso, .bin, .img, .mdf, .nrg, .ecm, or zipped): a 3D Sonic using the Saturn game's own model, textures and moves
   (including his skid), and Sonic World's palm trees, springs, big ring and Flickies in place of the flat sprites.

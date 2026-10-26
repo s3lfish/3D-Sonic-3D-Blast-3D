@@ -23,7 +23,7 @@ KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 
          0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall',
          0x7C: 'sprinkler', 0x6C: 'pylon', 0x78: 'movePlat', 0x70: 'prop', 0x74: 'prop',
          0x178: 'enemy', 0x19C: 'capsule', 0x194: 'lever', 0x184: 'prop', 0x17C: 'enemy', 0x180: 'beamPost', 0x18C: 'jetLift',
-         0x15C: 'friend', 0x160: 'friend'}
+         0x15C: 'friend', 0x160: 'friend', 0x44: 'head'}
 PROP_FRAME = {0x70: 6, 0x74: 0, 0x184: 7}
 PATROL = {0x100, 0x108, 0x5C, 0x178}   # half a unit a frame (measured; see s3d.js)
 MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']
@@ -288,6 +288,9 @@ def convert(rom, level_id, vscale=1.0):
             e.update({"x0": jround((x - 1) / CELL - x0, 3), "x1": jround((x - 1 + sx) / CELL - x0, 3), "z0": jround((z - 1) / CELL - z0, 3), "z1": jround((z - 1 + sz) / CELL - z0, 3),
                       "y0": jround((a + 8) / CELL * vscale, 3), "y1": jround((b + 8) / CELL * vscale, 3)})
         if kind == 'fireSpot': e["y"] = jround((y_obj + 8) / CELL * vscale, 3)
+        if kind == 'head':   # see s3d.js
+            c = struct.unpack('>H', r[0x24:0x26])[0]
+            e["y"] = jround((y_obj + 8) / CELL * vscale, 3); e["cell"] = [((c & 0xFF) >> 1) - x0, (c >> 8) - z0]
         if kind == 'friend':   # see s3d.js
             e["who"] = 'tails' if t == 0x15C else 'knuckles'; e["y"] = jround((y_obj + 8) / CELL * vscale, 3)
             sh = gm.get('friends', {}).get(e["who"])

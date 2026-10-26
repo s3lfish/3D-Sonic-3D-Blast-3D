@@ -689,6 +689,10 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   ($0A92) kept; the friends' counts kept; $068A says what the act's routine had done (shown friends, broken walls).
 - Lives under 0: with continues ($06AA, one for every ten 044 heads, 0x18124) the continue screen (0x1E68E) and the
   act again from its start with 3 lives; without, game over.
+- 044 Sonic heads (0x18086, art 0x3E5C8, 16 frames turning, palette line 2): taken when Sonic's cell is word +0x24
+  and his y is from 40 under the record's to 6 over (or by a following Flicky in that cell within 34; not modelled),
+  sound 0x68; the tenth (count $06AC) gives a continue (sound 0xAC on both channels), nine at most. 39 in the game,
+  most 160 to 256 units over the floor, over springs.
 - The return from a special stage goes through the same reload with Sonic at $0686/$0688 (where he was), facing
   0x700, and $0A92 from $068C.
 

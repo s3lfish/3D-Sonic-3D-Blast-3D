@@ -1156,6 +1156,13 @@ test('a death reloads the act: rings, enemies and monitors are back; the player 
   assert.ok(w.events.includes('respawn') && w.deaths === 1, 'died');
   assert.ok(!w.rings[0].got && w.enemies[0].alive && !w.monitors[0].broken && w.ringCount === 0, 'all back');
 });
+test('Sonic heads: taken in their cell from 40 units under them to 6 over', () => {
+  const w = FLAT([{ type: 'head', x: 5.5, z: 2.5, y: 3, cell: [5, 2] }]);
+  place(w, 5.5, 2.5); Sim.step(w, {});
+  assert.ok(!w.heads[0].got, 'too far under');
+  Object.assign(w.p, { y: 3 - 30 / 32, grounded: false, vy: 0 }); Sim.step(w, {});
+  assert.ok(w.heads[0].got && w.events.includes('head'), 'taken in reach');
+});
 // a special stage of my own: a straight track 64 wide, a step up of 40 at distance 200, rings, a spiked ball, a gate
 // at 900 wanting 50, the emerald at 1200
 function bonusData(rings) {

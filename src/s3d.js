@@ -301,7 +301,8 @@ const S3D = (() => {
     0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall',
     0x7C: 'sprinkler', 0x6C: 'pylon', 0x78: 'movePlat', 0x70: 'prop', 0x74: 'prop',
     0x178: 'enemy', 0x19C: 'capsule', 0x194: 'lever', 0x184: 'prop', 0x17C: 'enemy', 0x180: 'beamPost', 0x18C: 'jetLift',
-    0x15C: 'friend', 0x160: 'friend' };   // Tails and Knuckles (0xCF1E: fifty rings in all open a special stage)
+    0x15C: 'friend', 0x160: 'friend',   // Tails and Knuckles (0xCF1E: fifty rings in all open a special stage)
+    0x44: 'head' };   // Sonic heads (0x18086): ten make a continue
   // drawn only: Gene Gadget's doors (070, frame 0x18 / 4 shut) and pads (074); Panic Puppet's door (184, frame 7 shut,
   // opened while the key of the gate beside it is held)
   const PROP_FRAME = { 0x70: 6, 0x74: 0, 0x184: 7 };
@@ -558,6 +559,10 @@ const S3D = (() => {
           y0: r3((s16(ob, o + 0x24) + 8) / CELL * vscale), y1: r3((s16(ob, o + 0x26) + 8) / CELL * vscale) });
       }
       if (kind === 'fireSpot') e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
+      if (kind === 'head') {   // taken in the cell at word +0x24 by a player from 40 units under it to 6 over
+        const c = u16(ob, o + 0x24);
+        e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); e.cell = [((c & 0xFF) >> 1) - x0, (c >> 8) - z0];
+      }
       if (kind === 'friend') {   // hidden until the act's routine shows it (see GIMMICKS' friends)
         e.who = t === 0x15C ? 'tails' : 'knuckles'; e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
         const sh = (gm.friends || {})[e.who];
@@ -1152,7 +1157,7 @@ const S3D = (() => {
       armGo: [0x5A], armRise: [0xC3], armSlam: [0x81], armOpen: [0x92], armDown: [0x54], blast: [0x59] /* Panic Puppet 3's routine */,
       ffDoor: [0xB8], ffBeep: [0xAD], timeUp: [0x78], ffAway: [0x60], ffHum: [0xC6], ffReady: [0x9D], laser: [0x5E], ffRise: [0xD0],
       ffSink: [0x73], ffLetGo: [0xB6], ffAim: [0x53], ffSlam: [0x5F], ffTarget: [0x51] /* Final Fight's routine */,
-      friend: [0xB0] /* 0xCF1E */, bonusFail: [0xB2], gate: [0x63], emerald: [0x1A], emeraldNo: [0x19], bonusRise: [0x6A] /* the special stage */ },
+      friend: [0xB0] /* 0xCF1E */, head: [0x68], continue: [0xAC] /* 0x18086 */, bonusFail: [0xB2], gate: [0x63], emerald: [0x1A], emeraldNo: [0x19], bonusRise: [0x6A] /* the special stage */ },
     power: { shield: 0x3A, gold: 0x3F, oneup: 0x19 /* 0xC19C */ },
   };
   // Special stages (entry 0x1E218, set up by 0x1C2AA): table 0x1CA94, 14 entries of 24 bytes [look (1: stone over

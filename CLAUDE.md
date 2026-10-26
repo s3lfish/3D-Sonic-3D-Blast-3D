@@ -295,8 +295,10 @@ serves index.html from main.
 - 2026-10-27: lives (game.js `lives`, HUD `#livesHud`: 3, a 1-up monitor or a special stage won with all seven adds
   one, 9 at most; none left: "Game over", the act again with 3); a death reloads the act (Sim `death`: rings, enemies,
   monitors, mines and capsules back, Flickies not in a ring gone; `reloadAct`, also after a special stage with the player
-  where he was). Act bonuses as the original's.
-- Open (2026-10-27): continues (the original's $06AA from ten 044 heads; ours: endless); SS objects 13C/140/154; what (86, 74) does after DD1's sled; PP1's belt reversal animation; FF hatch and pad frames;
+  where he was). Act bonuses as the original's. Sonic heads 044 (`head` {y, cell}: taken in its cell from 40 units
+  under to 6 over; 39 in all, most over springs; art 0x3E5C8 line 2 or our hero's face): ten make a continue (game.js
+  `heads`, `continues`); out of lives: a continue restarts the act, else game over and the first act.
+- Open (2026-10-27): SS objects 13C/140/154; what (86, 74) does after DD1's sled; PP1's belt reversal animation; FF hatch and pad frames;
   the Jam Flicky body is a flat quad (edge-on from the side).
 - 2026-10-27: Tails and Knuckles (`friend` {who, y, show}: hidden until `show` {section | cell [x, z] + maxY | cannon};
   0xCF1E's gift: `w.friendRings` per act, `p.friend` walk, `bonusIn` when a gift passes 50) and the special stage:

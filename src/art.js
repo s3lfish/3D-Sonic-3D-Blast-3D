@@ -316,5 +316,15 @@ const Art = (() => {
     shaky(ctx, R, [[cx + 30, cy - 4], hand], 6); blob(ctx, R, hand[0], hand[1], 8, 8, body, 0.3, 4);
     return c;
   }
-  return { hero, ring, palm, bush, flower, spring, sky, tile, water, enemy, monitor, goal, flicky, pal };
+  // a token of our hero's face (ten of them make a continue)
+  function head(boil) {
+    const { c, ctx } = makeCanvas(64, 64), R = rng(9100 + boil * 7);
+    blob(ctx, R, 32, 36, 22, 22, BLUE, 0.12, 5);
+    shaky(ctx, R, [[32, 14], [36, 6]], 3); blob(ctx, R, 42, 6, 8, 4, LEAF, 0.3, 3);
+    blob(ctx, R, 26, 32, 7, 8, '#ffffff', 0.15, 3); blob(ctx, R, 40, 33, 5, 6, '#ffffff', 0.15, 3);
+    blob(ctx, R, 27, 33, 2.5, 3, INK, 0.2, 0); blob(ctx, R, 41, 34, 2, 2.5, INK, 0.2, 0);
+    shaky(ctx, R, [[24, 46], [32, 50], [41, 45]], 3);
+    return c;
+  }
+  return { hero, ring, palm, bush, flower, spring, sky, tile, water, enemy, monitor, goal, flicky, pal, head };
 })();

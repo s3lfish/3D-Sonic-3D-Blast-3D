@@ -85,6 +85,7 @@
   const tileTex = tex(Art.tile()); tileTex.wrapS = tileTex.wrapT = THREE.RepeatWrapping;
   const waterTex = tex(Art.water()); waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping;
   const spriteMat = cnv => new THREE.SpriteMaterial({ map: tex(cnv), alphaTest: 0.5 });
+  const headMats = [0, 1, 2].map(b => spriteMat(Art.head(b)));
   const palMats = new Map(), palMat = (kind, phase, boil) => { const k = kind * 100 + phase * 10 + boil; if (!palMats.has(k)) palMats.set(k, spriteMat(Art.pal(kind, phase, boil))); return palMats.get(k); };
   const ringMats = [0, 1, 2].map(b => spriteMat(Art.ring(b)));
   const springMats = [spriteMat(Art.spring(false)), spriteMat(Art.spring(true))];
@@ -424,6 +425,8 @@
       tick: () => tone('square', 2200, 2200, 0.03, 0.12),
       skid: () => noise(0.25, 0.35, 900),
       friend: () => arp([659, 784, 988], 0.06, 'triangle', 0.3),
+      head: () => tone('square', 880, 1320, 0.1, 0.2),
+      continue: () => arp([523, 659, 784, 1047, 1319], 0.08, 'square', 0.25),
       gate: () => arp([784, 988, 1175, 1568], 0.06, 'triangle', 0.3),
       emerald: () => arp([523, 784, 1047, 1319, 1568, 2093], 0.09, 'triangle', 0.35),
       emeraldNo: () => arp([523, 784, 1047, 1319], 0.09, 'triangle', 0.3),
@@ -794,7 +797,7 @@
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
-  let sprinklerObjs = [], pylonObjs = [], zapObjs = [], beamObjs = [], capsuleObjs = [], leverObjs = [], beamPostObjs = [], friendObjs = [], friendBubble = null;
+  let sprinklerObjs = [], pylonObjs = [], zapObjs = [], beamObjs = [], capsuleObjs = [], leverObjs = [], beamPostObjs = [], friendObjs = [], friendBubble = null, headObjs = [];
   // Panic Puppet 2's beam posts (180): the frame shown in each of the 24 animation steps (list 0x16030, frame offsets / 4)
   const BEAM_FRAMES = [4, 4, 4, 4, 3, 3, 3, 2, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3];
   let rockObjs = [], jetObjs = [], moverObjs = [], spikeBallObjs = [], fireObjs = [], fireballObjs = [], iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
@@ -1488,6 +1491,10 @@
     // Panic Puppet's Flicky capsules (19C: the original's frame) or a glass jar of our own with the bird inside; gone once
     // broken. Levers (194) at the middle of their switch cells: frame 0 for 0, 7 for 1, swung in between; or a post and a
     // knob of our own tilted the way the belt goes
+    // Sonic heads (object art 0x3E5C8, 16 frames turning, palette line 2) or tokens of our hero's face
+    headObjs = world.heads.map(h => rom ? bottomSprite(romBossMat(0x44, 0, ROM_CANVAS, 80, 2), h.x, h.y, h.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT)
+      : bottomSprite(headMats[0], h.x, h.y, h.z, 0.6, 0.6, 0.04));
+    headObjs.forEach(s => { s.userData = { rom }; });
     // Tails and Knuckles: their own frames from the ROM (palette line 2), or our two pals; a bubble shows the rings
     // given while one takes them
     friendObjs = world.friends.map(f => {
@@ -2561,11 +2568,26 @@
   // lives (the original's $0680: three at the start of a game, a 1-up monitor adds one, nine at most; a special stage
   // won with all seven emeralds adds one). With none left the act starts again from its beginning with three (the
   // original's continue, without the count of continues)
-  let lives = 3;
+  // Ten Sonic heads make a continue ($06AC, $06AA, nine at most); with lives gone a continue starts the act again with
+  // three; without one it is game over, and the game starts again at the first act (ROM levels; others: the act)
+  let lives = 3, heads = 0, continues = 0;
   function setLives(n) { lives = n; $('livesCount').textContent = String(Math.max(0, n)); }
+  function gotHead() {
+    if (++heads < 10) { toast(`Head ${heads} of 10 for a continue.`, 1.5); return; }
+    heads = 0; continues = Math.min(9, continues + 1); Sfx.play('continue'); toast(`A continue! (${continues})`, 2.5);
+  }
   function gameOver() {
-    $('clearTitle').textContent = 'Game over'; $('clearInfo').textContent = 'The act starts again.'; $('clearCard').hidden = false;
-    clearTimeout(clearTimer); clearTimer = setTimeout(() => { clearCardOff(); restart(); setLives(3); }, 3000);
+    const cont = continues > 0;
+    if (cont) continues--;
+    $('clearTitle').textContent = cont ? 'Continue' : 'Game over';
+    $('clearInfo').textContent = cont ? `The act starts again.${continues ? ` ${continues} more.` : ''}` : (L.rom && romBytes ? 'Back to the first act.' : 'The act starts again.');
+    $('clearCard').hidden = false;
+    clearTimeout(clearTimer); clearTimer = setTimeout(() => {
+      clearCardOff(); setLives(3);
+      if (cont || !(L.rom && romBytes)) { restart(); return; }
+      try { const first = S3D.LEVELS[0], raw = S3D.convert(romBytes, first[0], L.rom.vscale); useLevel(Sim.importLevel(raw), true); store.set(LEVEL_KEY, JSON.stringify(raw)); $('romLevel').value = String(first[0]); toast(first[1], 2.5); }
+      catch (err) { restart(); }
+    }, 3000);
   }
   function showEmeralds() { const n = emeraldCount(); $('emeraldHud').hidden = !n; $('emeraldCount').textContent = String(n); }
   showEmeralds();
@@ -2658,6 +2680,7 @@
         if (lives < 0) gameOver(); else toast(lives ? `${lives} ${lives === 1 ? 'life' : 'lives'} left.` : 'Last life.', 1.6);
       }
       if (world.events.includes('monitor') && world.power === 'oneup') setLives(Math.min(9, lives + 1));
+      if (world.events.includes('head')) gotHead();
       for (const ev of world.events) Sfx.play(ev);
       if (world.p.charge > 0 && !wasCharging) Sfx.play('charge');
       wasCharging = world.p.charge > 0;
@@ -2865,6 +2888,12 @@
     // Panic Puppet: capsules gone once broken; levers swing a frame every 3 ticks to their value; doors slide into the
     // floor while their gate is open
     capsuleObjs.forEach((o, q) => { o.visible = world.capsules[q].alive; });
+    headObjs.forEach((o, q) => {
+      const h = world.heads[q]; o.visible = !h.got;
+      if (!o.visible) return;
+      if (o.userData.rom) o.material = romBossMat(0x44, Math.floor(t * 12 + q * 5) % 16, ROM_CANVAS, 80, 2);
+      else { o.material = headMats[Math.floor(t * 8) % 3]; o.scale.x = 0.6 * Math.abs(Math.cos(t * 2.2 + q)); }
+    });
     // the friends: Tails runs through his frames, Knuckles stands and now and then goes through his (our cycles; the
     // original's scripts at 0x16216 and 0x162CA also wait on a wave of its own)
     let giving = null;
