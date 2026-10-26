@@ -1245,7 +1245,7 @@ const Sim = (() => {
         case 'ring':
           if (e.absY !== undefined) {
             if (!Number.isFinite(e.absY) || !inBounds(e.x, e.z)) { errs.push(`A ring at (${e.x}, ${e.z}) needs a position on the map and a numeric "absY".`); break; }
-            L.entities.push({ type: 'ring', x: e.x, z: e.z, y: e.absY });
+            L.entities.push({ type: 'ring', x: e.x, z: e.z, y: e.absY, scr: Number.isInteger(e.scr) ? e.scr : undefined });
           } else ringAt(e.x, e.z, y, 0);
           break;
         case 'enemy': case 'monitor': case 'goal': {
@@ -1891,8 +1891,29 @@ const Sim = (() => {
       if (d > 8) { p.x -= 1 / 32; p.z += 1 / 32; } else if (d < -8) { p.x += 1 / 32; p.z -= 1 / 32; }
     }
     let i = Math.floor(p.x), j = Math.floor(p.z), nx = 0, nz = 0, hit = false;
-    if (i !== ci && tileTopNear(L, i, cj, p.x, oz, air) > lim) { p.x = i > ci ? ci + 1 - E : ci; nx = _ax[0] = i > ci ? -1 : 1; hit = true; i = ci; _ax[2] = 1; }
-    if (j !== cj && tileTopNear(L, i, j, p.x, p.z, air) > lim) { p.z = j > cj ? cj + 1 - E : cj; nz = _ax[1] = j > cj ? -1 : 1; hit = true; _ax[2] = 1; }
+    let bx = false, bz = false;
+    if (L.rom && i !== ci && j !== cj) {
+      // (0x3C32..0x406A: across a corner the cell it ends in is tried first, at the point; then the cell z alone would
+      // reach, then x alone, each by its corner nearest the way he goes; else both stop)
+      const cornerTop = (ii, jj, c) => {
+        if (ii < 0 || jj < 0 || ii >= L.width || jj >= L.depth) return Infinity;
+        const t = jj * L.width + ii;
+        if (L.coll[t] === 'P') return -Infinity;
+        if (L.coll[t] === 'W') return air ? -Infinity : Infinity;
+        if (L.up && L.up.has(t)) return L.up.get(t);
+        return L.corners[t * 4 + c];
+      };
+      const E_ = i > ci, S_ = j > cj;   // corners: 0 NW, 1 NE, 2 SE, 3 SW
+      if (tileTopNear(L, i, j, p.x, p.z, air) <= lim) { /* through */ }
+      else if (cornerTop(ci, j, S_ ? (E_ ? 1 : 0) : (E_ ? 2 : 3)) <= lim) bx = true;
+      else if (cornerTop(i, cj, E_ ? (S_ ? 3 : 0) : (S_ ? 2 : 1)) <= lim) bz = true;
+      else bx = bz = true;
+    } else {
+      bx = i !== ci && tileTopNear(L, i, cj, p.x, oz, air) > lim;
+      bz = j !== cj && tileTopNear(L, bx ? ci : i, j, p.x, p.z, air) > lim;
+    }
+    if (bx) { p.x = i > ci ? ci + 1 - E : ci; nx = _ax[0] = i > ci ? -1 : 1; hit = true; i = ci; _ax[2] = 1; }
+    if (bz) { p.z = j > cj ? cj + 1 - E : cj; nz = _ax[1] = j > cj ? -1 : 1; hit = true; _ax[2] = 1; }
     if (!L.rom && L.diag && L.diag.size && !(p.flyT > 0)) {
       const r = P.rDiag, i0 = Math.floor(p.x - r), i1 = Math.floor(p.x + r), j0 = Math.floor(p.z - r), j1 = Math.floor(p.z + r);
       for (let jj = j0; jj <= j1; jj++) for (let ii = i0; ii <= i1; ii++) {
@@ -2045,7 +2066,7 @@ const Sim = (() => {
   function createWorld(L) {
     const w = {
       L, time: 0, ringCount: 0, deaths: 0, events: [],
-      rings: L.entities.filter(e => e.type === 'ring').map(e => ({ x: e.x, y: e.y, z: e.z, got: false, gotAt: 0 })),
+      rings: L.entities.filter(e => e.type === 'ring').map(e => ({ x: e.x, y: e.y, z: e.z, got: false, gotAt: 0, scr: e.scr })),
       springs: L.entities.filter(e => e.type === 'spring').map(e => ({ x: e.x, y: e.y, z: e.z, power: e.power, cool: 0, firedAt: -9, skin: e.skin, raised: e.raised })),
       enemies: [], monitors: [], goals: [], loose: [], ringOut: 0, ringAng: 0, cleared: false, section: 0, spawn: null,
       holes: L.entities.filter(e => e.type === 'hole'),
@@ -4228,8 +4249,22 @@ const Sim = (() => {
 
     // rings
     const py = p.y + 0.45, r2 = P.ringR * P.ringR;
+    // (converted levels, 0x1A03C: in the ring's cell, x and z within it at most 16 apart, and his picture y, (x + z) / 2
+    // - y, from 16 over to 24 under the ring's base's (`scr`))
+    let RX, RZ, RY;
+    if (L.rom && L.phys.orig) {
+      const o = L.rom.origin, S = 65536, X = Math.round((p.x + o[0]) * 32 * S), Z = Math.round((p.z + o[1]) * 32 * S);
+      RX = Math.floor(X / S); RZ = Math.floor(Z / S);
+      RY = Math.floor((Math.floor((X + Z) / 2) - Math.floor(p.y * 32 / L.rom.vscale - 8 + 1e-6) * S) / S);
+    }
     for (const g of w.rings) {
       if (g.got) continue;
+      if (RY !== undefined && g.scr !== undefined) {
+        if (Math.floor(p.x) !== Math.floor(g.x) || Math.floor(p.z) !== Math.floor(g.z)) continue;
+        const d = RY - g.scr;
+        if (Math.abs((RX & 31) - (RZ & 31)) > 16 || d < -16 || d > 24) continue;
+        g.got = true; g.gotAt = w.time; w.ringCount++; w.events.push('ring'); continue;
+      }
       const dx = g.x - p.x, dy = g.y - py, dz = g.z - p.z;
       if (dx * dx + dy * dy + dz * dz < r2) { g.got = true; g.gotAt = w.time; w.ringCount++; w.events.push('ring'); }
     }
@@ -6282,7 +6317,8 @@ const S3D = (() => {
       const cx = (f >> 1) % 128, cz = (f >> 1) >> 7;
       if (cx < x0 || cx > x1 || cz < z0 || cz > z1) continue;
       const yWorld = (a & 0x7FFF) - Math.abs(c) + RING_HOVER;
-      ents.push({ type: 'ring', x: cx + 0.5 - x0, z: cz + 0.5 - z0, absY: Math.round(yWorld / CELL * vscale * 1e4) / 1e4 });
+      // (scr: |screen y of its base|, which the original's catch test reads; see Sim's rings)
+      ents.push({ type: 'ring', x: cx + 0.5 - x0, z: cz + 0.5 - z0, absY: Math.round(yWorld / CELL * vscale * 1e4) / 1e4, scr: Math.abs(c) });
     }
     // start: the start table (where the emulator's Sonic stands at every act's start), else the start object (030:
     // not where the game starts Sonic in ten acts), else the floor cell nearest the middle

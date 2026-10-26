@@ -700,6 +700,13 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   adds (target - it) asr 3, at most $083E / $0840 (8) each way (0 when $0A36), then kept in $0842..$0846 (0..0x1EA0)
   and $0844..$0848 (0..0xF20). Act start: lead at its target, scroll = (point + lead) & ~7. Exact over a 729-frame
   GG1 trace. Sonic's $38 = high word of (x - z) + 0x1000, $3A = high word of ((x + z) asr 1 - y's whole part).
+- Rings (list $E608, 10-byte records as in the level block: +0 sort key, +4 screen y of the base (sign: which way it
+  was found), +8 cell; routine 0x19EAA each frame for rings on screen): caught when Sonic's cell $8C is the ring's,
+  (x & 31) and (z & 31) differ by at most 16, and $3A - |+4| is -16..24 (sound 0x33). Exact on a GG1 trace.
+- Point walls across a corner (jump table 0x3C1A by the cell change): the cell reached at the point first (floor 9
+  or more over his whole-unit y blocks; no floor blocks); else the cell z alone reaches, by its corner on the near side
+  toward x's way ($8C moves in z, x stops at the cell edge), else x alone by its corner toward z's way, else both stop
+  at the old cell's edges.
 - Object dispatcher 0x1BE72: records from $CCD2 (0x34 each; +0x12/+0x14 its picture point = x - z + 0x1000 + ox and
   (x + z) / 2 - y + oy, ox/oy from its art header at +0x30 = table 0x280E8 by type: [width, height, ox, oy]); it runs
   the handler only while (point - scroll) unsigned is at most width (x) and height (y).

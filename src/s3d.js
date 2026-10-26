@@ -990,7 +990,8 @@ const S3D = (() => {
       const cx = (f >> 1) % 128, cz = (f >> 1) >> 7;
       if (cx < x0 || cx > x1 || cz < z0 || cz > z1) continue;
       const yWorld = (a & 0x7FFF) - Math.abs(c) + RING_HOVER;
-      ents.push({ type: 'ring', x: cx + 0.5 - x0, z: cz + 0.5 - z0, absY: Math.round(yWorld / CELL * vscale * 1e4) / 1e4 });
+      // (scr: |screen y of its base|, which the original's catch test reads; see Sim's rings)
+      ents.push({ type: 'ring', x: cx + 0.5 - x0, z: cz + 0.5 - z0, absY: Math.round(yWorld / CELL * vscale * 1e4) / 1e4, scr: Math.abs(c) });
     }
     // start: the start table (where the emulator's Sonic stands at every act's start), else the start object (030:
     // not where the game starts Sonic in ten acts), else the floor cell nearest the middle

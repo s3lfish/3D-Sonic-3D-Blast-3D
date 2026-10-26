@@ -254,6 +254,10 @@ serves index.html from main.
     objects with a window (`win` [w, h, x, y, record y] from the type's art header, table 0x280E8; dispatcher 0x1BE72)
     run only while their picture point less the scroll is inside it (`onScreen`); without `win`, round Sonic. The iso
     view on converted levels, unturned, centres on the original's picture (game.js `updateIso`).
+  * Rings (0x1A03C): caught in their own cell when x and z there are at most 16 apart and his picture y ((x + z) / 2
+    - y) is 16 over to 24 under the ring's base (`scr`, converter); the round test elsewhere.
+  * Across a corner (0x3C32..0x406A): the cell it ends in at the point, then z alone, then x alone by their nearest
+    corners, else both stop (`resolveWallsOrig`).
   * Screen speed (0x3BB2, after the diagonal pieces): a frame's move of more than 8 whole units in x - z gives back one
     unit in x and z. After a reload the pad is read again 33 frames after the 52 blank ones (`w.padWait`).
   * Animation (`origAnim`, 0x1492 → `p.anim`): kept states (hurt 8, dying 0x11), spring 0xD rising, rev 7, ball 2

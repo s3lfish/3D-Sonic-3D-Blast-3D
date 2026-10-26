@@ -931,6 +931,15 @@ test('the original\'s scroll: led by his facing, an eighth of the way a frame; o
   w.enemies[0].win = [352, 256, -400, 12, 0]; const x0 = w.enemies[0].x; run(w, 30, {}); near(w.enemies[0].x, x0, 1e-9, 'asleep off screen');
   w.enemies[0].win = [352, 256, 16, 12, 0]; run(w, 30, {}); assert.ok(w.enemies[0].X !== undefined, 'awake on screen');
 });
+test('the original\'s rings: caught in their cell, x and z there within 16, his picture y 16 over to 24 under the base', () => {
+  const at = (x, z, scr) => { const w = ROMLV(0, 0, [{ type: 'ring', x: 3.5, z: 4.5, absY: 1.5, scr }]); place(w, x, z); run(w, 1, {}); return w.ringCount; };
+  // Sonic at (112, 144) units, 1 m up: picture y (112 + 144) / 2 - 24 = 104
+  assert.strictEqual(at(3.5, 4.5, 104), 1, 'in the middle');
+  assert.strictEqual(at(3.5, 4.5, 104 + 17), 0, 'base over him');
+  assert.strictEqual(at(3.5, 4.5, 104 - 24), 1, '24 under');
+  assert.strictEqual(at(3 + 2 / 32, 4 + 30 / 32, 104), 0, 'outside the band (2 and 30 in the cell)');
+  assert.strictEqual(at(2.9, 4.5, 104), 0, 'the next cell');
+});
 test('the original\'s monitors are solid boxes: walking stops at a side, a roll or the ball onto it breaks it', () => {
   const mon = [{ type: 'monitor', x: 4.5, z: 4.5, kind: 'rings' }];
   let w = ROMLV(0, 0, mon); place(w, 3.2, 4.5); w.p.facing = Math.PI / 2;

@@ -720,7 +720,7 @@ def convert(rom, level_id, vscale=1.0):
         a &= 0x7FFF; cx, cz = (f // 2) % 128, (f // 2) // 128
         if not (x0 <= cx <= x1 and z0 <= cz <= z1): continue
         y_world = a - abs(c) + RING_HOVER
-        ents.append({"type": "ring", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "absY": jround(y_world / CELL * vscale, 4)})
+        ents.append({"type": "ring", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "absY": jround(y_world / CELL * vscale, 4), "scr": abs(c)})
     sx, sz, sdir = struct.unpack('>hhh', rom[start_tab:start_tab + 6])   # the start table first (see s3d.js)
     from_table = False
     if (sx or sz) and floor_cell(sx // CELL, sz // CELL): start = (sx / CELL, sz / CELL); from_table = True
