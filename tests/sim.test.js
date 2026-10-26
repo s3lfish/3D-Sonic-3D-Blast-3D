@@ -557,6 +557,33 @@ test('a spiked crawler rolls to the ends of its run and back, and hurts a player
   run(w, 120, (f, ww) => { if (ww.events.includes('hurt')) hurt = true; return {}; });
   assert.ok(hurt, 'hurt');
 });
+test('the Spring Stadium boss comes down, then chases the player; a spin from above hits it, a touch from below hurts; eight', () => {
+  const boss = { type: 'boss', kind: 'ss', x: 8, y: 17.75, z: 8, home: [8, 8], cruise: 5.25, arena: [2, 14, 2, 14], hp: 8, vs: 1,
+    hover: 6.25, low: 3.75, hang: 1.25, fists: [[1.188, 1.25], [-1.437, 1.25]], corners: [] };
+  const lvl = grid(Array.from({ length: 16 }, () => '4'.repeat(16)), { entities: [{ type: 'start', x: 3, z: 3 }, boss] });
+  const w = world(lvl), b = () => w.boss, U = 1 / 32;
+  w.p.inv = 1e9;
+  run(w, 399, {});
+  near(b().y, 5.25 + 1 / 32, 1e-6, 'came down to its first height'); near(b().x, 8, 1e-9, 'still till then');
+  run(w, 200, {});
+  assert.ok(Math.hypot(b().x - 3, b().z - 3) < Math.hypot(5, 5) - 1, `headed for the player (${b().x.toFixed(2)}, ${b().z.toFixed(2)})`);
+  near(b().y, 6.25, 1e-6, 'hovering');
+  // a touch from below hurts
+  const w2 = world(lvl); w2.ringCount = 5; run(w2, 500, {});
+  Object.assign(w2.p, { x: w2.boss.x, z: w2.boss.z, y: w2.boss.y - 0.5, vy: 0, grounded: false, ball: false, jumping: false });
+  let hurt = false; Sim.step(w2, {}); if (w2.events.includes('hurt')) hurt = true;
+  assert.ok(hurt, 'hurt from below');
+  // eight spins from above
+  let hits = 0;
+  for (let k = 0; k < 8; k++) {
+    for (let f = 0; f < 200 && b().cool > 0; f++) Sim.step(w, {});
+    Object.assign(w.p, { x: b().x, z: b().z, y: b().y + 0.4, vy: -1, grounded: false, ball: true, jumping: true });
+    Sim.step(w, {}); if (w.events.includes('bossHit')) hits++;
+  }
+  assert.strictEqual(hits, 8, 'eight hits'); assert.ok(b().dead >= 0, 'beaten');
+  let goal = false; run(w, 300, (f, ww) => { if (ww.events.includes('goal')) goal = true; return {}; });
+  assert.ok(goal, 'the act ends');
+});
 test('converted spike blocks (H) hurt', () => {
   const tiles = []; for (let k = 0; k < 15; k++) tiles.push({ c: [1, 1, 1, 1], t: k === 7 ? 'H' : 'F' });
   const w = world({ version: 1, format: 'tiles', width: 5, depth: 3, tiles, entities: [{ type: 'start', x: 0.5, z: 1.5 }] });
@@ -669,6 +696,20 @@ test('Spring Stadium cells: a floor spring, a bumper push, spikes after 18 frame
   assert.ok(w.p.ride, 'ride taken'); run(w, 11, {});
   assert.ok(!w.p.ride && w.p.force, 'pad held after'); run(w, 30, {});
   assert.ok(Math.hypot(w.p.vx, w.p.vz) > 12, `running on at ${Math.hypot(w.p.vx, w.p.vz)}`);
+});
+test('Spring Stadium 2: a triangle bumper bounces off its long side, a spear rises after 34 frames, a spiked wall hurts', () => {
+  const rows = Array.from({ length: 8 }, () => '4'.repeat(16));
+  const lvl = grid(rows, { entities: [{ type: 'start', x: 1.5, z: 1.5 },
+    { type: 'triBumpers', list: [{ band: 'x', b: 4, s: 4, flip: false, v: [-7.5, 7.5], along: true }] },
+    { type: 'spears', cells: [[10, 2]] }, { type: 'spikeWall', cells: [[13, 5]], top: 9 }] });
+  let w = world(lvl); place(w, 5.0, 4.6); run(w, 1, {});
+  near(w.p.vx, -7.5, 1e-9, 'bounced west'); near(w.p.vz, 7.5, 1e-9, 'and south');
+  w = world(lvl); w.ringCount = 5; place(w, 10.9, 2.5); let hurtAt = -1;
+  run(w, 70, (f, ww) => { if (hurtAt < 0 && ww.events.includes('hurt')) hurtAt = f; return {}; });
+  assert.ok(hurtAt >= 34 && hurtAt <= 50, `speared at frame ${hurtAt}`);
+  w = world(lvl); w.ringCount = 5; place(w, 13.6, 5.5); let hit = false;
+  run(w, 20, (f, ww) => { if (ww.events.includes('hurt')) hit = true; return { mx: -1 }; });
+  assert.ok(hit, 'spiked wall');
 });
 test('a balloon pops under a player, throws them up, and comes back', () => {
   const w = FLAT([{ type: 'balloon', x: 4.5, y: 2.2, z: 2.5, rise: 5.3 }]); place(w, 4.5, 2.5);

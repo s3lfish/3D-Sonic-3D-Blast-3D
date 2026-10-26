@@ -1066,6 +1066,7 @@ const Sim = (() => {
     boostSpot: 12 / 32,
     // Spring Stadium: bumpers push 5 units a frame and take the pad 20 frames; balloons (touch box estimated)
     bumpSpeed: 5 * 60 / 32, bumpLock: 20 / 60, balloonR: 0.55, balloonBack: 70 / 60,
+    spearWait: 34 / 60, spearRise: 28 / 60, fistR: 0.5,
     chaseRange: 5,      // a chasing enemy starts after a player this close
     chaseSpeed: 3,
     turretRange: 8,     // turrets fire at a player this close
@@ -1256,6 +1257,12 @@ const Sim = (() => {
           const b = { type: 'boss', kind: e.kind, x: e.x, y: e.y, z: e.z, home: e.home || [e.x, e.z], cruise: e.cruise ?? e.y,
             arena: e.arena || [0, L.width, 0, L.depth], hp: e.hp || 5, vs: e.vs || 1 };
           // Rusty Ruin 3: arm roots' x, the root [y, z], the cap's start height, the reach limits [z, z] and the script
+          // Spring Stadium 3: hover and low heights, the arms' hang, the fists' offsets [x, z] and two corners [z, x]
+          if (e.kind === 'ss') {
+            const two = v => Array.isArray(v) && v.length === 2 && v.every(Number.isFinite);
+            if (!Number.isFinite(e.hover) || !Number.isFinite(e.low) || !Array.isArray(e.fists) || !e.fists.every(two)) { errs.push('A Spring Stadium boss needs "hover", "low" and "fists".'); break; }
+            Object.assign(b, { hover: e.hover, low: e.low, hang: e.hang || 0, fists: e.fists, corners: Array.isArray(e.corners) ? e.corners.filter(two) : [] });
+          }
           if (e.kind === 'rr') {
             const two = v => Array.isArray(v) && v.length === 2 && v.every(Number.isFinite);
             if (!two(e.arms) || !two(e.root) || !two(e.reach) || !Array.isArray(e.script) || !e.script.length || !e.script.every(two)) {
@@ -1278,6 +1285,21 @@ const Sim = (() => {
             errs.push(`"${e.type}" needs "cells" inside the map${e.type === 'springCells' ? ' and a "power" from 0 to 30 m/s' : ''}.`); break;
           }
           L.entities.push({ type: e.type, cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]), power: e.power });
+          break;
+        }
+        // triangle bumpers: a list of {band 'x' or 'z', b band start, s side start, flip, v [vx, vz] m/s, along}, each a 2 m
+        // square whose triangle (side offset, from the far side if flipped, at most the band offset) bounces a player
+        case 'triBumpers': {
+          const ok = Array.isArray(e.list) && e.list.every(t => (t.band === 'x' || t.band === 'z') && Number.isFinite(t.b) && Number.isFinite(t.s) && Array.isArray(t.v) && t.v.length === 2);
+          if (!ok) { errs.push('"triBumpers" needs a list of {band, b, s, flip, v, along}.'); break; }
+          L.entities.push({ type: 'triBumpers', list: e.list.map(t => ({ band: t.band, b: t.b, s: t.s, flip: !!t.flip, v: t.v, along: !!t.along })) });
+          break;
+        }
+        // spear cells (a spear rises in the cell's east quarter when the player steps there) and a spiked wall facing
+        // east ("side" 'w': the cells' west faces), harmful under height "top"
+        case 'spears': case 'spikeWall': {
+          if (!Array.isArray(e.cells) || !e.cells.every(c => Array.isArray(c) && inBounds(c[0], c[1]))) { errs.push(`"${e.type}" needs "cells" inside the map.`); break; }
+          L.entities.push({ type: e.type, cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]), top: Number.isFinite(e.top) ? e.top : Infinity });
           break;
         }
         // a cell that keeps a held pad held a while longer ("t" seconds)
@@ -1369,7 +1391,7 @@ const Sim = (() => {
     }
     return out;
   }
-  const BOSS_KINDS = new Set(['gg', 'rr']);
+  const BOSS_KINDS = new Set(['gg', 'rr', 'ss']);
   function importLevel(raw) {
     const errs = [];
     if (!raw || typeof raw !== 'object') throw new LevelError(['The level data is not a JSON object.']);
@@ -1480,6 +1502,9 @@ const Sim = (() => {
       bumpers: new Set(L.entities.filter(e => e.type === 'bumpers').flatMap(e => e.cells.map(([cx, cz]) => cz * L.width + cx))),
       spikeCells: new Set(L.entities.filter(e => e.type === 'spikeField').flatMap(e => e.cells.map(([cx, cz]) => cz * L.width + cx))),
       holds: new Map(L.entities.filter(e => e.type === 'hold').map(e => [Math.floor(e.z) * L.width + Math.floor(e.x), e.t])),
+      tris: L.entities.filter(e => e.type === 'triBumpers').flatMap(e => e.list),
+      spearCells: new Set(L.entities.filter(e => e.type === 'spears').flatMap(e => e.cells.map(([cx, cz]) => cz * L.width + cx))),
+      spikeWall: new Map(L.entities.filter(e => e.type === 'spikeWall').flatMap(e => e.cells.map(([cx, cz]) => [cz * L.width + cx, e.top]))),
       p: null,
     };
     resetLevel(w);
@@ -1497,6 +1522,7 @@ const Sim = (() => {
     w.mines = L.entities.filter(e => e.type === 'mine').map(e => ({ x: e.x, z: e.z, y: e.y, alive: true, diedAt: -9, skin: e.skin }));
     w.crawlers = L.entities.filter(e => e.type === 'crawler').map(e => ({ ...e, dir: 1 }));
     w.balloons = L.entities.filter(e => e.type === 'balloon').map(e => ({ ...e, by: e.y, pop: 0 })); w.spike = 0;
+    w.spear = null; w.inTri = false;
     // cracked walls stand again: their cells are raised for the sim only (L.up), the floor beneath stays in L
     L.up = new Map();
     w.cracks = L.entities.filter(e => e.type === 'crack').map(e => ({ ...e, broken: false, brokeAt: -9 }));
@@ -1520,6 +1546,8 @@ const Sim = (() => {
     const b = w.L.entities.find(e => e.type === 'boss');
     w.boss = b ? { ...b, phase: 0, step: 0, t: 0, cool: 0, sub: 0, dead: -1, hits: 0,
       ball: { x: b.x, y: b.y - 40 / 32 * b.vs, z: b.z, vx: 0, vy: 0, vz: 0, state: 'held', hops: 0 } } : null;
+    if (w.boss && b.kind === 'ss') Object.assign(w.boss, { ball: null, t: 0, c: 0, target: b.cruise, hang0: b.hang, hangT: b.hang, a: 0, h: 0,
+      fistAt: b.fists.map(() => [b.x, b.y, b.z]), slam: b.fists.map(() => 0) });
     if (w.boss && b.kind === 'rr') Object.assign(w.boss, { armX: b.arms, arms: [[32, 0], [32, 0]], cur: 0, si: 0, act: 2, par: false, boxes: [null, null], ball: null });
     w.plats = [];
   }
@@ -1600,7 +1628,59 @@ const Sim = (() => {
     for (const q of w.plats) if (p.x >= q.x0 && p.x <= q.x1 && p.z >= q.z0 && p.z <= q.z1 && q.top <= p.y + up && !(q.top <= f)) f = q.top;
     return f;
   }
+  // Spring Stadium 3 (see s3d.js BOSSES): RunLevel_SSz3's moves in its units a frame; angles of 2048 a turn, 0 along
+  // +z and 512 along +x (its sine table); the generic boss check 0xF794
+  function ssStep(w) {
+    const b = w.boss, p = w.p, L = w.L, U = 1 / 32, V = b.vs / 32, T = Math.PI / 1024;
+    const attacking = p.ball || p.jumping || p.rolling || p.charge > 0;
+    if (b.cool > 0) b.cool -= P.dt;
+    else if (b.dead < 0 && Math.hypot(p.x - b.x, p.z - b.z) <= 32 * U && p.y >= b.y - 32 * V && p.y <= b.y + 64 * V) {
+      b.cool = 1;
+      if (p.y >= b.y + 8 * V && attacking) {
+        p.vx = -p.vx; p.vz = -p.vz; p.vy = 5 * 60 / 32 * b.vs; p.grounded = false; p.jumping = false; p.lock = 30 / 60;
+        b.hits++; w.events.push('bossHit'); b.t = b.c === 0x40 ? 0x4AF : 0x31F;
+        if (b.hits >= b.hp) { b.dead = 0; w.events.push('bossDown'); }
+      } else if (p.inv <= 0 && p.invuln <= 0) { hurt(w, p.x - b.x, p.z - b.z); if (w.events.includes('respawn')) return true; }
+    }
+    if (b.dead >= 0) {
+      b.dead += P.dt; b.y += V;
+      if (b.dead > 4 && !w.cleared) { w.cleared = true; w.events.push('goal'); }
+      return false;
+    }
+    b.t++;
+    if (b.t >= 0x190) {
+      if (b.t === 0x190) { b.c = 0x10; b.target = b.hover; }
+      else if (b.t === 0x320) { b.c = 0x40; b.target = b.low; b.hangT = 0; b.a &= 0x7C0; }
+      else if (b.t >= 0x4B0) { b.t = 0x190; b.c = 0x10; b.target = b.hover; b.hangT = b.hang0; }
+      // head for Sonic by octant (table 0xDBEE), turning 4 x speed a frame, at speed / 2 units a frame
+      const dx = p.x - b.x, dz = p.z - b.z, ax = Math.abs(dx), az = Math.abs(dz);
+      const diag = az >= ax ? az / 2 < ax : az > ax / 2, along = az >= ax ? 0 : 0x200;
+      const sx = dx < 0 ? -1 : 1, sz = dz < 0 ? -1 : 1;
+      const want = diag ? (sx > 0 ? (sz > 0 ? 0x100 : 0x300) : (sz > 0 ? 0x700 : 0x500)) : along ? (sx > 0 ? 0x200 : 0x600) : (sz > 0 ? 0 : 0x400);
+      const left = b.hp - b.hits, sp = 6 - ((b.c === 0x40 ? Math.max(left, 4) : left) >> 1), d = (b.h - want) & 0x7FE;
+      if (d) b.h = (b.h + (d <= 0x400 ? -4 * sp : 4 * sp)) & 0x7FE;
+      b.x += Math.sin(b.h * T) * sp / 2 * U; b.z += Math.cos(b.h * T) * sp / 2 * U;
+    }
+    b.y += Math.abs(b.target - b.y) <= V ? b.target - b.y : Math.sign(b.target - b.y) * V;
+    b.hang += Math.abs(b.hangT - b.hang) <= V ? b.hangT - b.hang : Math.sign(b.hangT - b.hang) * V;
+    const [ax0, ax1, az0, az1] = b.arena;
+    if (b.x < ax0) { b.x = ax0; b.h = 0x200; } else if (b.x > ax1) { b.x = ax1; b.h = 0x600; }
+    if (b.z < az0) { b.z = az0; b.h = 0; } else if (b.z > az1) { b.z = az1; b.h = 0x400; }
+    for (const [cz, cx] of b.corners) if (b.z < cz && b.x < cx) b.h = 0x100;
+    // the spring fists: swinging 32 units about `hang` under the pod, opposite each other, stopped by the floor
+    b.a = (b.a + b.c) & 0x7FE;
+    b.fists.forEach(([fx, fz], k) => {
+      const x = b.x + fx, z = b.z + fz, f = floorAt(L, x, z);
+      let y = b.y - b.hang + Math.sin(((b.a + k * 0x400) & 0x7FE) * T) * 32 * V;
+      if (b.slam[k] > 0) b.slam[k]--;
+      if (Number.isFinite(f) && y < f) { y = f; if (!b.slam[k]) { b.slam[k] = 30; if (b.c === 0x40) w.events.push('bossSlam'); } }
+      b.fistAt[k] = [x, y, z];
+      if (Math.hypot(p.x - x, p.z - z) < P.fistR && p.y < y + 0.5 && p.y + 0.9 > y - 0.3 && p.inv <= 0 && p.invuln <= 0) hurt(w, p.x - x, p.z - z);
+    });
+    return w.events.includes('respawn');
+  }
   function bossStep(w, pcy) {
+    if (w.boss.kind === 'ss') return ssStep(w);
     if (w.boss.kind === 'rr') return rrStep(w);
     const b = w.boss, p = w.p, L = w.L, U = 1 / 32, V = b.vs / 32, ball = b.ball;
     const toward = (v, t, s) => (Math.abs(t - v) <= s ? t : v + Math.sign(t - v) * s);
@@ -1982,6 +2062,41 @@ const Sim = (() => {
       const on = p.grounded && w.spikeCells.has(cell);
       if (on && w.spike >= 5 && p.inv <= 0 && p.invuln <= 0) { hurt(w, 0, 0); if (w.events.includes('respawn')) return w; }
       if (w.tick % 4 === 0) { const was = w.spike; w.spike = Math.max(0, Math.min(5, w.spike + (on ? 1 : -1))); if (was === 0 && w.spike === 1) w.events.push('spikesUp'); }
+    }
+    // triangle bumpers (the routines' boxes): inside one, near its floor, a bounce: along the band near its tip, else
+    // off its long side; once until the player leaves
+    if (w.tris.length) {
+      let tri = null;
+      for (const t of w.tris) {
+        const d0 = (t.band === 'x' ? p.x : p.z) - t.b, c = (t.band === 'x' ? p.z : p.x) - t.s, d1 = t.flip ? 2 - c : c;
+        if (d0 >= 0 && d0 <= 2 && c >= 0 && c <= 2 && d1 <= d0) { tri = t; break; }
+      }
+      const f = floorAt(L, p.x, p.z);
+      if (tri && !w.inTri && Number.isFinite(f) && p.y - f <= 16 / 32 * (L.rom ? L.rom.vscale : 1)) {
+        const d0 = (tri.band === 'x' ? p.x : p.z) - tri.b, c = (tri.band === 'x' ? p.z : p.x) - tri.s, d1 = tri.flip ? 2 - c : c;
+        if (tri.along && d1 < 2 * d0 - 2) { if (tri.band === 'x') p.vx = P.bumpSpeed; else p.vz = P.bumpSpeed; }
+        else { p.vx = tri.v[0]; p.vz = tri.v[1]; }
+        p.lock = P.bumpLock; p.rolling = false; p.charge = 0; w.events.push('bumper');
+      }
+      w.inTri = !!tri;
+    }
+    // spears (Spring Stadium 2): stepping into a spear cell's east quarter raises one there (one at a time): it waits
+    // 34 frames, then rises over 28 from 16 units under the floor to 40 over it, hurting a player in that quarter under
+    // its tip; then it is gone (watched in the emulator)
+    if (w.spearCells.size) {
+      const fx = p.x - Math.floor(p.x);
+      if (!w.spear && p.grounded && fx >= 0.75 && w.spearCells.has(cell)) { w.spear = { cell, t: 0, x: Math.floor(p.x) + 0.97, z: p.z, y: floorAt(L, p.x, p.z) }; w.events.push('spear'); }
+      if (w.spear) {
+        const sp = w.spear; sp.t += dt;
+        const k = (sp.t - P.spearWait) / P.spearRise, vs = L.rom ? L.rom.vscale : 1;
+        sp.tip = k < 0 ? sp.y - 16 / 32 * vs : sp.y + (-16 + 56 * Math.min(1, k)) / 32 * vs;
+        if (k >= 0 && k <= 1 && cell === sp.cell && fx >= 0.75 && p.y <= sp.tip && p.inv <= 0 && p.invuln <= 0) { hurt(w, -1, 0); if (w.events.includes('respawn')) return w; }
+        if (k > 1.3) w.spear = null;
+      }
+    }
+    // a spiked wall: a player pressed against its face, low enough, is hurt
+    if (w.spikeWall.size && w.spikeWall.has(cell) && p.x - Math.floor(p.x) <= P.r + 0.03 && p.y < w.spikeWall.get(cell) && p.inv <= 0 && p.invuln <= 0) {
+      hurt(w, 1, 0); if (w.events.includes('respawn')) return w;
     }
     // a hold keeps a held pad held
     if (p.force && w.holds.size && w.holds.has(cell)) p.force.t = Math.max(p.force.t, w.holds.get(cell));
@@ -2872,15 +2987,24 @@ const S3D = (() => {
     // units a frame), bumpers (0xFF and the cells in the table [address, count]; entering one pushes Sonic out across its
     // nearest edge), spike fields (0xAA). Rides at cells (player state 4: a loop; bit 15: x and z swapped), then the pad
     // held for n frames (F5: running east; FF: let go); holds: a cell that keeps the pad held n frames. Tubes: table
-    // [address, state in, state out] of two mouths (see the convert loop).
+    // [address, state in, state out] of two mouths (see the convert loop). Triangle bumpers (the routines' boxes):
+    // [band axis, band start, side start, side flipped, push x, push z (units a frame), pushes along the band near its
+    // tip]: 64 units square, the triangle where the side offset (flipped: from the far side) is no more than the band
+    // offset. SS2: spear cells (table [address, count]; the act's spear object rises in the east quarter of the cell)
+    // and a spiked wall facing east at cells [x, [z...], under height].
     15: { floorSprings: 0x55, bumpers: [0xFF, 0x98DA, 8], spikeField: 0xAA,
       rides: [[37, 117, 0, 4, null, null, null, undefined, [140, [1, 0]]], [61, 115, 0, 4, null, null, null, undefined, [200, [1, 0]]],
         [77, 113, 0, 4, null, null, null, undefined, [85, [1, 0]]], [59, 41, 0, 4, null, null, null, undefined, [70, null]]],
-      holds: [[55, 115, 100], [53, 41, 100]], tubes: [0x98C6, 0x40, 0x42] },
+      holds: [[55, 115, 100], [53, 41, 100]], tubes: [0x98C6, 0x40, 0x42],
+      tris: [['x', 2432, 1600, 0, -4, 4, 1], ['x', 2432, 1792, 1, -4, -4, 1]] },
+    17: { floorSprings: 0x55, spikeField: 0xFF },   // the boss arena: springs up to a spiked ledge, spikes all round
     16: { floorSprings: 0x55, bumpers: [0xFF, 0x94EA, 30],
       rides: [[73, 105, 0, 4, null, null, null, undefined, [70, null]], [85, 76, 0, 0x8004, null, null, null, undefined, [84, null]],
         [87, 74, 0, 0x8044, null, null, null, undefined, [84, null]]],
-      holds: [[68, 105, 100]], tubes: [0x9480, 0x40, 0x42] },
+      holds: [[68, 105, 100]], tubes: [0x9480, 0x40, 0x42],
+      tris: [['z', 1472, 1152, 0, 4, -4, 1], ['z', 1472, 1344, 1, -4, -4, 1], ['x', 2752, 3200, 0, -4, 4, 1], ['x', 2752, 3456, 1, -4, -4, 1],
+        ['x', 3264, 1920, 0, -4, 4, 1], ['x', 3264, 2048, 1, -4, -4, 0], ['x', 3072, 2240, 1, -4, -4, 0]],
+      spears: [0x9494, 16], spikeWall: [122, [22, 24, 27, 28, 29, 30], 0x380] },
   };   // units: spike ball circle radius (measured) and height (estimated)
   // Bosses run by the act's own routine. Green Grove 3 (RunLevel_GGz3 0xDDE4): Robotnik's pod starts at [x, y, z],
   // comes down to the cruise height, then loops: follows Sonic (2 units a frame) until close, lets its spiked ball go
@@ -2896,7 +3020,14 @@ const S3D = (() => {
   // Any touch on the pod (within 32 units, from 32 below to 64 above it) is a hit, 60 frames apart; five.
   const BOSSES = { 3: { kind: 'gg', at: [1152, 350, 1152], home: [1088, 1088], cruise: 160, arena: [800, 1375, 800, 1375], hp: 5 },
     8: { kind: 'rr', at: [1856, 330, 2080], cruise: 160, cap: 350, arms: [1792, 1920], root: [136, 2080],
-      reach: [2144, 2190], script: 0x7170, home: [1856, 2080], arena: [1760, 1983, 2080, 2271], hp: 5 } };
+      reach: [2144, 2190], script: 0x7170, home: [1856, 2080], arena: [1760, 1983, 2080, 2271], hp: 5 },
+    // Spring Stadium 3 (InitLevel 0x87CE, RunLevel_SSz3 0x887A): the pod comes down from 568 to a hover, waits 400
+    // frames, then hovers at `hover` (400 frames, arms swinging slowly) and swoops `low` (400 frames, arms pulled in,
+    // swinging fast), turning towards Sonic by octant (table 0xDBEE) at (6 - hits left / 2) / 2 units a frame inside
+    // the arena; two spring fists hang `hang` units under it (offsets [x, z]) and swing 32 up and down, stopping at the
+    // floor. The generic boss check (0xF794): from 8 over the pod and spinning, a hit; otherwise Sonic is hurt. Eight.
+    17: { kind: 'ss', at: [1796, 568, 2304], cruise: 168, hover: 200, low: 120, hang: 40, fists: [[38, 40], [-46, 40]],
+      corners: [[2237, 1560], [2045, 1752]], home: [1796, 2304], arena: [1496, 1896, 1981, 2398], hp: 8 } };
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
   // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
@@ -3232,11 +3363,24 @@ const S3D = (() => {
       if (cells.length) ents.push({ type: 'bumpers', cells });
     }
     if (gm.spikeField !== undefined) { const cells = cellsOf(gm.spikeField); if (cells.length) ents.push({ type: 'spikeField', cells }); }
+    if (gm.tris) ents.push({ type: 'triBumpers', list: gm.tris.map(([band, b, sd, flip, vx, vz, along]) => ({ band,
+      b: r3(b / CELL - (band === 'x' ? x0 : z0)), s: r3(sd / CELL - (band === 'x' ? z0 : x0)), flip: !!flip, v: [r3(vx * mps), r3(vz * mps)], along: !!along })) });
+    if (gm.spears) {
+      const cells = [];
+      for (let k = 0; k < gm.spears[1]; k++) { const off = u16(d, gm.spears[0] + 2 * k) >> 1, cx = off & 127, cz = off >> 7; if (floorCell(cx, cz)) cells.push([cx - x0, cz - z0]); }
+      if (cells.length) ents.push({ type: 'spears', cells });
+    }
+    if (gm.spikeWall) { const [cx, zs, top] = gm.spikeWall; ents.push({ type: 'spikeWall', cells: zs.filter(cz => floorCell(cx, cz)).map(cz => [cx - x0, cz - z0]), side: 'w', top: r3((top + 8) / CELL * vscale) }); }
     const bs = BOSSES[id];
     if (bs) {
       const e = { type: 'boss', kind: bs.kind, x: r3(bs.at[0] / CELL - x0), y: r3(bs.at[1] / CELL * vscale), z: r3(bs.at[2] / CELL - z0),
         home: [r3(bs.home[0] / CELL - x0), r3(bs.home[1] / CELL - z0)], cruise: r3(bs.cruise / CELL * vscale),
         arena: [r3(bs.arena[0] / CELL - x0), r3(bs.arena[1] / CELL - x0), r3(bs.arena[2] / CELL - z0), r3(bs.arena[3] / CELL - z0)], hp: bs.hp, vs: vscale };
+      if (bs.kind === 'ss') {
+        const Y = v => r3(v / CELL * vscale);
+        e.hover = Y(bs.hover); e.low = Y(bs.low); e.hang = Y(bs.hang); e.fists = bs.fists.map(([fx, fz]) => [r3(fx / CELL), r3(fz / CELL)]);
+        e.corners = bs.corners.map(([cz, cx]) => [r3(cz / CELL - z0), r3(cx / CELL - x0)]);
+      }
       if (bs.kind === 'rr') {
         const Y = v => r3(v / CELL * vscale), Z = v => r3(v / CELL - z0);
         e.arms = bs.arms.map(x => r3(x / CELL - x0)); e.root = [Y(bs.root[0]), Z(bs.root[1])]; e.cap = Y(bs.cap); e.reach = [Z(bs.reach[0]), Z(bs.reach[1])];
@@ -3456,7 +3600,7 @@ const S3D = (() => {
       cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */,
       bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */,
       bossSlam: [0x5F], bossCap: [0x9E] /* RR3's routine */,
-      bumper: [0xB7], balloon: [0x77], spikesUp: [0x52] /* Spring Stadium's routines */ },
+      bumper: [0xB7], balloon: [0x77], spikesUp: [0x52], spear: [0x8C] /* Spring Stadium's routines */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {
@@ -4704,6 +4848,7 @@ const Art = (() => {
       bumper: () => { tone('square', 500, 900, 0.12, 0.2); tone('square', 750, 1300, 0.12, 0.12); },
       balloon: () => { noise(0.15, 0.9, 3000); tone('sine', 300, 700, 0.15, 0.2); },
       spikesUp: () => tone('sawtooth', 180, 420, 0.25, 0.15),
+      spear: () => tone('square', 900, 400, 0.1, 0.1),
       bossCap: () => { noise(0.3, 0.6, 600); tone('square', 120, 90, 0.2, 0.2); },
       padOut: () => { tone('triangle', 180, 1400, 0.32, 0.4); noise(0.2, 0.3, 2000); },
       boost: () => { noise(0.35, 0.6, 2500); tone('square', 700, 120, 0.4, 0.25); },
@@ -5087,13 +5232,14 @@ const Art = (() => {
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
-  let mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
+  let mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
   let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
   // spiked ball on a chain, and a burst of fireballs when beaten
   function buildBoss() {
     const o = buildBossPod(), b = world.boss;
     if (b.kind === 'rr') { o.rr = buildRrStatue(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
+    if (b.kind === 'ss') { o.ss = buildSsArms(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
     return o;
   }
   // Rusty Ruin 3's statue, of our own drawing in stone colours (the original's statue sprites are not read): a body
@@ -5132,6 +5278,19 @@ const Art = (() => {
     m.visible = level > 0; m.userData.level = level;
     m.userData.cells.forEach(([x, y, z], i) => { _spM.makeScale(1, h, 1); _spM.setPosition(x, y - 0.02, z); m.setMatrixAt(i, _spM); });
     m.instanceMatrix.needsUpdate = true;
+  }
+  // Spring Stadium 3's arms, of our own drawing: a chain of grey links from the pod to a red spring fist with a yellow band
+  function buildSsArms(b) {
+    const grey = new THREE.MeshLambertMaterial({ color: 0xb8bcc4 }), red = new THREE.MeshLambertMaterial({ color: 0xd8382c }), band = new THREE.MeshLambertMaterial({ color: 0xf0c020 });
+    const linkGeo = new THREE.SphereGeometry(0.13, 8, 6);
+    return b.fists.map(() => {
+      const links = Array.from({ length: 6 }, () => { const m = new THREE.Mesh(linkGeo, grey); levelGroup.add(m); return m; });
+      const fist = new THREE.Group();
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.45, 0.55), red); box.position.y = 0.22; fist.add(box);
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.1, 0.58), band); strip.position.y = 0.22; fist.add(strip);
+      levelGroup.add(fist);
+      return { links, fist };
+    });
   }
   function buildRrStatue(b) {
     const stone = new THREE.MeshLambertMaterial({ map: stoneTex(), color: 0xd0cab4 }), seam = new THREE.MeshLambertMaterial({ color: 0x77735f });
@@ -5198,6 +5357,11 @@ const Art = (() => {
         a.hand.position.set(A.fist[0] + 8 * U, A.fist[1] - b.vs / 32, A.fist[2] + 17 * U);
       });
     }
+    if (o.ss) o.ss.forEach((a, k) => {   // links from under the pod to the fist
+      const [fx, fy, fz] = b.fistAt[k], sx = b.x + b.fists[k][0] * 0.4, sy = b.y - 0.1, sz = b.z + b.fists[k][1] * 0.4;
+      a.links.forEach((m, i) => { const t = (i + 1) / 7; m.position.set(sx + (fx - sx) * t, sy + (fy + 0.4 - sy) * t, sz + (fz - sz) * t); });
+      a.fist.position.set(fx, fy, fz);
+    });
     const bl = b.ball || { x: b.x, y: b.y, z: b.z, state: 'none' };
     if (o.pod) {   // frames 0-7 while whole, 9-11 cracked as its hits run out
       const left = b.hp - b.hits;
@@ -5364,6 +5528,14 @@ const Art = (() => {
       sp.userData.rom = rom; levelGroup.add(sp); return sp;
     });
     spikeMesh = world.spikeCells.size ? buildSpikes() : null;
+    // Spring Stadium 2's spear: a shaft and a point of our own, risen to the sim's tip
+    spearObj = null;
+    if (world.spearCells.size) {
+      const g = new THREE.Group(), mat = new THREE.MeshLambertMaterial({ color: 0xd8c890 });
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1, 6), mat); shaft.position.y = -0.5 - 0.2; g.add(shaft);
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.4, 6), mat); tip.position.y = -0.2; g.add(tip);
+      g.visible = false; levelGroup.add(g); spearObj = g;
+    }
     // Rusty Ruin's spiked crawlers: the original's eight turning frames (object art by type), centred on the sim's height
     crawlerSprites = world.crawlers.map(c => {
       const sp = new THREE.Sprite(rom ? romBossMat(0xAC, 0, 64, 40) : mineMat);
@@ -6313,6 +6485,11 @@ const Art = (() => {
       else s.scale.set(k < 0 ? 0.9 : 1.3, k < 0 ? 0.9 : 1.3, 1);
     }
     if (spikeMesh && spikeMesh.userData.level !== world.spike) setSpikes(world.spike);
+    if (spearObj) {
+      const sp = world.spear;
+      spearObj.visible = !!sp && sp.tip > sp.y - 0.05;
+      if (spearObj.visible) spearObj.position.set(sp.x, sp.tip, sp.z);
+    }
     for (let q = 0; q < crawlerSprites.length; q++) {
       const s = crawlerSprites[q], c = world.crawlers[q];
       s.position.set(c.x, c.y, c.z);

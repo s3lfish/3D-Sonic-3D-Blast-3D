@@ -314,7 +314,21 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - Balloons (150): y = word +0x26 + 8 sin (phase +0x24, +16 a frame of 2048); touched (from above at its top, 26 over
   its base) they pop (frames 8..16 then gone ~70 frames, sound 0x77) and throw Sonic ~43 units up. A jump from the
   floor (51-60 units) under SS2's first does not reach it; floor springs beside it do.
-- Not used yet: triangle bumper zones (SS1 0x9818 box x 0x980..0x9C0; SS2 0x925C several), SS2 spears (cells at
-  0x9494, rising object at $D422, hurts), SS2 spike wall cells (x 0xF40, z rows 0x16..0x1E), 044 (Sonic head pickups:
+- Triangle bumpers (SS1 0x9818, SS2 0x925C): 64-unit boxes; inside the triangle (side offset, from the far side when
+  flipped, no more than the band offset) within 16 of the floor: near the tip (side < 2 band - 64) pushed 5 along the
+  band, else (+-4, +-4) off the long side; once until outside; pad 20 frames; sound 0xAE.
+- SS2 spears (0x9146, cells 0x9494, object $D422): Sonic's cell in the list with x & 31 >= 24 raises a spear at the
+  cell's east edge (sound 0x8C); it waits ~34 frames, then rises (counter 28 -> 0 by 4 every 2 frames); its tip is
+  floor - 16 + 2 x (28 - counter); Sonic in that quarter under the tip is hurt. Spiked wall: x == 0xF40, y < 0x380 in
+  cells (122, 22/24/27..30): hurt.
+- SS3 boss (InitLevel 0x87CE, RunLevel 0x887A): a4 vars: x.l, y $4 (0x230), z.l $6, swing $A += $C, hang $1E -> $20,
+  timer $16, heading $2C -> $2A, speed $2E, hits left $3C (8). Timer 0x190: swing 0x10, height 0x60 + 0x60; 0x320:
+  swing 0x40, height 0x10 + 0x60, hang 0, $A &= 0x7C0; 0x4B0: back to 0x190 (hang 0x28). A hit sets the timer to
+  0x31F (or 0x4AF when low). Bounds x 0x5D8..0x768, z 0x7BD..0x95E; corners (z < 0x8BD and x < 0x618) and (z < 0x7FD
+  and x < 0x6D8) turn it to 0x100. Fists at (+0x26, +0x28) and (-0x2E, +0x28), y = pod - hang + (sin << 6 >> 16),
+  floor-limited (slam: sound 0x5F when low). Generic check 0xF794: within 32, y in [pod - 32, pod + 64]: at pod + 8
+  or over and spinning ($56 = 1): hit (bounce, pad 30, 0x59); else Sonic hurt; 60 frames apart. Spikes: 0xFF cells
+  with the spike count ($18). Floor springs 0x55 up to the spiked ledge. Arms' art (170, 174) does not decode.
+- Not used yet: 044 (Sonic head pickups:
   ten add one to $06AA), 13C (a red button), 140, 154 (spear-like posts, animated when a ring opens a gate), 15C/160
   Tails and Knuckles.

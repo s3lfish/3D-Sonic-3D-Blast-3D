@@ -59,16 +59,23 @@ GIMMICKS = {
     15: {'floorSprings': 0x55, 'bumpers': (0xFF, 0x98DA, 8), 'spikeField': 0xAA,
          'rides': [(37, 117, 0, 4, None, None, None, None, (140, [1, 0])), (61, 115, 0, 4, None, None, None, None, (200, [1, 0])),
                    (77, 113, 0, 4, None, None, None, None, (85, [1, 0])), (59, 41, 0, 4, None, None, None, None, (70, None))],
-         'holds': [(55, 115, 100), (53, 41, 100)], 'tubes': (0x98C6, 0x40, 0x42)},
+         'holds': [(55, 115, 100), (53, 41, 100)], 'tubes': (0x98C6, 0x40, 0x42),
+         'tris': [('x', 2432, 1600, 0, -4, 4, 1), ('x', 2432, 1792, 1, -4, -4, 1)]},
+    17: {'floorSprings': 0x55, 'spikeField': 0xFF},
     16: {'floorSprings': 0x55, 'bumpers': (0xFF, 0x94EA, 30),
          'rides': [(73, 105, 0, 4, None, None, None, None, (70, None)), (85, 76, 0, 0x8004, None, None, None, None, (84, None)),
                    (87, 74, 0, 0x8044, None, None, None, None, (84, None))],
-         'holds': [(68, 105, 100)], 'tubes': (0x9480, 0x40, 0x42)},
+         'holds': [(68, 105, 100)], 'tubes': (0x9480, 0x40, 0x42),
+         'tris': [('z', 1472, 1152, 0, 4, -4, 1), ('z', 1472, 1344, 1, -4, -4, 1), ('x', 2752, 3200, 0, -4, 4, 1), ('x', 2752, 3456, 1, -4, -4, 1),
+                  ('x', 3264, 1920, 0, -4, 4, 1), ('x', 3264, 2048, 1, -4, -4, 0), ('x', 3072, 2240, 1, -4, -4, 0)],
+         'spears': (0x9494, 16), 'spikeWall': (122, [22, 24, 27, 28, 29, 30], 0x380)},
 }
 DOOR_PUSH = {0: (0, 4), 2: (-4, 0), 4: (0, -4)}
 BOSSES = {3: {'kind': 'gg', 'at': (1152, 350, 1152), 'home': (1088, 1088), 'cruise': 160, 'arena': (800, 1375, 800, 1375), 'hp': 5},
           8: {'kind': 'rr', 'at': (1856, 330, 2080), 'cruise': 160, 'cap': 350, 'arms': (1792, 1920), 'root': (136, 2080),
-              'reach': (2144, 2190), 'script': 0x7170, 'home': (1856, 2080), 'arena': (1760, 1983, 2080, 2271), 'hp': 5}}
+              'reach': (2144, 2190), 'script': 0x7170, 'home': (1856, 2080), 'arena': (1760, 1983, 2080, 2271), 'hp': 5},
+          17: {'kind': 'ss', 'at': (1796, 568, 2304), 'cruise': 168, 'hover': 200, 'low': 120, 'hang': 40, 'fists': ((38, 40), (-46, 40)),
+               'corners': ((2237, 1560), (2045, 1752)), 'home': (1796, 2304), 'arena': (1496, 1896, 1981, 2398), 'hp': 8}}
 SCRIPTS = 0x25DF2
 
 
@@ -261,11 +268,27 @@ def convert(rom, level_id, vscale=1.0):
     if 'spikeField' in gm:
         cells = cells_of(gm['spikeField'])
         if cells: ents.append({"type": "spikeField", "cells": cells})
+    if 'tris' in gm:   # triangle bumpers (see s3d.js)
+        ents.append({"type": "triBumpers", "list": [{"band": band, "b": r3(b / CELL - (x0 if band == 'x' else z0)), "s": r3(sd / CELL - (z0 if band == 'x' else x0)),
+                                                       "flip": bool(flip), "v": [r3(vx * mps), r3(vz * mps)], "along": bool(along)} for band, b, sd, flip, vx, vz, along in gm['tris']]})
+    if 'spears' in gm:
+        cells = []
+        for k in range(gm['spears'][1]):
+            off = struct.unpack('>H', rom[gm['spears'][0] + 2 * k:gm['spears'][0] + 2 * k + 2])[0] >> 1; cx, cz = off & 127, off >> 7
+            if floor_cell(cx, cz): cells.append([cx - x0, cz - z0])
+        if cells: ents.append({"type": "spears", "cells": cells})
+    if 'spikeWall' in gm:
+        cx, zs, top_y = gm['spikeWall']
+        ents.append({"type": "spikeWall", "cells": [[cx - x0, cz - z0] for cz in zs if floor_cell(cx, cz)], "side": 'w', "top": r3((top_y + 8) / CELL * vscale)})
     bs = BOSSES.get(level_id)
     if bs:
         e = {"type": "boss", "kind": bs['kind'], "x": jround(bs['at'][0] / CELL - x0, 3), "y": jround(bs['at'][1] / CELL * vscale, 3), "z": jround(bs['at'][2] / CELL - z0, 3),
              "home": [jround(bs['home'][0] / CELL - x0, 3), jround(bs['home'][1] / CELL - z0, 3)], "cruise": jround(bs['cruise'] / CELL * vscale, 3),
              "arena": [jround(bs['arena'][0] / CELL - x0, 3), jround(bs['arena'][1] / CELL - x0, 3), jround(bs['arena'][2] / CELL - z0, 3), jround(bs['arena'][3] / CELL - z0, 3)], "hp": bs['hp'], "vs": vscale}
+        if bs['kind'] == 'ss':
+            Y = lambda v: jround(v / CELL * vscale, 3)
+            e["hover"] = Y(bs['hover']); e["low"] = Y(bs['low']); e["hang"] = Y(bs['hang']); e["fists"] = [[jround(fx / CELL, 3), jround(fz / CELL, 3)] for fx, fz in bs['fists']]
+            e["corners"] = [[jround(cz / CELL - z0, 3), jround(cx / CELL - x0, 3)] for cz, cx in bs['corners']]
         if bs['kind'] == 'rr':
             Y = lambda v: jround(v / CELL * vscale, 3); Z = lambda v: jround(v / CELL - z0, 3)
             e["arms"] = [jround(x / CELL - x0, 3) for x in bs['arms']]; e["root"] = [Y(bs['root'][0]), Z(bs['root'][1])]; e["cap"] = Y(bs['cap']); e["reach"] = [Z(bs['reach'][0]), Z(bs['reach'][1])]

@@ -45,15 +45,24 @@ const S3D = (() => {
     // units a frame), bumpers (0xFF and the cells in the table [address, count]; entering one pushes Sonic out across its
     // nearest edge), spike fields (0xAA). Rides at cells (player state 4: a loop; bit 15: x and z swapped), then the pad
     // held for n frames (F5: running east; FF: let go); holds: a cell that keeps the pad held n frames. Tubes: table
-    // [address, state in, state out] of two mouths (see the convert loop).
+    // [address, state in, state out] of two mouths (see the convert loop). Triangle bumpers (the routines' boxes):
+    // [band axis, band start, side start, side flipped, push x, push z (units a frame), pushes along the band near its
+    // tip]: 64 units square, the triangle where the side offset (flipped: from the far side) is no more than the band
+    // offset. SS2: spear cells (table [address, count]; the act's spear object rises in the east quarter of the cell)
+    // and a spiked wall facing east at cells [x, [z...], under height].
     15: { floorSprings: 0x55, bumpers: [0xFF, 0x98DA, 8], spikeField: 0xAA,
       rides: [[37, 117, 0, 4, null, null, null, undefined, [140, [1, 0]]], [61, 115, 0, 4, null, null, null, undefined, [200, [1, 0]]],
         [77, 113, 0, 4, null, null, null, undefined, [85, [1, 0]]], [59, 41, 0, 4, null, null, null, undefined, [70, null]]],
-      holds: [[55, 115, 100], [53, 41, 100]], tubes: [0x98C6, 0x40, 0x42] },
+      holds: [[55, 115, 100], [53, 41, 100]], tubes: [0x98C6, 0x40, 0x42],
+      tris: [['x', 2432, 1600, 0, -4, 4, 1], ['x', 2432, 1792, 1, -4, -4, 1]] },
+    17: { floorSprings: 0x55, spikeField: 0xFF },   // the boss arena: springs up to a spiked ledge, spikes all round
     16: { floorSprings: 0x55, bumpers: [0xFF, 0x94EA, 30],
       rides: [[73, 105, 0, 4, null, null, null, undefined, [70, null]], [85, 76, 0, 0x8004, null, null, null, undefined, [84, null]],
         [87, 74, 0, 0x8044, null, null, null, undefined, [84, null]]],
-      holds: [[68, 105, 100]], tubes: [0x9480, 0x40, 0x42] },
+      holds: [[68, 105, 100]], tubes: [0x9480, 0x40, 0x42],
+      tris: [['z', 1472, 1152, 0, 4, -4, 1], ['z', 1472, 1344, 1, -4, -4, 1], ['x', 2752, 3200, 0, -4, 4, 1], ['x', 2752, 3456, 1, -4, -4, 1],
+        ['x', 3264, 1920, 0, -4, 4, 1], ['x', 3264, 2048, 1, -4, -4, 0], ['x', 3072, 2240, 1, -4, -4, 0]],
+      spears: [0x9494, 16], spikeWall: [122, [22, 24, 27, 28, 29, 30], 0x380] },
   };   // units: spike ball circle radius (measured) and height (estimated)
   // Bosses run by the act's own routine. Green Grove 3 (RunLevel_GGz3 0xDDE4): Robotnik's pod starts at [x, y, z],
   // comes down to the cruise height, then loops: follows Sonic (2 units a frame) until close, lets its spiked ball go
@@ -69,7 +78,14 @@ const S3D = (() => {
   // Any touch on the pod (within 32 units, from 32 below to 64 above it) is a hit, 60 frames apart; five.
   const BOSSES = { 3: { kind: 'gg', at: [1152, 350, 1152], home: [1088, 1088], cruise: 160, arena: [800, 1375, 800, 1375], hp: 5 },
     8: { kind: 'rr', at: [1856, 330, 2080], cruise: 160, cap: 350, arms: [1792, 1920], root: [136, 2080],
-      reach: [2144, 2190], script: 0x7170, home: [1856, 2080], arena: [1760, 1983, 2080, 2271], hp: 5 } };
+      reach: [2144, 2190], script: 0x7170, home: [1856, 2080], arena: [1760, 1983, 2080, 2271], hp: 5 },
+    // Spring Stadium 3 (InitLevel 0x87CE, RunLevel_SSz3 0x887A): the pod comes down from 568 to a hover, waits 400
+    // frames, then hovers at `hover` (400 frames, arms swinging slowly) and swoops `low` (400 frames, arms pulled in,
+    // swinging fast), turning towards Sonic by octant (table 0xDBEE) at (6 - hits left / 2) / 2 units a frame inside
+    // the arena; two spring fists hang `hang` units under it (offsets [x, z]) and swing 32 up and down, stopping at the
+    // floor. The generic boss check (0xF794): from 8 over the pod and spinning, a hit; otherwise Sonic is hurt. Eight.
+    17: { kind: 'ss', at: [1796, 568, 2304], cruise: 168, hover: 200, low: 120, hang: 40, fists: [[38, 40], [-46, 40]],
+      corners: [[2237, 1560], [2045, 1752]], home: [1796, 2304], arena: [1496, 1896, 1981, 2398], hp: 8 } };
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
   // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
@@ -405,11 +421,24 @@ const S3D = (() => {
       if (cells.length) ents.push({ type: 'bumpers', cells });
     }
     if (gm.spikeField !== undefined) { const cells = cellsOf(gm.spikeField); if (cells.length) ents.push({ type: 'spikeField', cells }); }
+    if (gm.tris) ents.push({ type: 'triBumpers', list: gm.tris.map(([band, b, sd, flip, vx, vz, along]) => ({ band,
+      b: r3(b / CELL - (band === 'x' ? x0 : z0)), s: r3(sd / CELL - (band === 'x' ? z0 : x0)), flip: !!flip, v: [r3(vx * mps), r3(vz * mps)], along: !!along })) });
+    if (gm.spears) {
+      const cells = [];
+      for (let k = 0; k < gm.spears[1]; k++) { const off = u16(d, gm.spears[0] + 2 * k) >> 1, cx = off & 127, cz = off >> 7; if (floorCell(cx, cz)) cells.push([cx - x0, cz - z0]); }
+      if (cells.length) ents.push({ type: 'spears', cells });
+    }
+    if (gm.spikeWall) { const [cx, zs, top] = gm.spikeWall; ents.push({ type: 'spikeWall', cells: zs.filter(cz => floorCell(cx, cz)).map(cz => [cx - x0, cz - z0]), side: 'w', top: r3((top + 8) / CELL * vscale) }); }
     const bs = BOSSES[id];
     if (bs) {
       const e = { type: 'boss', kind: bs.kind, x: r3(bs.at[0] / CELL - x0), y: r3(bs.at[1] / CELL * vscale), z: r3(bs.at[2] / CELL - z0),
         home: [r3(bs.home[0] / CELL - x0), r3(bs.home[1] / CELL - z0)], cruise: r3(bs.cruise / CELL * vscale),
         arena: [r3(bs.arena[0] / CELL - x0), r3(bs.arena[1] / CELL - x0), r3(bs.arena[2] / CELL - z0), r3(bs.arena[3] / CELL - z0)], hp: bs.hp, vs: vscale };
+      if (bs.kind === 'ss') {
+        const Y = v => r3(v / CELL * vscale);
+        e.hover = Y(bs.hover); e.low = Y(bs.low); e.hang = Y(bs.hang); e.fists = bs.fists.map(([fx, fz]) => [r3(fx / CELL), r3(fz / CELL)]);
+        e.corners = bs.corners.map(([cz, cx]) => [r3(cz / CELL - z0), r3(cx / CELL - x0)]);
+      }
       if (bs.kind === 'rr') {
         const Y = v => r3(v / CELL * vscale), Z = v => r3(v / CELL - z0);
         e.arms = bs.arms.map(x => r3(x / CELL - x0)); e.root = [Y(bs.root[0]), Z(bs.root[1])]; e.cap = Y(bs.cap); e.reach = [Z(bs.reach[0]), Z(bs.reach[1])];
@@ -629,7 +658,7 @@ const S3D = (() => {
       cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */,
       bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */,
       bossSlam: [0x5F], bossCap: [0x9E] /* RR3's routine */,
-      bumper: [0xB7], balloon: [0x77], spikesUp: [0x52] /* Spring Stadium's routines */ },
+      bumper: [0xB7], balloon: [0x77], spikesUp: [0x52], spear: [0x8C] /* Spring Stadium's routines */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {

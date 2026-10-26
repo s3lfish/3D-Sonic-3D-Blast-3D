@@ -114,6 +114,12 @@ serves index.html from main.
   Superchargers (routine 0xCA6A, all zones): way from word +0x26 and bit 3 of byte +0x16 (N/W/S/E), taken standing
   one cell that way (`boostSpot` 12 units, no button), held 70 frames, dash at 7.4 units a frame, pad let go 30 frames.
   Holes are half-open squares (a 0.5 hole is exactly its cell). Rides ending at the floor land on it.
+  SS2 extras: `triBumpers` (the routines' 64-unit boxes: bounce off the long side, or along the band near the tip),
+  `spears` (cells at 0x9494: east quarter; waits 34 frames, rises 28, hurts under its tip; `w.spear`), `spikeWall`
+  (west faces of cells, under `top`). SS3 boss `ss` (`ssStep`): descends 400 frames, then hover 400 (arms swing
+  0x10) / low 400 (0x40, arms in), heading for Sonic by octant (table 0xDBEE), speed (6 - left/2)/2, arena bounds
+  and two corners; spring fists hang and swing 32 units, stop at the floor, hurt; generic boss check 0xF794 (from 8
+  over and spinning: hit, else hurt); 8 hits. Arms drawn as our own chain and red fists (`buildSsArms`).
 - Object handlers: the table at 0x1BF42 + type (bra.w per type); `re/NOTES.md` lists the ones read.
 - Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
   ROM look draws springs as 3D drums coloured from the ROM sprite (`romSpringMats`).
@@ -178,9 +184,9 @@ serves index.html from main.
 
 ## Status
 - 2026-10-27: Spring Stadium 1 and 2: superchargers fixed (way and spot from the routine), loops and held runs,
-  floor springs, bumpers, spike fields, tubes, balloons; SS enemies 05C/14C; 87 sim tests; private flow.py says
-  SS1 and SS2 can be finished. Open in SS: triangle bumper zones (0x9818, 0x925C), SS2 spears (0x9494) and spike
-  wall, gates (038, raised cells), cannons/13C/140, Tails and Knuckles, SS3 boss.
+  floor springs, bumpers, spike fields, tubes, balloons, triangle bumpers, spears, spiked wall; SS enemies 05C/14C;
+  SS3 boss; 86 sim tests; private flow.py says SS1 and SS2 can be finished. Open in SS: gates (038, raised cells),
+  13C/140, Tails and Knuckles.
 - 2026-10-27: RR3 boss (statue arms, slams, fist rides; checked in the emulator and the page); spiked crawler 0AC
   (`crawler` {y, axis, range}: 1 unit a frame, hurts, ROM look draws type art 0xAC frames 0-7); 82 sim tests.
 - 2026-10-27 early: RR2 gimmicks; pads with the original sequence (GG too); maces (`mace`: tables 0x75C2/0x80B8, ball 64

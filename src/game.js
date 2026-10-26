@@ -353,6 +353,7 @@
       bumper: () => { tone('square', 500, 900, 0.12, 0.2); tone('square', 750, 1300, 0.12, 0.12); },
       balloon: () => { noise(0.15, 0.9, 3000); tone('sine', 300, 700, 0.15, 0.2); },
       spikesUp: () => tone('sawtooth', 180, 420, 0.25, 0.15),
+      spear: () => tone('square', 900, 400, 0.1, 0.1),
       bossCap: () => { noise(0.3, 0.6, 600); tone('square', 120, 90, 0.2, 0.2); },
       padOut: () => { tone('triangle', 180, 1400, 0.32, 0.4); noise(0.2, 0.3, 2000); },
       boost: () => { noise(0.35, 0.6, 2500); tone('square', 700, 120, 0.4, 0.25); },
@@ -736,13 +737,14 @@
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
-  let mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
+  let mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
   let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
   // spiked ball on a chain, and a burst of fireballs when beaten
   function buildBoss() {
     const o = buildBossPod(), b = world.boss;
     if (b.kind === 'rr') { o.rr = buildRrStatue(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
+    if (b.kind === 'ss') { o.ss = buildSsArms(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
     return o;
   }
   // Rusty Ruin 3's statue, of our own drawing in stone colours (the original's statue sprites are not read): a body
@@ -781,6 +783,19 @@
     m.visible = level > 0; m.userData.level = level;
     m.userData.cells.forEach(([x, y, z], i) => { _spM.makeScale(1, h, 1); _spM.setPosition(x, y - 0.02, z); m.setMatrixAt(i, _spM); });
     m.instanceMatrix.needsUpdate = true;
+  }
+  // Spring Stadium 3's arms, of our own drawing: a chain of grey links from the pod to a red spring fist with a yellow band
+  function buildSsArms(b) {
+    const grey = new THREE.MeshLambertMaterial({ color: 0xb8bcc4 }), red = new THREE.MeshLambertMaterial({ color: 0xd8382c }), band = new THREE.MeshLambertMaterial({ color: 0xf0c020 });
+    const linkGeo = new THREE.SphereGeometry(0.13, 8, 6);
+    return b.fists.map(() => {
+      const links = Array.from({ length: 6 }, () => { const m = new THREE.Mesh(linkGeo, grey); levelGroup.add(m); return m; });
+      const fist = new THREE.Group();
+      const box = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.45, 0.55), red); box.position.y = 0.22; fist.add(box);
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.1, 0.58), band); strip.position.y = 0.22; fist.add(strip);
+      levelGroup.add(fist);
+      return { links, fist };
+    });
   }
   function buildRrStatue(b) {
     const stone = new THREE.MeshLambertMaterial({ map: stoneTex(), color: 0xd0cab4 }), seam = new THREE.MeshLambertMaterial({ color: 0x77735f });
@@ -847,6 +862,11 @@
         a.hand.position.set(A.fist[0] + 8 * U, A.fist[1] - b.vs / 32, A.fist[2] + 17 * U);
       });
     }
+    if (o.ss) o.ss.forEach((a, k) => {   // links from under the pod to the fist
+      const [fx, fy, fz] = b.fistAt[k], sx = b.x + b.fists[k][0] * 0.4, sy = b.y - 0.1, sz = b.z + b.fists[k][1] * 0.4;
+      a.links.forEach((m, i) => { const t = (i + 1) / 7; m.position.set(sx + (fx - sx) * t, sy + (fy + 0.4 - sy) * t, sz + (fz - sz) * t); });
+      a.fist.position.set(fx, fy, fz);
+    });
     const bl = b.ball || { x: b.x, y: b.y, z: b.z, state: 'none' };
     if (o.pod) {   // frames 0-7 while whole, 9-11 cracked as its hits run out
       const left = b.hp - b.hits;
@@ -1013,6 +1033,14 @@
       sp.userData.rom = rom; levelGroup.add(sp); return sp;
     });
     spikeMesh = world.spikeCells.size ? buildSpikes() : null;
+    // Spring Stadium 2's spear: a shaft and a point of our own, risen to the sim's tip
+    spearObj = null;
+    if (world.spearCells.size) {
+      const g = new THREE.Group(), mat = new THREE.MeshLambertMaterial({ color: 0xd8c890 });
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1, 6), mat); shaft.position.y = -0.5 - 0.2; g.add(shaft);
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.4, 6), mat); tip.position.y = -0.2; g.add(tip);
+      g.visible = false; levelGroup.add(g); spearObj = g;
+    }
     // Rusty Ruin's spiked crawlers: the original's eight turning frames (object art by type), centred on the sim's height
     crawlerSprites = world.crawlers.map(c => {
       const sp = new THREE.Sprite(rom ? romBossMat(0xAC, 0, 64, 40) : mineMat);
@@ -1962,6 +1990,11 @@
       else s.scale.set(k < 0 ? 0.9 : 1.3, k < 0 ? 0.9 : 1.3, 1);
     }
     if (spikeMesh && spikeMesh.userData.level !== world.spike) setSpikes(world.spike);
+    if (spearObj) {
+      const sp = world.spear;
+      spearObj.visible = !!sp && sp.tip > sp.y - 0.05;
+      if (spearObj.visible) spearObj.position.set(sp.x, sp.tip, sp.z);
+    }
     for (let q = 0; q < crawlerSprites.length; q++) {
       const s = crawlerSprites[q], c = world.crawlers[q];
       s.position.set(c.x, c.y, c.z);
