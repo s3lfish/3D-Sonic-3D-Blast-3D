@@ -1730,7 +1730,7 @@ const Sim = (() => {
     // where a converted level sits in the original (for drawing its art); ignored when malformed
     const rm = raw.rom;
     if (L && rm && Number.isInteger(rm.level) && Array.isArray(rm.origin) && rm.origin.length === 2 && rm.origin.every(Number.isInteger) && rm.vscale > 0 && rm.vscale <= 4)
-      L.rom = { level: rm.level, origin: rm.origin.slice(), vscale: rm.vscale };
+      L.rom = { level: rm.level, origin: rm.origin.slice(), vscale: rm.vscale, blank: Array.isArray(rm.blank) && rm.blank.length === 2 && rm.blank.every(v => Number.isInteger(v) && v >= 0 && v < 600) ? rm.blank.slice() : [52, 33] };
     if (L && L.rom) L.diag = L.split && L.split.some(s => s >> 2) ? piecesOf(L) : findDiagonals(L);
     if (L && !errs.length) addEntities(L, raw.entities ?? [], errs);
     if (errs.length) throw new LevelError(errs.slice(0, 20));
@@ -2145,7 +2145,7 @@ const Sim = (() => {
     respawn(w);
     w.spawn = keep;
   }
-  function death(w) { w.deaths++; reloadAct(w); w.events.push('respawn'); if (w.L.rom && w.L.phys.orig) { w.wait = 52; w.padWait = 33; } }   // (the original's reload: 52 frames of nothing, then 33 more before the pad is read again)
+  function death(w) { w.deaths++; reloadAct(w); w.events.push('respawn'); if (w.L.rom && w.L.phys.orig) { [w.wait, w.padWait] = w.L.rom.blank; } }   // (the original's reload: rom.blank [frames of nothing, then frames more before the pad is read again])
   // put every ring, enemy and monitor back and the player at the start
   function resetLevel(w) {
     const L = w.L;
@@ -2216,13 +2216,19 @@ const Sim = (() => {
   // Rusty Ruin 3's arms (routine 0x727C): an arm is [reach, lift] (units) from its root, a two-link arm with links 64
   // long: the elbow bends up and back; four links from the root to the elbow, three from the elbow to the wrist (root +
   // [reach, lift]) and the fist record 20 units over the wrist. Joints in metres, [x, y, z]: links root to wrist, fist.
+  // (the routine's own words, 0x727C: sqrt 0xBEFE is the whole root of an unsigned word; divs truncates; asr floors.
+  // Each link carries its record's [z, y] offsets from the root, `u`.)
   function rrArm(b, k) {
     const [p0, p1] = b.arms[k], U = 1 / 32, V = b.vs / 32, x = b.armX[k];
-    const l2 = 2 * Math.hypot(p0, p1), q = l2 > 0 ? Math.sqrt(Math.max(0, 65536 - l2 * l2)) / l2 : 0;
-    const ez = (p0 + p1 * q) / 2, ey = (p1 - p0 * q) / 2;
-    const at = (z, y) => [x, b.root[0] + y * V, b.root[1] + z * U], links = [];
-    for (let i = 1; i <= 4; i++) links.push(at(ez * i / 4, ey * i / 4));
-    for (let j = 3; j >= 1; j--) links.push(at(p0 - (p0 - ez) * j / 4, p1 - (p1 - ey) * j / 4));
+    const w16 = v => ((v & 0xFFFF) << 16) >> 16, isq = v => Math.floor(Math.sqrt(v & 0xFFFF));
+    let d5 = w16(p0 << 1), d6 = w16(p1 << 1);
+    const sum = (d5 * d5 + d6 * d6) & 0xFFFF, l = isq(sum), h = isq(-sum);
+    const q0 = l ? Math.trunc(d5 * h / l) : 0, q2 = l ? Math.trunc(d6 * h / l) : 0;
+    d6 = w16(d6 - q0) >> 2; d5 = w16(d5 + q2) >> 2;
+    const at = (z, y) => { const r = [x, b.root[0] + y * V, b.root[1] + z * U]; r.u = [z, y]; return r; }, links = [];
+    for (let i = 1; i <= 4; i++) links.push(at(w16(i * d5) >> 2, w16(i * d6) >> 2));
+    const [ez, ey] = links[3].u, e5 = p0 - ez, e6 = p1 - ey;
+    for (let j = 3; j >= 1; j--) links.push(at(w16((p0 << 2) - j * e5) >> 2, w16((p1 << 2) - j * e6) >> 2));
     return { links, fist: at(p0, p1 + 20) };
   }
   // Rusty Ruin 3 (see s3d.js BOSSES): the routine's script moves the arms; any touch on the pod is a hit. Measured in the
@@ -2277,7 +2283,9 @@ const Sim = (() => {
       }
       if (p.inv > 0 || p.invuln > 0) continue;
       for (const l of A.links) {
-        if (Math.abs(p.x - l[0]) <= 16 * U && Math.abs(p.z - l[2]) <= 12 * U && Math.abs(p.y + 12 * V - l[1]) < 20 * V) {
+        // (on the original's levels its records' touch: bytes 24, 24, through the object scan)
+        if (w.L.rom && w.L.phys.orig ? origTouch(w.L, p, { touch: [24, 24], win: [0, 0, 0, 0, 0x80 + l.u[1]], x: l[0], z: l[2], y: 0, y0: 0 })
+          : Math.abs(p.x - l[0]) <= 16 * U && Math.abs(p.z - l[2]) <= 12 * U && Math.abs(p.y + 12 * V - l[1]) < 20 * V) {
           hurt(w, 0, 1); if (w.events.includes('respawn')) return true; break;
         }
       }
@@ -5941,6 +5949,9 @@ const S3D = (() => {
     // (steps: 8 units walked up (the sim's walls use the exact rule), a drop of more than 2 leaves the ground: 0x40D0, 0x414A)
     return { gravity: r4(g), jumpV: r4(jump), jumpCut: r4(jump * 0.4), maxFall: r4(420 / CELL), stepUp: r4(8 / CELL), snapDown: r4(2 / CELL), orig: 1 };
   }
+  // [frames the screen stays blank while an act reloads after a death (the level's unpacking time), frames after that
+  // before the pad is read]: measured in the emulator; [52, 33] elsewhere as watched in Volcano Valley 1: `rom.blank`
+  const BLANK = { 4: [51, 33], 8: [49, 32], 12: [55, 33] };
   const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };
   const springPower = vscale => launchFor(vscale, 140);   // measured: a spring throws Sonic 140 units up
   function convert(d, id, vscale = 1) {
@@ -6512,7 +6523,7 @@ const S3D = (() => {
     return {
       version: 1, format: 'tiles', name: name + ' (from your ROM)', width: W, depth: D,
       killY: Math.round((minTop - 3) * 100) / 100, tiles, entities: ents, palettes: levelPalettes(d, id),
-      physics: physicsFor(vscale), rom: { level: id, origin: [x0, z0], vscale },
+      physics: physicsFor(vscale), rom: BLANK[id] ? { level: id, origin: [x0, z0], vscale, blank: BLANK[id] } : { level: id, origin: [x0, z0], vscale },
       flickies: tableRings ? 5 : 0,   // every big ring wants five Flickies, freed from enemies
     };
   }

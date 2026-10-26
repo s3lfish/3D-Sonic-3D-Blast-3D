@@ -457,6 +457,9 @@ const S3D = (() => {
     // (steps: 8 units walked up (the sim's walls use the exact rule), a drop of more than 2 leaves the ground: 0x40D0, 0x414A)
     return { gravity: r4(g), jumpV: r4(jump), jumpCut: r4(jump * 0.4), maxFall: r4(420 / CELL), stepUp: r4(8 / CELL), snapDown: r4(2 / CELL), orig: 1 };
   }
+  // [frames the screen stays blank while an act reloads after a death (the level's unpacking time), frames after that
+  // before the pad is read]: measured in the emulator; [52, 33] elsewhere as watched in Volcano Valley 1: `rom.blank`
+  const BLANK = { 4: [51, 33], 8: [49, 32], 12: [55, 33] };
   const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };
   const springPower = vscale => launchFor(vscale, 140);   // measured: a spring throws Sonic 140 units up
   function convert(d, id, vscale = 1) {
@@ -1028,7 +1031,7 @@ const S3D = (() => {
     return {
       version: 1, format: 'tiles', name: name + ' (from your ROM)', width: W, depth: D,
       killY: Math.round((minTop - 3) * 100) / 100, tiles, entities: ents, palettes: levelPalettes(d, id),
-      physics: physicsFor(vscale), rom: { level: id, origin: [x0, z0], vscale },
+      physics: physicsFor(vscale), rom: BLANK[id] ? { level: id, origin: [x0, z0], vscale, blank: BLANK[id] } : { level: id, origin: [x0, z0], vscale },
       flickies: tableRings ? 5 : 0,   // every big ring wants five Flickies, freed from enemies
     };
   }

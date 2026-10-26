@@ -375,6 +375,13 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - Touch (armgrid.py, armstand.py): links hurt within about 16 units across and 12 along; the fist's top (one unit under
   its record) holds Sonic over x -4..+20, z -2..+36 of the record and carries him as it lifts and pulls back; a slam
   coming down on him hurts. From a raised fist a jump reaches the pod.
+- 0x727C exactly: d5 = 2 reach, d6 = 2 lift (words); s = (d5^2 + d6^2) & 0xFFFF; l = isqrt(s), h = isqrt(-s & 0xFFFF)
+  (0xBEFE: bitwise root of an unsigned word); d6 -= d5 h / l, d5 += d6 h / l (divs: truncated); both asr 2. Links i =
+  1..4: z = (i d5 >> 2) + 0x820, y = (i d6 >> 2) + 0x80; fist z = reach + 0x820, y = lift + 0x94; then
+  z = ((4 reach - k e5) >> 2) + 0x820 for k = 1..3 with e5 = reach - link 4's offset (y the same). Link records 0BC
+  carry touch bytes 24, 24: Sonic dies in expl_8 at frame 56 exactly as the object scan says.
+- Reloads: blank 49 frames in RR3 (51 GnG1, 52 VV1, 55 VV2) and the pad read 32 frames after (33 elsewhere): the
+  load time differs by act.
 - Not used: cells 0x4172/0x4174 with z <= 0x830 and y <= 0x70 set Sonic's $3E to -1 (no hits there).
 
 ## Rusty Ruin crawler 0AC (objtrack.py, crawltest.py)

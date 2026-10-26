@@ -110,7 +110,8 @@ serves index.html from main.
   50 ball, 4C claw (unused), level palette line 3 (`romBossMat`); otherwise a drone of our own design.
   RR3 (`rr`, RunLevel_RRz3 0x6DE8, `rrStep`): pod 330 to 160 (every other frame), cap 350 to 170; script of [action,
   frames] read from 0x7170 (`script`, `loop`); arms [reach, lift] from `root`, joints by `Sim.rrArm` (routine 0x727C:
-  two links of 64); links hurt, a slam on the player hurts, the fist's top is a floor (`w.plats`, `platFloor`, box
+  two links of 64, in its own integer steps; each link carries `u` [z, y] from the root); links hurt (ROM levels: the
+  records' touch bytes 24, 24 through `origTouch`), a slam on the player hurts, the fist's top is a floor (`w.plats`, `platFloor`, box
   x -4..+20, z -2..+36 units) that carries him; any pod touch is a hit (knock-back locks the pad 30 frames, `p.lock`).
   Drawn as a stone statue of our own (`buildRrStatue`; ROM pod sprite). Start faces the boss in boss arenas; the
   chase cam swings behind the player away from a boss and tilts up to it. Notes in re/NOTES.md "Bosses".
@@ -400,8 +401,11 @@ serves index.html from main.
   VV2 too (its balls' angle at the trace start fitted: 0x348). A hit shows from the next frame (`p.pre` {anim, facing}:
   the original's player ran before it); the knock-back's eighth is taken from the whole facing; 2 s safe is 120
   frames (the timer snaps to 0). SS1 and SS2 too: the jump word $46 (`p.jb`, 0x2E0E: pressed in the air and held,
-  he jumps as he lands), floor springs' exact speed, the scroll after springs. Still off: GnG1 after its reload (51 blank frames, VV1 52: not modelled), the 13
-  frames after a reload when the original shows frame 0, a fall onto a no-floor cell (the original lands at map
+  he jumps as he lands), floor springs' exact speed, the scroll after springs. GnG1 and RR3 (positions) too: a
+  reload's blank and pad wait per level (`rom.blank` [frames, frames]; measured GnG1 [51, 33], RR3 [49, 32], VV2 [55,
+  33], else VV1's [52, 33]). Still off: GnG1 after its reload (51 blank frames, VV1 52: not modelled), the 13
+  frames after a reload when the original shows frame 0 (its player not yet run), RR3's boss scroll targets
+  ($084A/$084C), a fall onto a no-floor cell (the original lands at map
   height 0; the act never lets him there), bosses. 140 sim tests.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;

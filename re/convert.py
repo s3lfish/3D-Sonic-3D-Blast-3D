@@ -49,6 +49,7 @@ def spring_power(vscale):
     return launch_for(vscale, 140)   # measured: a spring throws Sonic 140 units up
 
 
+BLANK = {4: [51, 33], 8: [49, 32], 12: [55, 33]}   # frames blank while an act reloads (see s3d.js)
 GIMMICKS = {
     4: {'updrafts': 0x55, 'zapCells': 0xAA, 'roofs': 0x12254, 'pyramids': (0x11EE4, 4),   # Gene Gadget 1 (see s3d.js)
         'dashes': [(65, 101, 0x7FFF, (6, 0), 1, 0, 0), (65, 102, 0x7FFF, (6, 0), 1, 0, 0), (74, 94, 0x7FFF, (0, 6), 1, 0, 0), (75, 94, 0x7FFF, (0, 6), 1, 0, 0)],
@@ -748,7 +749,7 @@ def convert(rom, level_id, vscale=1.0):
     ents.insert(0, st0)
     return {"version": 1, "format": "tiles", "name": f"ROM level {level_id}", "width": W, "depth": D,
             "killY": jround(min(min(t["c"]) for t in tiles if t["t"] != "W") - 3, 2), "tiles": tiles, "entities": ents,
-            "physics": physics_for(vscale), "rom": {"level": level_id, "origin": [x0, z0], "vscale": vscale},
+            "physics": physics_for(vscale), "rom": dict({"level": level_id, "origin": [x0, z0], "vscale": vscale}, **({"blank": BLANK[level_id]} if level_id in BLANK else {})),
             "flickies": 5 if table_rings else 0}
 
 
