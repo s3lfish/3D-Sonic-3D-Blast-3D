@@ -1451,7 +1451,8 @@ const Sim = (() => {
         // a fire bar (Volcano Valley's helper 0xBA68): six fireballs from (x, y, z) along x, turning about it
         case 'fireBar': {
           if (!inBounds(e.x, e.z) || !Number.isFinite(e.y)) { errs.push(`A fireBar at (${e.x}, ${e.z}) needs a place on the map and a height "y".`); break; }
-          L.entities.push({ type: 'fireBar', x: e.x, y: e.y, z: e.z });
+          // "box" [x, width, y, height]: the original's scroll box it runs in (else always, round the player)
+          L.entities.push({ type: 'fireBar', x: e.x, y: e.y, z: e.z, box: Array.isArray(e.box) && e.box.length === 4 && e.box.every(v => Number.isInteger(v) && v >= 0 && v < 65536) ? e.box.slice() : null });
           break;
         }
         case 'keyOff': {
@@ -1498,7 +1499,8 @@ const Sim = (() => {
         }
         case 'sprinkler': case 'pylon': case 'prop': {
           if (!inBounds(e.x, e.z) || !Number.isFinite(e.y)) { errs.push(`A ${e.type} at (${e.x}, ${e.z}) needs a place on the map and a height "y".`); break; }
-          L.entities.push({ type: e.type, x: e.x, y: e.y, z: e.z, phase: (e.phase | 0) & 0x7FE, opens: e.opens | 0, frame: e.frame | 0, key: e.key ?? null, skin: skinOf(e), win: winOf(e) });
+          const touch = Array.isArray(e.touch) && e.touch.length === 2 && e.touch.every(v => Number.isInteger(v) && v >= 0 && v < 256) ? e.touch.slice() : null;
+          L.entities.push({ type: e.type, x: e.x, y: e.y, z: e.z, phase: (e.phase | 0) & 0x7FE, opens: e.opens | 0, frame: e.frame | 0, key: e.key ?? null, skin: skinOf(e), win: winOf(e), touch });
           break;
         }
         // Spring Stadium's cells: floor springs (a grounded player is thrown up at "power" m/s), bumpers, spike fields
@@ -1580,7 +1582,8 @@ const Sim = (() => {
         }
         case 'fireSpot': {
           if (!inBounds(e.x, e.z) || !Number.isFinite(e.y)) { errs.push(`A fire spot at (${e.x}, ${e.z}) needs a place and a height "y".`); break; }
-          L.entities.push({ type: 'fireSpot', x: e.x, y: e.y, z: e.z, r: e.r > 0 ? e.r : 0.4 });
+          const touch = Array.isArray(e.touch) && e.touch.length === 2 && e.touch.every(v => Number.isInteger(v) && v >= 0 && v < 256) ? e.touch.slice() : null;   // (the original's touch bytes)
+          L.entities.push({ type: 'fireSpot', x: e.x, y: e.y, z: e.z, r: e.r > 0 ? e.r : 0.4, touch });
           break;
         }
         case 'ice': case 'iceSpikes': case 'lowRoof': {
@@ -2101,7 +2104,7 @@ const Sim = (() => {
       ice: false, iceCell: -1,
       lava: new Set(L.entities.filter(e => e.type === 'lava').flatMap(e => e.cells.map(([cx, cz]) => cz * L.width + cx))),
       rockList: L.entities.filter(e => e.type === 'rocks').flatMap(e => e.cells.map(([cx, cz, top]) => [cz * L.width + cx, top])),
-      vents: L.entities.filter(e => e.type === 'vent'), fireSpots: L.entities.filter(e => e.type === 'fireSpot'),
+      vents: L.entities.filter(e => e.type === 'vent'), fireSpots: L.entities.filter(e => e.type === 'fireSpot').map(e => ({ ...e })),
       spouts: L.entities.filter(e => e.type === 'spout'), fireRuns: L.entities.filter(e => e.type === 'fireRun'), fireballs: [], fireT: 0, spoutT: 0,
       spearCells: new Set(L.entities.filter(e => e.type === 'spears').flatMap(e => e.cells.map(([cx, cz]) => cz * L.width + cx))),
       spikeWall: new Map(L.entities.filter(e => e.type === 'spikeWall').flatMap(e => e.cells.map(([cx, cz]) => [cz * L.width + cx, e.top]))),
@@ -2167,6 +2170,7 @@ const Sim = (() => {
     w.rocks = new Map(w.rockList); for (const [t, top] of w.rocks) L.up.set(t, top);
     w.fireballs = []; w.fireT = 0; w.spoutT = 0;
     w.fireBars = L.entities.filter(e => e.type === 'fireBar'); w.barA = 0; w.barBalls = [];
+    w.fireSpots = L.entities.filter(e => e.type === 'fireSpot').map(e => ({ ...e }));   // (the bars move the first six: back as they were)
     // Tails and Knuckles: hidden until the act's routine shows them; rings given count up for the act
     w.friends = L.entities.filter(e => e.type === 'friend').map(e => ({ ...e, shown: !e.show, t: 0, flag: false }));
     w.friendRings = { tails: 0, knuckles: 0 }; w.bonusWho = null;
@@ -3396,10 +3400,8 @@ const Sim = (() => {
               if (p.revN > 0 && --p.revWait <= 0) { p.revN--; p.revWait = 15; w.events.push('charge'); }
             }
           } else if (p.revN >= 0) {
-            const D = O.dashDir, face = origFace(p), q = face / 0x100, k = Math.round(q) & 7, mult = p.revN ? 16 - (1 << p.revN) : 16;
-            let dx, dz;
-            if (Math.abs(q - Math.round(q)) < 1e-6) { const c = k & 1 ? D[1] : D[0], sx = [0, -1, -1, -1, 0, 1, 1, 1][k], sz = [1, 1, 0, -1, -1, -1, 0, 1][k]; dx = sx * c; dz = sz * c; }
-            else { const a = face / 0x800 * 2 * Math.PI; dx = -Math.sin(a) * D[0]; dz = Math.cos(a) * D[0]; }
+            const D = O.dashDir, face = origFace(p), k = (Math.round(face) >> 8) & 7,   /* (0x32CE: the facing's high byte, as turned this frame) */ mult = p.revN ? 16 - (1 << p.revN) : 16;
+            const c = k & 1 ? D[1] : D[0], dx = [0, -1, -1, -1, 0, 1, 1, 1][k] * c, dz = [1, 1, 0, -1, -1, -1, 0, 1][k] * c;   // (table 0x3312)
             p.vx = dx * mult / 65536 * U; p.vz = dz * mult / 65536 * U;
             p.rolling = true; p.fwdWord = 0x4000; p.topW = O.raw.dashTop; holdO = true; p.revN = -1;
             w.events.push('dash');
@@ -3742,6 +3744,10 @@ const Sim = (() => {
           w.events.push('sprinkle');
         }
         s.a = (s.a + 0x10) & 0x7FE;
+        // (its body hurts through the object scan by its touch bytes, a ball or not: watched in Panic Puppet 2)
+        if (s.touch && L.rom && L.phys.orig && p.inv <= 0 && p.invuln <= 0 && origTouch(L, p, { touch: s.touch, win: s.win, x: s.x, z: s.z, y: 0, y0: 0 })) {
+          hurt(w, p.x - s.x, p.z - s.z); if (w.events.includes('respawn')) return w;
+        }
       }
     }
     // Diamond Dust's boxes: a chute slides a grounded player along it, steered to its line, until a ride takes them or
@@ -3811,7 +3817,10 @@ const Sim = (() => {
     // fire spots (object 120) and the like burn without the fire shield
     for (const q of w.fireSpots) {
       if (p.shield === 'fire' || p.inv > 0 || p.invuln > 0) break;
-      if (Math.hypot(p.x - q.x, p.z - q.z) < q.r + P.r * 0.5 && p.y < q.y + 0.6 && p.y + 0.9 > q.y) { hurt(w, p.x - q.x, p.z - q.z); if (w.events.includes('respawn')) return w; }
+      // (the original's levels: its records' touch through the object scan)
+      const hit = q.touch && O && L.rom ? origTouch(L, p, { touch: q.touch, win: [0, 0, 0, 0, Math.round(q.y * 32 / L.rom.vscale - 8)], x: q.x, z: q.z, y: 0, y0: 0 })
+        : Math.hypot(p.x - q.x, p.z - q.z) < q.r + P.r * 0.5 && p.y < q.y + 0.6 && p.y + 0.9 > q.y;
+      if (hit) { hurt(w, p.x - q.x, p.z - q.z); if (w.events.includes('respawn')) return w; }
     }
     // lava spouts and fire runs (helpers 0xB9C2, 0xB900): their fireballs burn without the fire shield
     if (w.spouts.length || w.fireRuns.length) {
@@ -3838,9 +3847,29 @@ const Sim = (() => {
         }
       }
     }
-    // fire bars (helper 0xBA68): six fireballs 17 units apart along x, turning about the bar's line in y and z at 4, 8,
+    // fire bars (helper 0xBA68; ours): six fireballs 17 units apart along x, turning about the bar's line in y and z at 4, 8,
     // 12, 12, 8 and 4 units, the angle 0x20 of 0x800 less each frame (all bars together); they burn without the fire shield
-    if (w.fireBars.length) {
+    // fire bars, the original's (helper 0xBA68): while the scroll is in a bar's box, the six fire records (object 120,
+    // the act's first six: `w.fireSpots`) are put along it, 17 units apart in x, at 1, 2, 3, 3, 2, 1 times (sin, cos) << 3
+    // of the angle (16.16) over its y and z; the angle then turns 0x20 back. Sonic in its first cell or the one three
+    // east, in the half where z & 16 is clear, no more than 16 over it, is hit (not with the fire shield). Else as ours.
+    if (w.fireBars.length && w.fireBars[0].box && O && L.rom) {
+      const bar = w.cam && w.fireBars.find(b => ((w.cam.X - b.box[0]) & 0xFFFF) <= b.box[1] && ((w.cam.Y - b.box[2]) & 0xFFFF) <= b.box[3]);
+      if (bar) {
+        const o = L.rom.origin, vs = L.rom.vscale, S = 65536, a = w.barA & 0x7FE, sn = O.sin[a >> 1] * 8, cs = O.sin[(a >> 1) + 0x100] * 8;
+        const BX = Math.round((bar.x + o[0]) * 32), BY = Math.round(bar.y * 32 / vs - 8), BZ = Math.round((bar.z + o[1]) * 32);
+        w.fireSpots.slice(0, 6).forEach((q, i) => {
+          const k = (i < 3 ? i : 5 - i) + 1;
+          q.x = (BX + 17 * i) / 32 - o[0]; q.y = (Math.floor((BY * S + k * sn) / S) + 8) / 32 * vs; q.z = Math.floor((BZ * S + k * cs) / S) / 32 - o[1];
+        });
+        const SX = Math.floor((p.x + o[0]) * 32 + 1e-9), SZ = Math.floor((p.z + o[1]) * 32 + 1e-9), SY = Math.floor(p.y * 32 / vs - 8 + 1e-6);
+        const cw = ((BZ >> 5) << 8) | ((BX >> 5) << 1), sc = ((SZ >> 5) << 8) | ((SX >> 5) << 1);
+        if ((sc === cw || sc === cw + 6) && !(SZ & 16) && SY <= BY + 16 && p.shield !== 'fire' && p.inv <= 0 && p.invuln <= 0) {
+          hurt(w, 0, 0); if (w.events.includes('respawn')) return w;
+        }
+        w.barA = (w.barA - 0x20) & 0x7FE;
+      }
+    } else if (w.fireBars.length) {
       const U = 1 / 32, V = (L.rom ? L.rom.vscale : 1) / 32, T = Math.PI / 1024, s = Math.sin(w.barA * T), c = Math.cos(w.barA * T);
       w.barA = (w.barA - 0x20) & 0x7FE; w.barBalls.length = 0;
       for (const b of w.fireBars) for (let i = 0; i < 6; i++) {
@@ -4382,7 +4411,8 @@ const Sim = (() => {
       }
       const dx = r.x - p.x, dy = r.y - pcy, dz = r.z - p.z;
       // (the original's lost rings: no touches at all while he is thrown back, 0x1B846; ours wait 0.6 s)
-      if ((r.o ? !(p.knockT > 0) : r.age > 0.6) && dx * dx + dy * dy + dz * dz < P.ringR * P.ringR) { w.loose.splice(i, 1); w.ringCount++; w.events.push('ring'); }
+      // (and theirs are caught by the particle touch, 0x1B9F0)
+      if (r.o ? !(p.knockT > 0) && partTouch(L, p, r) : r.age > 0.6 && dx * dx + dy * dy + dz * dz < P.ringR * P.ringR) { w.loose.splice(i, 1); w.ringCount++; w.events.push('ring'); }
     }
 
     // rings
@@ -6111,7 +6141,7 @@ const S3D = (() => {
         Object.assign(e, { x0: r3((x - 1) / CELL - x0), x1: r3((x - 1 + sx) / CELL - x0), z0: r3((z - 1) / CELL - z0), z1: r3((z - 1 + sz) / CELL - z0),
           y0: r3((s16(ob, o + 0x24) + 8) / CELL * vscale), y1: r3((s16(ob, o + 0x26) + 8) / CELL * vscale) });
       }
-      if (kind === 'fireSpot') e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
+      if (kind === 'fireSpot') { e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); if (ob[o + 4]) e.touch = [ob[o + 4], ob[o + 5]]; }
       if (kind === 'head') {   // taken in the cell at word +0x24 by a player from 40 units under it to 6 over
         const c = u16(ob, o + 0x24);
         e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); e.cell = [((c & 0xFF) >> 1) - x0, (c >> 8) - z0];
@@ -6140,7 +6170,7 @@ const S3D = (() => {
       }
       // its touch bytes (+4, +5; routine 0x1B8FE): touched when x - z is within 0x2C - b4 of Sonic's, (x + z) / 2 within
       // 0x20 - b4, and y within b5
-      if ((kind === 'enemy' || kind === 'spikeBall' && gm.balls) && ob[o + 4]) e.touch = [ob[o + 4], ob[o + 5]];
+      if ((kind === 'enemy' || kind === 'sprinkler' || kind === 'spikeBall' && gm.balls) && ob[o + 4]) e.touch = [ob[o + 4], ob[o + 5]];
       if (kind === 'enemy' && (u16(ob, o + 8) || u16(ob, o + 0x10))) e.fr = [u16(ob, o + 8), u16(ob, o + 0x10)];   // (x and z fractions, +8 / +0x10)
       // 0C8 (handler 0x16B46): steps through its animation table (0x16C7E, a word a frame from offset +0x1E; -1 jumps
       // back), which moves it round a square and fires where the frame says (Sim origC8)
@@ -6344,7 +6374,8 @@ const S3D = (() => {
     // x from (x, y, z), turning about it in y and z 4, 8, 12, 12, 8, 4 units out, a turn every 64 frames
     if (gm.fireBars) for (let k = 0; k < gm.fireBars[1]; k++) {
       const o = gm.fireBars[0] + 14 * k, x = s16(d, o + 8), y = s16(d, o + 10), z = s16(d, o + 12);
-      if (floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) ents.push({ type: 'fireBar', x: r3(x / CELL - x0), y: r3((y + 8) / CELL * vscale), z: r3(z / CELL - z0) });
+      // (box: the scroll's [x, width, y, height] it runs in)
+      if (floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) ents.push({ type: 'fireBar', x: r3(x / CELL - x0), y: r3((y + 8) / CELL * vscale), z: r3(z / CELL - z0), box: [0, 1, 2, 3].map(i => u16(d, o + 2 * i)) });
     }
     if (gm.vents) for (let k = 0; k < gm.vents[1]; k++) {
       const o = gm.vents[0] + 30 * k, c = u16(d, o) >> 1, cx = c % 128, cz = c >> 7, tx = s16(d, o + 2), ty = s16(d, o + 6), tz = s16(d, o + 10);
@@ -9209,7 +9240,7 @@ const Art = (() => {
     const fireFrames = rom ? romTypeFrames(0x120, 3) : [];
     fireObjs = world.fireSpots.map(q => {
       const sp = fireFrames.length ? bottomSprite(fireFrames[0], q.x, q.y, q.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT) : (() => { const s = new THREE.Sprite(puffMat); s.scale.set(0.7, 0.7, 1); s.position.set(q.x, q.y + 0.35, q.z); levelGroup.add(s); return s; })();
-      sp.userData.frames = fireFrames; return sp;
+      sp.userData.frames = fireFrames; sp.userData.at = [q.x, q.y, q.z]; return sp;
     });
     // lava spouts' and fire runs' fireballs (ROM look: object 114's frames)
     const ballFrames = rom && (world.spouts.length || world.fireRuns.length) ? romTypeFrames(0x114, 3) : [];
@@ -10673,7 +10704,10 @@ const Art = (() => {
     for (let q = 0; q < jetObjs.length; q++) { const j = world.jets[q]; jetObjs[q].position.y = j.top; }
     for (let q = 0; q < moverObjs.length; q++) { const m = moverObjs[q], v = world.movers[q], b = m.userData.base; m.position.x = b[0] + (v.axis === 'x' ? v.off : 0); m.position.z = b[1] + (v.axis === 'z' ? v.off : 0); }
     for (let q = 0; q < spikeBallObjs.length; q++) { const o = spikeBallObjs[q], v = world.spikeBalls[q]; o.position.set(v.x, v.y, v.z); const fr = o.userData.frames; if (fr && fr.length) o.material = fr[(Math.floor(t * 10) + q) % fr.length]; }
-    for (let q = 0; q < fireObjs.length; q++) { const o = fireObjs[q], fr = o.userData.frames; if (fr && fr.length) o.material = fr[(Math.floor(t * 12) + q * 3) % fr.length]; else o.scale.setScalar(0.6 + 0.1 * Math.sin(t * 9 + q)); }
+    for (let q = 0; q < fireObjs.length; q++) {
+      const o = fireObjs[q], fs = world.fireSpots[q], at = o.userData.at;   // (the original's fire bars move them)
+      if (fs && at && (fs.x !== at[0] || fs.y !== at[1] || fs.z !== at[2])) { o.position.x += fs.x - at[0]; o.position.y += fs.y - at[1]; o.position.z += fs.z - at[2]; o.userData.at = [fs.x, fs.y, fs.z]; }
+      const fr = o.userData.frames; if (fr && fr.length) o.material = fr[(Math.floor(t * 12) + q * 3) % fr.length]; else o.scale.setScalar(0.6 + 0.1 * Math.sin(t * 9 + q)); }
     for (let q = 0; q < crawlerSprites.length; q++) {
       const s = crawlerSprites[q], c = world.crawlers[q];
       s.position.set(c.x, c.y, c.z);

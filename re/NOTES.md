@@ -555,6 +555,10 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   (1.5 on average) along x, or z with flag 0x800, until animation frame 0x2A (42 frames); one hurt Sonic about 16 units
   away (vvfire.py).
 
+- Fire bars, exactly (0xBA68): the first bar whose box holds the scroll ($084E - x <= w and $0850 - y <= h, unsigned)
+  runs: records $D046.. (the act's first six 120s) get x + 0x11 i, and (y, z) << 16 + k (sin, cos) << 3 for k = 1, 2, 3
+  (records 3..5 copy 2..0); angle $10(a4) then - 0x20; frame +4 every 3 frames. Sonic's cell word = the bar's
+  ((z & ~31) << 3 | (x & ~31) >> 4) or + 6, z & 16 clear, y <= bar y + 16, $0AC2 & 0x7FFF != 0x6C0: $3E = -1.
 - Fire bars (helper 0xBA68; VV1 table 0xAB26 (2), VV2 0xB25C (3); 14-byte records [camera box x, w, z, h, x, y, z]):
   while the camera is in its box, records $D046.. (object 120, line 3, frame 7) at x + 17k (k 0..5), y + r sin(a),
   z + r cos(a) with r 4, 8, 12, 12, 8, 4; a goes down 0x20 of 0x800 a frame (64 frames a turn). They burn (watched:

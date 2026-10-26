@@ -791,6 +791,12 @@ test('original movement: the spin dash launches in steps of held time, and a rol
   near(sp(80).p.vx, UF(7.5), UF(0.01), 'full');
   const w = sp(80); run(w, 60, {}); assert.ok(w.p.rolling && w.p.vx > UF(7.2), `still rolling at ${w.p.vx / UF(1)}`);
 });
+test('original movement: a spin dash goes the way of its facing\'s high byte, as turned on the frame it is let go', () => {
+  // (facing 0x600 (east); let go with the stick north-east: turned to 0x5C0 that frame, so way 5, the diagonal)
+  const w = ORIGM(); place(w, 2.5, 2.5); w.p.facing = Math.PI / 2; run(w, 80, { dash: true });
+  run(w, 1, { mx: Math.SQRT1_2, mz: -Math.SQRT1_2 });
+  near(w.p.vx, -w.p.vz, 1e-9, 'a diagonal'); assert.ok(w.p.vx > 0, 'north-east');
+});
 test('original movement: a jump without the stick loses 0.086 a frame per frame; ice is slippery', () => {
   let w = ORIGM(); place(w, 2.5, 2.5); w.p.facing = Math.PI / 2; run(w, 45, { mx: 1 });
   run(w, 1, { mx: 1, jump: true }); const v0 = w.p.vx; run(w, 10, { jump: true });

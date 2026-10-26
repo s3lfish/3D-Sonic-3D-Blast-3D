@@ -298,7 +298,9 @@ def convert(rom, level_id, vscale=1.0):
             a, b = struct.unpack('>hh', r[0x24:0x28])
             e.update({"x0": jround((x - 1) / CELL - x0, 3), "x1": jround((x - 1 + sx) / CELL - x0, 3), "z0": jround((z - 1) / CELL - z0, 3), "z1": jround((z - 1 + sz) / CELL - z0, 3),
                       "y0": jround((a + 8) / CELL * vscale, 3), "y1": jround((b + 8) / CELL * vscale, 3)})
-        if kind == 'fireSpot': e["y"] = jround((y_obj + 8) / CELL * vscale, 3)
+        if kind == 'fireSpot':
+            e["y"] = jround((y_obj + 8) / CELL * vscale, 3)
+            if r[4]: e["touch"] = [r[4], r[5]]
         if kind == 'head':   # see s3d.js
             c = struct.unpack('>H', r[0x24:0x26])[0]
             e["y"] = jround((y_obj + 8) / CELL * vscale, 3); e["cell"] = [((c & 0xFF) >> 1) - x0, (c >> 8) - z0]
@@ -320,7 +322,7 @@ def convert(rom, level_id, vscale=1.0):
         if kind in ('enemy', 'sprinkler'):   # its screen window: the type's art header (table 0x280E8) and the record's y (see s3d.js)
             art = struct.unpack('>I', rom[0x280E8 + t:0x280EC + t])[0]
             if 0 < art and art + 8 <= len(rom): e["win"] = list(struct.unpack('>HHhh', rom[art:art + 8])) + [y_obj]
-        if (kind == 'enemy' or kind == 'spikeBall' and 'balls' in gm) and r[4]: e["touch"] = [r[4], r[5]]   # touch bytes (see s3d.js)
+        if (kind == 'enemy' or kind == 'sprinkler' or kind == 'spikeBall' and 'balls' in gm) and r[4]: e["touch"] = [r[4], r[5]]   # touch bytes (see s3d.js)
         if kind == 'enemy':
             fx, fz = struct.unpack('>H', r[8:10])[0], struct.unpack('>H', r[0x10:0x12])[0]
             if fx or fz: e["fr"] = [fx, fz]
@@ -527,7 +529,7 @@ def convert(rom, level_id, vscale=1.0):
         o0, n = gm['fireBars']
         for k in range(n):
             o = o0 + 14 * k; x, y, z = s16(o + 8), s16(o + 10), s16(o + 12)
-            if floor_cell(x // CELL, z // CELL): ents.append({"type": "fireBar", "x": r3(x / CELL - x0), "y": r3((y + 8) / CELL * vscale), "z": r3(z / CELL - z0)})
+            if floor_cell(x // CELL, z // CELL): ents.append({"type": "fireBar", "x": r3(x / CELL - x0), "y": r3((y + 8) / CELL * vscale), "z": r3(z / CELL - z0), "box": [struct.unpack('>H', rom[o + 2 * i:o + 2 * i + 2])[0] for i in range(4)]})
     if 'vents' in gm:
         o0, n = gm['vents']
         for k in range(n):

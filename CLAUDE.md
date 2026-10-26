@@ -175,7 +175,10 @@ serves index.html from main.
   `w.ballA` (from 0 at load), 8 a frame, only with Sonic at or past `gate` (0xB90, 0xD10), z = 0xE80 +/- (sine x 112)
   >> 16 in whole units; touched by its `touch` bytes through `origTouch`). `fireBar` (0xBA68,
   tables 0xAB26 VV1 / 0xB25C VV2: six object-120 fireballs 17 units apart along x, turning 4/8/12/12/8/4 units about the
-  line, a turn per 64 frames; `w.barBalls`). VV2's vent at 0x63AC is off while the rock on its partner (84, 86) stands (`offWhileRock`). The sinking 128 kind is in no level's records.
+  line, a turn per 64 frames; `w.barBalls`; ROM levels: the act's first six fire records (`w.fireSpots`, reset with
+  the act) are moved while the scroll is in a bar's `box` (words: x, width, y, height), angle `w.barA` turning only
+  then; the bar's first cell and the one three east hurt (z & 16 clear, up to 16 over it); fire records and
+  sprinklers touch by their bytes through `origTouch`; the game moves their sprites). VV2's vent at 0x63AC is off while the rock on its partner (84, 86) stands (`offWhileRock`). The sinking 128 kind is in no level's records.
 - Gene Gadget 1 (`GIMMICKS[4]`, RunLevel_GnGdz1 0x11D2A, InitLevel 0x11C78; GnG labels are not swapped): `updraft`
   (0x55: grounded, `p.hover`: 0.125 a frame per frame up under floor + 48, down over it, the climb halved crossing it,
   ball table steers, pose spring; ROM levels (0x123BC, after his move): from rest, pose 0xC, ten frames before it
@@ -268,8 +271,9 @@ serves index.html from main.
     (`p.fwdWord`, checked first: walks that frame); the top stays while rolling (0x7800 after a dash, `p.topW`).
     The jump frame still uses the ground table and takes the slope's 32 g; the jump ends a roll.
   * Dash button (0x31C8): grounded with any speed, rolls; standing, held, crouches (no move, no jump), revs once the
-    crouch animation shows (`p.anim` 3 played 9 frames: `p.a98`, `p.aLoad`; 14 frames on levels without `rom`), a step every 15 (jump taps hurry it; 'charge' events), let go: 8/12/14/16 x 0x7800 along the facing
-    (0x54DA a part on diagonals), not moving that frame.
+    crouch animation shows (`p.anim` 3 played 9 frames: `p.a98`, `p.aLoad`; 14 frames on levels without `rom`), a step every 15 (jump taps hurry it; 'charge' events), let go: 8/12/14/16 x 0x7800 along the facing's
+    high byte as turned that frame (table 0x3312; 0x54DA a part on diagonals), not moving that frame. Lost rings (the
+    original's particles) are caught by the particle touch.
   * Scroll (`origCamera`, 0x19A4 → `w.cam` {X, Y, lx, ly}): led by the facing, an eighth of the way a frame, at most 8;
     for 50 frames after a floor spring or spring 018 / 08C (`w.camUp`, $086A) the lead's y target is -156;
     objects with a window (`win` [w, h, x, y, record y] from the type's art header, table 0x280E8; dispatcher 0x1BE72)
@@ -406,7 +410,7 @@ serves index.html from main.
   the original's player ran before it); the knock-back's eighth is taken from the whole facing; 2 s safe is 120
   frames (the timer snaps to 0). SS1 and SS2 too: the jump word $46 (`p.jb`, 0x2E0E: pressed in the air and held,
   he jumps as he lands), floor springs' exact speed, the scroll after springs. A second private script (jumps, rolls,
-  spin dashes) is exact in all 15 regular acts too (ride's last frame takes the locked pad; low roofs keep a cell's
+  spin dashes) and a third (diagonal stick, revs, rolls through fire bars) are exact in all 15 regular acts too (ride's last frame takes the locked pad; low roofs keep a cell's
   other raise; GnG3's belt reads the whole facing). GnG1, RR3 and SS3 (positions) too: a
   reload's blank and pad wait per level (`rom.blank` [frames blank counting the death's last frame, frames after
   until the pad acts]; measured GG3 [44, 30], GnG1 [51, 34], RR3 [49, 33], VV2 [55, 34], VV3 [44, 34], SS3 [46, 30],

@@ -1444,7 +1444,7 @@
     const fireFrames = rom ? romTypeFrames(0x120, 3) : [];
     fireObjs = world.fireSpots.map(q => {
       const sp = fireFrames.length ? bottomSprite(fireFrames[0], q.x, q.y, q.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT) : (() => { const s = new THREE.Sprite(puffMat); s.scale.set(0.7, 0.7, 1); s.position.set(q.x, q.y + 0.35, q.z); levelGroup.add(s); return s; })();
-      sp.userData.frames = fireFrames; return sp;
+      sp.userData.frames = fireFrames; sp.userData.at = [q.x, q.y, q.z]; return sp;
     });
     // lava spouts' and fire runs' fireballs (ROM look: object 114's frames)
     const ballFrames = rom && (world.spouts.length || world.fireRuns.length) ? romTypeFrames(0x114, 3) : [];
@@ -2908,7 +2908,10 @@
     for (let q = 0; q < jetObjs.length; q++) { const j = world.jets[q]; jetObjs[q].position.y = j.top; }
     for (let q = 0; q < moverObjs.length; q++) { const m = moverObjs[q], v = world.movers[q], b = m.userData.base; m.position.x = b[0] + (v.axis === 'x' ? v.off : 0); m.position.z = b[1] + (v.axis === 'z' ? v.off : 0); }
     for (let q = 0; q < spikeBallObjs.length; q++) { const o = spikeBallObjs[q], v = world.spikeBalls[q]; o.position.set(v.x, v.y, v.z); const fr = o.userData.frames; if (fr && fr.length) o.material = fr[(Math.floor(t * 10) + q) % fr.length]; }
-    for (let q = 0; q < fireObjs.length; q++) { const o = fireObjs[q], fr = o.userData.frames; if (fr && fr.length) o.material = fr[(Math.floor(t * 12) + q * 3) % fr.length]; else o.scale.setScalar(0.6 + 0.1 * Math.sin(t * 9 + q)); }
+    for (let q = 0; q < fireObjs.length; q++) {
+      const o = fireObjs[q], fs = world.fireSpots[q], at = o.userData.at;   // (the original's fire bars move them)
+      if (fs && at && (fs.x !== at[0] || fs.y !== at[1] || fs.z !== at[2])) { o.position.x += fs.x - at[0]; o.position.y += fs.y - at[1]; o.position.z += fs.z - at[2]; o.userData.at = [fs.x, fs.y, fs.z]; }
+      const fr = o.userData.frames; if (fr && fr.length) o.material = fr[(Math.floor(t * 12) + q * 3) % fr.length]; else o.scale.setScalar(0.6 + 0.1 * Math.sin(t * 9 + q)); }
     for (let q = 0; q < crawlerSprites.length; q++) {
       const s = crawlerSprites[q], c = world.crawlers[q];
       s.position.set(c.x, c.y, c.z);

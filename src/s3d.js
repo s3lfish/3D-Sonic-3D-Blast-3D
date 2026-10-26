@@ -573,7 +573,7 @@ const S3D = (() => {
         Object.assign(e, { x0: r3((x - 1) / CELL - x0), x1: r3((x - 1 + sx) / CELL - x0), z0: r3((z - 1) / CELL - z0), z1: r3((z - 1 + sz) / CELL - z0),
           y0: r3((s16(ob, o + 0x24) + 8) / CELL * vscale), y1: r3((s16(ob, o + 0x26) + 8) / CELL * vscale) });
       }
-      if (kind === 'fireSpot') e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
+      if (kind === 'fireSpot') { e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); if (ob[o + 4]) e.touch = [ob[o + 4], ob[o + 5]]; }
       if (kind === 'head') {   // taken in the cell at word +0x24 by a player from 40 units under it to 6 over
         const c = u16(ob, o + 0x24);
         e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); e.cell = [((c & 0xFF) >> 1) - x0, (c >> 8) - z0];
@@ -602,7 +602,7 @@ const S3D = (() => {
       }
       // its touch bytes (+4, +5; routine 0x1B8FE): touched when x - z is within 0x2C - b4 of Sonic's, (x + z) / 2 within
       // 0x20 - b4, and y within b5
-      if ((kind === 'enemy' || kind === 'spikeBall' && gm.balls) && ob[o + 4]) e.touch = [ob[o + 4], ob[o + 5]];
+      if ((kind === 'enemy' || kind === 'sprinkler' || kind === 'spikeBall' && gm.balls) && ob[o + 4]) e.touch = [ob[o + 4], ob[o + 5]];
       if (kind === 'enemy' && (u16(ob, o + 8) || u16(ob, o + 0x10))) e.fr = [u16(ob, o + 8), u16(ob, o + 0x10)];   // (x and z fractions, +8 / +0x10)
       // 0C8 (handler 0x16B46): steps through its animation table (0x16C7E, a word a frame from offset +0x1E; -1 jumps
       // back), which moves it round a square and fires where the frame says (Sim origC8)
@@ -806,7 +806,8 @@ const S3D = (() => {
     // x from (x, y, z), turning about it in y and z 4, 8, 12, 12, 8, 4 units out, a turn every 64 frames
     if (gm.fireBars) for (let k = 0; k < gm.fireBars[1]; k++) {
       const o = gm.fireBars[0] + 14 * k, x = s16(d, o + 8), y = s16(d, o + 10), z = s16(d, o + 12);
-      if (floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) ents.push({ type: 'fireBar', x: r3(x / CELL - x0), y: r3((y + 8) / CELL * vscale), z: r3(z / CELL - z0) });
+      // (box: the scroll's [x, width, y, height] it runs in)
+      if (floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) ents.push({ type: 'fireBar', x: r3(x / CELL - x0), y: r3((y + 8) / CELL * vscale), z: r3(z / CELL - z0), box: [0, 1, 2, 3].map(i => u16(d, o + 2 * i)) });
     }
     if (gm.vents) for (let k = 0; k < gm.vents[1]; k++) {
       const o = gm.vents[0] + 30 * k, c = u16(d, o) >> 1, cx = c % 128, cz = c >> 7, tx = s16(d, o + 2), ty = s16(d, o + 6), tz = s16(d, o + 10);
