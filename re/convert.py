@@ -21,9 +21,10 @@ KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 
          0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
          0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',
          0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall',
-         0x7C: 'sprinkler', 0x6C: 'pylon', 0x78: 'movePlat', 0x70: 'prop', 0x74: 'prop'}
-PROP_FRAME = {0x70: 6, 0x74: 0}
-PATROL = {0x100, 0x108, 0x5C}
+         0x7C: 'sprinkler', 0x6C: 'pylon', 0x78: 'movePlat', 0x70: 'prop', 0x74: 'prop',
+         0x178: 'enemy', 0x19C: 'capsule', 0x194: 'lever', 0x184: 'prop'}
+PROP_FRAME = {0x70: 6, 0x74: 0, 0x184: 7}
+PATROL = {0x100, 0x108, 0x5C, 0x178}   # half a unit a frame (measured; see s3d.js)
 MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']
 
 
@@ -95,6 +96,13 @@ GIMMICKS = {
          'cracks': [([(59, 55)], 680, [-1, 0]), ([(65, 63)], 584, [-1, 0])]},
     14: {'lava': 0x55},
     18: {'roofs': 0x11482},   # Gene Gadget 3
+    20: {'updrafts': 0x55, 'zapCells': 0xAA, 'roofs': 0x13B00, 'slides': [(0xC3, [1, 0]), (0xF0, [0, 1])], 'cracks': [([(48, 48)], 840, [0, -1])],   # Panic Puppet 1 (see s3d.js)
+         'gates': [([(68, 97), (68, 98)], 0x41, 0, 0, 1), ([(40, 62)], 0x61, 0, 0, 1)], 'keyOff': [(69, 98, 1, {'f': 1}), (40, 63, 1, {'f': 0})],
+         'tubes2': (0x13464, 4, [], [(1, 1)], 8, 1),
+         'switches': [(31, 92, 'a', 0), (31, 91, 'a', 1), (44, 78, 'b', 0), (44, 77, 'b', 1), (86, 63, 'b', 0), (86, 62, 'b', 1)],
+         'carryWay': ['f', 'b', 'a'],
+         'carriers': [(0x480, 0x51F, 0xB60, 0xB9F, None, 0xB80, 0x477, 0x520, None, (0x56, (7, 0, 0), (0x860, 0x100, 0xC40), 0x600, 220, 1)),
+                      (0x7C0, 0xABF, 0x9A0, 0x9DF, 0xE0, 0x9C0, 0x7B7, 0xAC8, (0x920, 0xA80), None)]},
     10: {'pads': [(0, 1, 1), (2, 3, 2)], 'rides': [(78, 95, 0, 0x803E, None, None, None, None, (400, None))],
          'dashes': [(50, 45, 608, (7.5, 0), 10, 0, 0)], 'currents': [(96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5)],
          'hops': ([(109, 80), (103, 82), (111, 72)], 40), 'flames': (0xFD5E, 7), 'freeze': 1,
@@ -190,7 +198,7 @@ def convert(rom, level_id, vscale=1.0):
             continue
         kind = KINDS.get(t)
         if kind == 'goal' and table_rings: continue
-        if not kind or not floor_cell(x // CELL, z // CELL): continue
+        if not kind or (not floor_cell(x // CELL, z // CELL) and kind != 'lever' and t != 0x184): continue   # (levers, door: in walls)
         if kind == 'start': start = (x / CELL, z / CELL); continue
         e = {"type": kind, "x": jround(x / CELL - x0, 3), "z": jround(z / CELL - z0, 3)}
         if kind == 'enemy':
@@ -216,7 +224,21 @@ def convert(rom, level_id, vscale=1.0):
             a, b = struct.unpack('>hh', r[0x24:0x28]); along_x = a <= x <= b
             if b > a:
                 e["patrol"] = {"axis": 'x' if along_x else 'z', "range": [jround(a / CELL - x0, 3), jround(b / CELL - x0, 3)] if along_x else [jround(a / CELL - z0, 3), jround(b / CELL - z0, 3)]}
-                e["speed"] = jround(60 / CELL, 3)
+                e["speed"] = jround(30 / CELL, 3)
+        if kind in ('enemy', 'capsule', 'lever'):   # Flicky colour byte +0x19 (1..4), palette line bits 13-14 of +0x16
+            if kind != 'lever': fb = r[0x19]; e["flicky"] = fb if 1 <= fb <= 4 else 0
+            ln = (r[0x16] >> 5) & 3
+            if ln != 3: e["line"] = ln
+        if t == 0x178: e["shoot"] = (struct.unpack('>H', r[0x2A:0x2C])[0] // 12) & 3
+        y_c = struct.unpack('>h', r[0xA:0xC])[0]
+        if kind == 'capsule': e["y"] = jround((y_c + 8) / CELL * vscale, 3); e["top"] = jround((y_c + 40) / CELL * vscale, 3); e["half"] = jround(15 / CELL, 3)
+        if kind == 'lever':
+            best = 4
+            for cx, cz, reg, _v in gm.get('switches', []):
+                dd = math.hypot(cx + 0.5 - x / CELL, cz + 0.5 - z / CELL)
+                if dd < best: best = dd; e["reg"] = reg
+            if not e.get("reg"): continue
+            e["y"] = jround((y_c + 8) / CELL * vscale, 3)
         if kind == 'jetLift':
             flip = (r[0x16] >> 3) & 1; sx, sz = (48, 32) if flip else (32, 48)
             del e["x"], e["z"]
@@ -224,7 +246,11 @@ def convert(rom, level_id, vscale=1.0):
             e.update({"x0": jround((x - 1) / CELL - x0, 3), "x1": jround((x - 1 + sx) / CELL - x0, 3), "z0": jround((z - 1) / CELL - z0, 3), "z1": jround((z - 1 + sz) / CELL - z0, 3),
                       "y0": jround((a + 8) / CELL * vscale, 3), "y1": jround((b + 8) / CELL * vscale, 3)})
         if kind == 'fireSpot': e["y"] = jround((y_obj + 8) / CELL * vscale, 3)
-        if kind == 'prop': e["y"] = jround((y_obj + 8) / CELL * vscale, 3); e["frame"] = PROP_FRAME.get(t, 0)
+        if kind == 'prop':
+            e["y"] = jround((y_obj + 8) / CELL * vscale, 3); e["frame"] = PROP_FRAME.get(t, 0)
+            if t == 0x184:
+                for cells, _hb, _ring, _pss, *ky in gm.get('gates', []):
+                    if ky and ky[0] and any(math.hypot(cx + 0.5 - x / CELL, cz + 0.5 - z / CELL) < 2 for cx, cz in cells): e["key"] = ky[0]
         if kind == 'sprinkler': e["y"] = jround((y_obj + 8) / CELL * vscale, 3); e["phase"] = struct.unpack('>H', r[0x24:0x26])[0] & 0x7FE
         if kind == 'pylon':   # the barrier whose zap cells are nearest turns it off
             e["y"] = jround((y_obj + 8) / CELL * vscale, 3); best = 4
@@ -461,14 +487,31 @@ def convert(rom, level_id, vscale=1.0):
             if pss: g["pass"] = 1
             if ky and ky[0]: g["key"] = ky[0]
             ents.append(g)
-    for cx, cz, key in gm.get('keyOff', []):
-        if floor_cell(cx, cz): ents.append({"type": "keyOff", "x": cx - x0, "z": cz - z0, "key": key})
+    for cx, cz, key, *regs in gm.get('keyOff', []):
+        if floor_cell(cx, cz):
+            e = {"type": "keyOff", "x": cx - x0, "z": cz - z0, "key": key}
+            if regs: e["regs"] = regs[0]
+            ents.append(e)
+    if 'switches' in gm:   # switch cells and carriers (Panic Puppet 1; see s3d.js)
+        cells = [[cx - x0, cz - z0, reg, v] for cx, cz, reg, v in gm['switches'] if floor_cell(cx, cz)]
+        if cells: ents.append({"type": "switchCells", "cells": cells})
+    for ax, bx, az, bz, y, lz, lo, hi, hide, launch in gm.get('carriers', []):
+        e = {"type": "carrier", "box": [r3(ax / CELL - x0), r3((bx + 1) / CELL - x0), r3(az / CELL - z0), r3((bz + 1) / CELL - z0)], "y": None if y is None else r3((y + 8) / CELL * vscale),
+             "line": r3(lz / CELL - z0), "lo": r3(lo / CELL - x0), "hi": r3(hi / CELL - x0), "v": r3(mps), "way": gm['carryWay']}
+        if hide: e["hide"] = [r3(hide[0] / CELL - x0), r3(hide[1] / CELL - x0)]
+        if launch:
+            state, vel, at, facing, frames, key = launch
+            rd, _end = ride_of(state, None, None, vel)
+            rd["end"] = {"at": [r3(at[0] / CELL - x0), r3((at[1] + 8) / CELL * vscale), r3(at[2] / CELL - z0)], "facing": compass_of(facing), "vel": rd["vel"]}
+            rd["force"] = {"t": r3(frames / 60), "dir": None}
+            e["launch"] = {"ride": rd, "key": key}
+        ents.append(e)
     if 'tubes2' in gm:   # taken grounded in the cell, put at (x, z) at his own height (see s3d.js)
-        tab, n, alts, *kys = gm['tubes2']; kys = kys[0] if kys else []
+        tab, n, alts, *more = gm['tubes2']; kys = more[0] if more else []; size = more[1] if len(more) > 1 else 12; hidden = len(more) > 2 and more[2]
         end_of = lambda end: {"at": [r3(end[0] / CELL - x0), r3(end[1] / CELL * vscale), r3(end[2] / CELL - z0)], "facing": compass_of(end[3]),
                               "vel": [r3(end[4] * mps), r3(-end[5] * mps * vscale), r3(end[6] * mps)]} if end else None
         for k2 in range(n):
-            c, x, z, state = struct.unpack('>HhhH', rom[tab + 12 * k2:tab + 12 * k2 + 8]); c >>= 1; cx, cz = c % 128, c >> 7
+            c, x, z, state = struct.unpack('>HhhH', rom[tab + size * k2:tab + size * k2 + 8]); c >>= 1; cx, cz = c % 128, c >> 7
             if not floor_cell(cx, cz): continue   # (the place is in the tube: no floor there)
             ride, end = ride_of(state, None, None, None)
             ride["start"] = [r3(x / CELL - x0), None, r3(z / CELL - z0)]; ride["end"] = end_of(end)
@@ -479,6 +522,7 @@ def convert(rom, level_id, vscale=1.0):
             e = {"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": 0, "ride": ride}
             key = next((q for q in kys if q[0] == k2), None)
             if key: e["key"] = key[1]
+            if hidden: ride["hidden"] = 1
             ents.append(e)
     bs = BOSSES.get(level_id)
     if bs:

@@ -60,6 +60,9 @@ untested.
   the platforms (the last one takes you to the end only with five Flickies).
 - Gene Gadget 2: the long chute that rolls you down into a leap, moving platforms over the conveyor slopes, doors
   that open for the tube you came out of, spikes, and the supercharger run that jumps you up a level.
+- Panic Puppet 1: levers that turn the belts round, belts that carry you (one throws you down a hidden run to a door
+  that opens only for it, one runs through a tunnel to the act's ring), Flicky capsules to jump on, the robots that
+  patrol and shoot all four ways, tubes inside the walls, a door the tube opens, and a cracked wall to spin dash through.
 - On levels from your ROM, Sonic moves by the original's own rules: how fast he speeds up, stops, turns, slides on
   ice, rolls (bouncing off walls and turning on corner pieces), and how hard each spin dash launches him.
 - Monitors show their icon and give rings, a shield, a gold shield, invincibility, speed shoes or a 1-up.

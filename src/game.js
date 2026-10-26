@@ -187,6 +187,16 @@
     }
     return romArt.objs.get(key);
   }
+  // Panic Puppet's levers (194): pieces drawn about 55 pixels under the record and 21 to its left, so the frame is drawn
+  // shifted to stand on the usual anchor (the place is the switch cells' middle)
+  function romLeverMat(frame, line) {
+    const key = 'lever' + frame + '/' + line + (L.palettes || []).join(',');
+    if (!romArt.objs.has(key)) {
+      const pal = S3D.paletteRGB(romArt.d, (L.palettes || romArt.fallbackPals)[line]);
+      romArt.objs.set(key, new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.objImage(romArt.d, S3D.typeArt(romArt.d, 0x194), frame, pal, ROM_CANVAS, ROM_CANVAS / 2 + 21, 8), ROM_CANVAS)), alphaTest: 0.5 }));
+    }
+    return romArt.objs.get(key);
+  }
   // the big ring's own nine frames (it shrinks away when used) and monitors with the icon of what they hold
   function romRingFrameMat(k) {
     const key = 'bigring' + k;
@@ -761,9 +771,9 @@
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
-  let sprinklerObjs = [], pylonObjs = [], zapObjs = [], beamObjs = [];
+  let sprinklerObjs = [], pylonObjs = [], zapObjs = [], beamObjs = [], capsuleObjs = [], leverObjs = [];
   let rockObjs = [], jetObjs = [], moverObjs = [], spikeBallObjs = [], fireObjs = [], fireballObjs = [], iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
-  let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
+  let doorMeshes = [], jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
   // spiked ball on a chain, and a burst of fireballs when beaten
   function buildBoss() {
@@ -1052,7 +1062,7 @@
     const objSprite = (kind, o, crudeMat, crudeSize, crudeFoot) => {
       let rm = rom ? romObjMat(kind, o.skin, false) : null;
       // an enemy with no recipe: its own frames from the art table, mirrored by scale when it faces left
-      const tf = !rm && rom && kind === 'enemy' && o.skin && S3D.typeArt(romArt.d, parseInt(o.skin, 16)) ? romTypeFrames(parseInt(o.skin, 16)) : null;
+      const tf = !rm && rom && kind === 'enemy' && o.skin && S3D.typeArt(romArt.d, parseInt(o.skin, 16)) ? romTypeFrames(parseInt(o.skin, 16), o.line ?? 3) : null;
       if (tf && tf.length) {
         const s = bottomSprite(tf[0], o.x, o.y, o.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); s.userData.size = ROM_SIZE; s.userData.frames = tf; return s;
       }
@@ -1061,6 +1071,40 @@
       if (rm) s.userData.rom = [rm, kind === 'enemy' ? romObjMat(kind, o.skin, true) : rm];
       return s;
     };
+    // doors (gates opened by a key: Gene Gadget, Panic Puppet): a slab of the level's own wall (ROM look) or a striped
+    // shutter of our own in the gate's cells, at most 2.4 m tall, sliding into the floor while the key is held
+    {
+      const art = mesh.userData.art && levelArtFor(L), vs = L.rom ? L.rom.vscale : 1;
+      const floorOf = (cx, cz) => { const k = (cz * L.width + cx) * 4; return Math.min(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]); };
+      let shutter = null;
+      doorMeshes = world.gates.filter(g => g.key !== null).map(g => {
+        const grp = new THREE.Group();
+        let hMax = 0;
+        for (const [cx, cz] of g.cells) {
+          const floor = floorOf(cx, cz), h = Math.min(g.top - floor, 2.4 * vs);
+          let mat = null;
+          const slot = art && L.rom ? art.baker.rockSlot(cx + L.rom.origin[0], cz + L.rom.origin[1]) : -1;
+          if (slot >= 0) {
+            const cv = document.createElement('canvas'); cv.width = cv.height = 32;
+            cv.getContext('2d').putImageData(new ImageData(art.baker.slotPixels(slot).slice(), 32, 32), 0, 0);
+            const tex = new THREE.CanvasTexture(cv); tex.magFilter = THREE.NearestFilter; tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(1, h / vs);
+            mat = new THREE.MeshLambertMaterial({ map: tex });
+          } else {
+            if (!shutter) {
+              const cv = document.createElement('canvas'); cv.width = cv.height = 64; const c2 = cv.getContext('2d');
+              c2.fillStyle = '#8c93a3'; c2.fillRect(0, 0, 64, 64); c2.fillStyle = '#6f7686'; for (let y = 4; y < 48; y += 8) c2.fillRect(0, y, 64, 3);
+              for (let x = -64; x < 64; x += 16) { c2.fillStyle = '#f2c230'; c2.beginPath(); c2.moveTo(x, 64); c2.lineTo(x + 8, 64); c2.lineTo(x + 24, 48); c2.lineTo(x + 16, 48); c2.fill(); }
+              c2.fillStyle = '#26262c'; c2.fillRect(0, 46, 64, 2);
+              shutter = new THREE.MeshLambertMaterial({ map: new THREE.CanvasTexture(cv) });
+            }
+            mat = shutter;
+          }
+          const m = new THREE.Mesh(new THREE.BoxGeometry(0.98, h, 0.98), mat);
+          m.position.set(cx + 0.5, floor + h / 2, cz + 0.5); grp.add(m); hMax = Math.max(hMax, h);
+        }
+        grp.userData = { gate: g, h: hMax }; levelGroup.add(grp); return grp;
+      });
+    }
     // cracked walls: a column of plain rock (from the level's own cliffs in the ROM look) on each cell until broken;
     // pillars (broken by a whirl): a stone column on a pink base, about the original sprite's height
     crackMeshes = world.cracks.map(c => {
@@ -1232,12 +1276,40 @@
       body.position.y = 0.22; nz.rotation.x = Math.PI / 2; nz.position.set(0, 0.5, 0.15); g.add(body, nz); g.position.set(q.x, q.y, q.z); levelGroup.add(g); return g;
     });
     const postMat = new THREE.MeshLambertMaterial({ color: 0x8890a0 }), tipMat = new THREE.MeshBasicMaterial({ color: 0xffe060 });
-    // props (Gene Gadget's doors 070 and pads 074): the original's frame in the ROM look; a grey door of our own
+    // props (Gene Gadget's doors 070 and pads 074, Panic Puppet's door 184): the original's frame in the ROM look (the door
+    // with a key slides open, frames 7 to 1, while it is held); a grey door of our own
+    const keyCells = world.gates.filter(g => g.key !== null).flatMap(g => g.cells);
     for (const q of world.L.entities.filter(e => e.type === 'prop')) {
+      if ((q.skin === '070' || q.skin === '184') && keyCells.some(([cx, cz]) => Math.hypot(cx + 0.5 - q.x, cz + 0.5 - q.z) < 2)) continue;   // (drawn by its gate)
       if (rom) { bottomSprite(romBossMat(parseInt(q.skin, 16), q.frame, ROM_CANVAS, 80, 3), q.x, q.y, q.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); continue; }
       if (q.skin !== '070') continue;
       const d = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.4, 0.15), postMat); d.position.set(q.x, q.y + 0.7, q.z); levelGroup.add(d);
     }
+    // Panic Puppet's Flicky capsules (19C: the original's frame) or a glass jar of our own with the bird inside; gone once
+    // broken. Levers (194) at the middle of their switch cells: frame 0 for 0, 7 for 1, swung in between; or a post and a
+    // knob of our own tilted the way the belt goes
+    capsuleObjs = world.capsules.map(c => {
+      if (rom) return bottomSprite(romBossMat(0x19C, 0, ROM_CANVAS, 80, c.line), c.x, c.y, c.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT);
+      const g = new THREE.Group(), floor = Sim.floorAt(L, c.x, c.z), h = c.top - floor, r = c.half;
+      const glass = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h * 0.8, 16, 1, true), new THREE.MeshLambertMaterial({ color: 0xbfe6ff, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }));
+      const rim = new THREE.CylinderGeometry(r * 1.06, r * 1.06, h * 0.1, 16), rimMat = new THREE.MeshLambertMaterial({ color: 0x8a8f9c });
+      const base = new THREE.Mesh(rim, rimMat), lid = new THREE.Mesh(rim, new THREE.MeshLambertMaterial({ color: 0xff9a2e }));
+      glass.position.y = h * 0.5; base.position.y = h * 0.05; lid.position.y = h * 0.95; glass.renderOrder = 2;
+      const bird = new THREE.Sprite(flickyMat(c.flicky > 0 ? (c.flicky - 1) & 3 : 0, 0, false)); bird.scale.set(0.5, 0.5, 1); bird.position.y = h * 0.45;
+      g.add(base, glass, lid, bird); g.position.set(c.x, floor, c.z); levelGroup.add(g); return g;
+    });
+    leverObjs = world.levers.map(lv => {
+      const near = [...world.switchCells.entries()].filter(([, [reg]]) => reg === lv.reg).map(([t]) => [t % L.width + 0.5, Math.floor(t / L.width) + 0.5])
+        .filter(([x, z]) => Math.hypot(x - lv.x, z - lv.z) < 4).sort((a, b) => Math.hypot(a[0] - lv.x, a[1] - lv.z) - Math.hypot(b[0] - lv.x, b[1] - lv.z)).slice(0, 2);
+      const x = near.length ? near.reduce((s, q) => s + q[0], 0) / near.length : lv.x, z = near.length ? near.reduce((s, q) => s + q[1], 0) / near.length : lv.z;
+      const y = Sim.floorAt(L, x, z), v = world.regs[lv.reg] ? 7 : 0;
+      if (rom) { const sp = bottomSprite(romLeverMat(v, lv.line), x, y, z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); sp.userData = { size: ROM_SIZE, f: v, rom: true }; return sp; }
+      const g = new THREE.Group(), stick = new THREE.Group();
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.25, 0.3), postMat), rod = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.6, 6), postMat);
+      const knob = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), new THREE.MeshLambertMaterial({ color: 0x2a2a30 }));
+      post.position.y = 0.12; rod.position.y = 0.3; knob.position.y = 0.6; stick.add(rod, knob); stick.position.y = 0.2;
+      g.add(post, stick); g.position.set(x, y, z); g.userData = { stick, f: v }; levelGroup.add(g); return g;
+    });
     pylonObjs = world.L.entities.filter(e => e.type === 'pylon').map(q => {
       if (rom) { const sp = bottomSprite(romBossMat(0x6C, 0, ROM_CANVAS, 80, 3), q.x, q.y, q.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); sp.userData.opens = q.opens; sp.userData.rom = true; return sp; }
       const g = new THREE.Group(), post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 1.2, 8), postMat), tip = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), tipMat);
@@ -1256,7 +1328,7 @@
     const drawn = [];
     for (const h of world.holes) {
       const R = h.ride;
-      if (!R || !R.start || Number.isFinite(R.start[1]) || !R.path.length) continue;
+      if (!R || !R.start || Number.isFinite(R.start[1]) || !R.path.length || R.hidden) continue;   // (Panic Puppet's run inside the walls)
       const pts = [new THREE.Vector3(R.start[0], Sim.floorAt(L, h.x, h.z) + 0.45, R.start[2])];
       let [x, y, z] = [pts[0].x, pts[0].y, pts[0].z];
       R.path.forEach(([dx, dy, dz], i) => { x += dx; y += dy; z += dz; if (i % 6 === 5 || i === R.path.length - 1) pts.push(new THREE.Vector3(x, y, z)); });
@@ -2274,6 +2346,21 @@
         else { const k = z.t < A ? 0.5 : 1.2; o.scale.set(0.9 * k, 0.9 * k, 1); o.material.opacity = z.t < A ? 0.5 : 0.9; }
       });
     }
+    // Panic Puppet: capsules gone once broken; levers swing a frame every 3 ticks to their value; doors slide into the
+    // floor while their gate is open
+    capsuleObjs.forEach((o, q) => { o.visible = world.capsules[q].alive; });
+    for (const d of doorMeshes) {
+      const to = d.userData.gate.open ? -d.userData.h - 0.05 : 0;
+      d.position.y += Math.sign(to - d.position.y) * Math.min(Math.abs(to - d.position.y), 4 * dt); d.visible = d.position.y > -d.userData.h;
+    }
+    if (world.tick % 3 === 0) {
+      leverObjs.forEach((o, q) => {
+        const lv = world.levers[q], to = world.regs[lv.reg] ? 7 : 0, u = o.userData;
+        if (u.f === to) return;
+        u.f += to > u.f ? 1 : -1;
+        if (u.rom) o.material = romLeverMat(u.f, lv.line); else u.stick.rotation.z = (0.5 - u.f / 7) * 1.2;
+      });
+    }
     // Flickies: hop about, face the way they go; the HUD shows how many the ring has and how many follow
     for (let q = 0; q < flickySprites.length; q++) {
       const s = flickySprites[q], f = world.flickies.filter(ff => ff.state !== 'gone')[q];
@@ -2368,6 +2455,7 @@
     // the ground above, as the original keeps its view outside
     const rideFloor = p.ride || p.pad ? Sim.floorAt(L, rp.x, rp.z) : -Infinity, buried = (p.ride || p.pad) && Number.isFinite(rideFloor) && rp.y < rideFloor - 0.3;
     if (buried) { hero.visible = sil.visible = false; if (hero3d) hero3d.root.visible = false; camPt.set(rp.x, rideFloor, rp.z); }
+    else if (p.hidden) { hero.visible = sil.visible = false; if (hero3d) hero3d.root.visible = false; }   // (in a tube or a tunnel)
     const cp = buried ? camPt : rp;
     if (view.mode === 'iso') updateIso(cp, dt); else updateChase(cp, dt, p);
     lastRp.copy(cp);

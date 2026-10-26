@@ -184,6 +184,17 @@ serves index.html from main.
   invulnerable); hit: t = 0x1DF, lanes on. Roofs 0x11482. Drawn: pod 048, lower part 168, loads 16C, bombs 164 (ROM) or
   crates and mines. ANIM_FRAMES: GnG fans (16 tiles 0xDD8FE, steady rate; the original spins them with the hover) and the
   belt (2 tiles 0xDE8FE).
+- Panic Puppet 1 (`GIMMICKS[20]`, RunLevel 0x133BC labelled PPz2, InitLevel 0x13336): hover, zaps, roofs 0x13B00,
+  slides, cracked wall (48, 48) (spin dash north from (48, 49)); gates with key 1 at (68, 97..98) and (40, 62) drawn
+  as doors (`doorMeshes`: wall slab or our shutter, sliding down while open; props 070/184 next to key gates skipped);
+  `keyOff` {regs} (values set as the key goes: flag f); `switchCells` [x, z, name, value] (grounded; event 'lever');
+  `lever` (194, drawn at its switch cells' middle, frames 0/7, `romLeverMat`); `carrier` {box, y, line, lo, hi, v,
+  way [flag, then, else], hide, launch {ride, key}} (`p.carry`: held, carried 1 unit a frame, returns early; belt 1
+  launches ride 0x56 whose end is (0x860, 0x100, 0xC40) walking at 7 a frame, pad held 220 frames; belt 2 hidden in
+  its tunnel); tubes2 with 8-byte records and `hidden` rides (`p.hidden`, no glass tube); `capsule` (19C: box `half`
+  to `top`, walls; landed on: vy 5 units a frame, frees its Flicky; `w.capsules`); 178 enemy `shoot` (every 32 ticks,
+  E S W N, `P.shoot*`, shots with `life`). Enemies carry `flicky` (byte +0x19: 1..4 colour, 0 none; holders(w) counts
+  for the ring) and `line` (sprite palette, bits 13-14 of +0x16). Patrols move half a unit a frame (measured, all zones).
 - Converted levels, all zones (watched in GnG1 and GG1): a roll bounces off walls (`rollBounce`, facing turned); corner
   pieces (one corner two steps over three level ones, both neighbours by it without floor; `L.diag`, findDiagonals) are
   diagonal walls (that half solid, rest flat), met as a point (`P.rDiag`); walls keep `P.rOrig` 0.12 m; slope pull
@@ -261,8 +272,10 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
+- 2026-10-27: Panic Puppet 1 (belts and levers, the hidden run, doors, capsules, shooting robots, hidden tubes, the
+  cracked wall); Flickies only from their holders (byte +0x19); patrols at the measured half a unit a frame; 111 sim
+  tests; flow.py: PP1 can be finished. Next: PP2 (19, RunLevel 0x13B7E), PP3 boss (21), Final Fight (22).
 - 2026-10-27: Gene Gadget 3 boss (the belt, its loads, bombs, the pod low to hit); 108 sim tests. Gene Gadget done.
-  Next: Panic Puppet (20, 19, 21), then Final Fight (22).
 - 2026-10-27: Gene Gadget 2 (chute, supercharger hop, doors, platforms, slides, spikes); 107 sim tests; all 22 levels
   load in the page (alllevels.probe.js, private). Next: the GnG3 boss (0x11126).
 - 2026-10-27: Gene Gadget 1 (hover cells, zap floors, pyramid bumpers, barriers and gates, sprinklers, tubes with the

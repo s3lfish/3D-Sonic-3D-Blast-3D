@@ -39,12 +39,14 @@ for e in ents:
 gates = {}
 for e in ents:
     if e['type'] == 'gate':
-        for c in e['cells']: gates[(c[0], c[1])] = (e['top'], e['opens'], e.get('pass'))
+        for c in e['cells']: gates[(c[0], c[1])] = (e['top'], e['opens'], e.get('pass'), e.get('key'))
 hover = {(c[0], c[1]) for e in ents if e['type'] == 'updraft' for c in e['cells']}
-state = {'section': 0, 'pass': False}
+state = {'section': 0, 'pass': False, 'keys': set()}   # keys: taken as held once a ride that gives one has been reached
+carriers = [e for e in ents if e['type'] == 'carrier']   # Panic Puppet's belts: either way (the levers are reachable)
+capsules = [e for e in ents if e['type'] == 'capsule']   # landing on one throws 5 units a frame up (50 units over it)
 def h(x, z):
     g = gates.get((x, z))
-    if g and not (0 < g[1] <= state['section']) and not (g[2] and state['pass']): return g[0]
+    if g and not (0 < g[1] <= state['section']) and not (g[2] and state['pass']) and not (g[3] and g[3] in state['keys']): return g[0]
     if (x, z) in up: return up[(x, z)]
     return top(x, z)
 def reach1(seeds, section, seen=None):
@@ -94,8 +96,24 @@ def reach1(seeds, section, seen=None):
             if (int(b['x']), int(b['z'])) == (x, z):
                 if gates and not state['pass']: state['pass'] = True; q.extend(seen)   # its run opens the gates
                 nxt += run_on(x, z, b['dir'][0], b['dir'][1], 20)
+        for e in carriers:
+            b = e['box']
+            if not (b[0] <= x + 0.5 < b[1] and b[2] <= z + 0.5 < b[3]): continue
+            nxt.append((int(e['lo'] - 0.01), z))
+            if e.get('launch'):
+                k = e['launch'].get('key')
+                if k and k not in state['keys']: state['keys'].add(k); q.extend(seen)
+                ex, ey, ez = e['launch']['ride']['end']['at']; nxt.append((int(ex), int(ez)))
+            else: nxt.append((int(e['hi'] + 0.01), z))
+        for e in capsules:
+            if abs(e['x'] - x - 0.5) <= 1.5 and abs(e['z'] - z - 0.5) <= 1.5 and e['top'] - y <= JUMP:
+                for zz in range(int(e['z']) - 3, int(e['z']) + 4):
+                    for xx in range(int(e['x']) - 3, int(e['x']) + 4):
+                        hy = h(xx, zz)
+                        if hy is not None and hy <= e['top'] + 50 / 32: nxt.append((xx, zz))
         for e in holes:
             if (int(e['x']), int(e['z'])) != (x, z) or e['opens'] > section: continue
+            if e.get('key') and e['key'] not in state['keys']: state['keys'].add(e['key']); q.extend(seen)
             if 'ride' in e:
                 r = e['ride']; st = r['start'] or [x + 0.5, 0, z + 0.5]
                 if r['end']:

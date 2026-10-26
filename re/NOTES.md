@@ -503,3 +503,35 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   Record 7 (168) at (x - 2, y - 16, z - 2). Roofs 0x11482 (the row under the pod, top 32). Belt tiles: 0x40 bytes from
   0xDE8FE + 0x40k to VRAM 0x20 a frame while on.
 
+## Panic Puppet 1 (2026-10-27; pp_a_dis, gngseq.py, objlist.py, emulator)
+- Labels swapped as in other zones: InitLevel 0x13336 (labelled PPz1) and RunLevel 0x133BC (labelled PPz2) run level
+  20 (PP1); RunLevel 0x13B7E (labelled PPz1) is level 19 (PP2). PP3: Init 0x1258C, Run 0x1268A. Final Fight 0x14170/0x142C0.
+- InitLevel raises map cells (68, 97), (68, 98) to 0x4100, (40, 62) to 0x6100 (gates: a per-frame list at $CC92 of
+  cell offsets lets them through while the key $18 is set; negative offsets are walls: the roofs helper 0x14040 uses
+  them for airborne Sonic outside the roof cells) and (48, 48) to 0x6900 (cracked wall: map back to 0x4900 when Sonic,
+  in cell (48, 49), z <= 0x630, rolling ($56 = 2), fast, facing 0x300..0x500, so a spin dash there; sound 0x59).
+- Tubes 0x13464: 8-byte records [cell, x, z, state], taken grounded (not with the pad held by the routine), sound 0xAD;
+  states 0x58..0x5E keep Sonic hidden ($76 = 1) except in their first segment; state 0x5A sets the key. (69, 98)
+  with the key: key off, flag $1A on; (40, 63) with the key: key off, $1A off, sound 0x64.
+- Levers (194, handler 0x16136): value word +0x24, frames by the list at 0x1616E (0 for 0, 7 for 1; sound 0x76 when it
+  changes). Switch cells set them (grounded): (31, 92) / (31, 91) lever 7 = 0 / 1; (44, 78) / (44, 77) and (86, 63) /
+  (86, 62) levers 8 and 9 = 0 / 1. Belt way $1B = ($1A ? lever 8 : lever 7) == 0 (west); belt tiles (VRAM 0x1320,
+  0xDE8FE) run backwards while west.
+- Belt 1: grounded in x 0x480..0x51F, z 0xB60..0xB9F: held (pad, $0A18 = 2), carried a unit a frame on z 0xB80;
+  west: let go at x <= 0x477; east at x >= 0x520: ride 0x56 (roll, vx 7, pad held 220 frames, key, sound 0xAB); at
+  the end of its last segment ($66 = 0x10, $6A = 1) Sonic is put at (0x860, 0x100, 0xC40), walking on at 7 a frame and
+  stopping at x 2249 (watched; the sim matches to a frame or two). Belt 2: grounded at y 0xE0 in x 0x7C0..0xABF,
+  z 0x9A0..0x9DF, on z 0x9C0, let go past 0x7B7 or 0xAC8, hidden in x 0x920..0xA80 (a tunnel through a block).
+- Slides: 0xC3 and 0xF0 cells (grounded, $8A clear): +0.25 a frame up to 4 along x while x <= 0x960, else along z;
+  15 frames after leaving. Hover 0x55 and zaps 0xAA as Gene Gadget's (also lifts Flickies over 0x55 cells).
+- 178 (handler 0x15E20): patrols x or z (bit 3 of byte +0x16) between +0x24 and +0x26 a unit a call, every other
+  frame (0.5 a frame, measured; Gene Gadget's 05C and Volcano Valley's 100 too); when $0B04 (31..0) is 0, a shot
+  (template 0xDA24) 16 out and 12 up, 2 a frame from table 0x15EE8 (E, S, W, N; index +0x2A += 12), vy -1, gravity
+  1/16, gone after 32 frames or in a wall (watched), sound 0x9A.
+- 19C (handler 0x1680C): Flicky capsule: a platform box at (x - 15, y + 32, z - 15) 30 x 30 ($CC4A list); touched
+  from the air: vy -5, ball; then broken (0x192C2: sound 0x3D, Flicky by byte +0x19). Routine 0x192C2 frees a Flicky
+  only for byte +0x19 = 1..4 (colour; counts $069A..$069D): Scouters (058) and 178 hold none; in PP1 the capsules
+  hold the five.
+- Palette line of an object's sprite: bits 13-14 of word +0x16 (178, 194, 19C: line 0).
+- Ring used: $0A18 = 0x5A, camera to (0xA94, 0x634) (not modelled). Fans: 16 tiles 0xDD8FE at tile 125, speed
+  $0ACE up to 0x40 while hovering (here steady).

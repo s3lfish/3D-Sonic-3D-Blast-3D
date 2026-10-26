@@ -966,5 +966,36 @@ test('the Gene Gadget boss: the belt carries the player to the hurting end, load
   }
   assert.strictEqual(hits, 8, 'eight hits'); assert.ok(w.boss.dead >= 0, 'beaten');
 });
+// Panic Puppet 1 (watched in the emulator; see s3d.js GIMMICKS[20])
+test('Panic Puppet 1: switch cells throw the levers; a belt carries the player their way and lets go at its ends, or launches its ride with the key', () => {
+  const ride = { path: [[0, 0, 0], [0, 0, 0]], end: { at: [12.5, 1, 2.5], facing: 90, vel: [3, 0, 0] }, force: { t: 0.2, dir: null } };
+  const belt = { type: 'carrier', box: [5, 8, 1, 4], y: null, line: 2.5, lo: 4.7, hi: 8, v: 1.875, way: ['f', 'b', 'a'], launch: { ride, key: 3 } };
+  const w = GNG([belt, { type: 'switchCells', cells: [[2, 1, 'a', 1], [2, 3, 'a', 0]] }]); place(w, 6.5, 2.5);
+  run(w, 5, {}); assert.ok(w.p.carry, 'taken');
+  run(w, 120, {}); assert.ok(!w.p.carry && w.p.x <= 4.7 + 1e-6 && w.p.x > 4.6, `west by default, let go at ${w.p.x.toFixed(3)}`);
+  place(w, 2.5, 1.5); let lever = false; run(w, 3, (f, ww) => { if (ww.events.includes('lever')) lever = true; return {}; });
+  assert.ok(lever && w.regs.a === 1, 'lever thrown');
+  place(w, 6.5, 2.5); let at = -1; run(w, 120, (f, ww) => { if (at < 0 && ww.events.includes('launch')) at = f; return {}; });
+  assert.ok(at >= 47 && at <= 50 && w.keys.has(3) && Math.floor(w.p.x) >= 12, `launched at frame ${at}, out at ${w.p.x.toFixed(2)}`);
+  w.regs.f = 1; w.regs.b = 0; place(w, 6.5, 2.5); run(w, 120, {}); assert.ok(w.p.x <= 4.7 + 1e-6, 'with the flag, the other lever: west');
+});
+test('a Flicky capsule: its sides are walls; landing on it breaks it, throws the player 5 units a frame up, frees its Flicky', () => {
+  const w = GNG([{ type: 'capsule', x: 6.5, z: 2.5, y: 1.5, top: 2.5, half: 0.47, flicky: 3 }, { type: 'enemy', x: 10.5, z: 2.5, radius: 0, flicky: 0 }], { flickies: 5 });
+  place(w, 4.5, 2.5); run(w, 60, { mx: 1 }); assert.ok(w.p.x < 6.03 && w.capsules[0].alive, `stopped by its side at ${w.p.x.toFixed(2)}`);
+  place(w, 6.5, 2.5); Object.assign(w.p, { y: 2.9, grounded: false, vy: 0 });
+  let vy = null; run(w, 30, (f, ww) => { if (vy === null && ww.events.includes('capsule')) vy = ww.p.vy; return {}; });
+  near(vy, UF(5), 0.25, 'thrown up'); assert.ok(!w.capsules[0].alive && w.flickies.length === 1 && w.flickies[0].kind === 2, 'broken, its Flicky free');
+  place(w, 10.5, 2.5); w.p.ball = true; Object.assign(w.p, { y: 1.5, grounded: false, vy: -1 }); run(w, 20, {});
+  assert.ok(!w.enemies[0].alive && w.flickies.length === 1, 'an enemy holding none frees none');
+});
+test('a 178 shoots every 32 frames, east, south, west and north in turn from its index; the shots last 32 frames', () => {
+  const w = GNG([{ type: 'enemy', x: 8.5, z: 2.5, radius: 0, shoot: 1 }]); place(w, 3.5, 2.5);
+  const dirs = []; let oldest = 0;
+  run(w, 130, (f, ww) => {
+    if (ww.events.includes('pellet')) { const s = ww.shots[ww.shots.length - 1]; dirs.push([Math.sign(Math.round(s.vx)), Math.sign(Math.round(s.vz))]); }
+    for (const s of ww.shots) oldest = Math.max(oldest, s.age); return {};
+  });
+  assert.deepStrictEqual(dirs, [[0, 1], [-1, 0], [0, -1], [1, 0]]); assert.ok(oldest <= 32 / 60 + 1e-9 && oldest > 0.4, `oldest shot ${oldest.toFixed(3)} s`);
+});
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
