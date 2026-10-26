@@ -303,6 +303,7 @@
       respawn: () => arp([392, 330, 262, 196], 0.12, 'triangle', 0.35),
       needFlickies: () => tone('square', 300, 220, 0.25, 0.2),
       flicky: () => tone('sine', 1800, 2600, 0.12, 0.25),
+      tick: () => tone('square', 2200, 2200, 0.03, 0.12),
     };
     function play(name) {
       if (muted || !SOUNDS[name] || !ready()) return;
@@ -1034,18 +1035,43 @@
   let cleared = false, clearTimer = 0;
   // a white flash when a big ring is used, as in the original
   function flash() { const f = $('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
-  function clearCardOff() { $('clearCard').hidden = true; clearTimeout(clearTimer); clearTimer = 0; }
+  function clearCardOff() { $('clearCard').hidden = true; $('tally').hidden = true; tally = null; clearTimeout(clearTimer); clearTimer = 0; }
   // act clear: show the result, then move on to the next act in the original's order (ROM levels)
+  // act results: in the ROM look the original's own results screen (fonts and layout from the ROM, bonuses counted
+  // into the score), otherwise a plain card; then the next act in the original's order (ROM levels)
+  // Bonus rules are mine (the original's tables are not decoded): time 10000 under a minute, less after; 100 a ring
+  // and 100 a Flicky saved; Knuckles and Tails bonuses need special stages, which this game does not have.
+  let tally = null;
+  function timeBonus(secs) { return secs < 60 ? 10000 : secs < 120 ? 5000 : secs < 180 ? 3000 : secs < 240 ? 2000 : secs < 300 ? 1000 : secs < 600 ? 500 : 0; }
+  function drawTally(now) {
+    const k = Math.max(0, Math.min(1, (now - tally.t0 - 1.5) / 2.5)), left = tally.bonus.map(b => Math.round(b * (1 - k)));
+    const total = tally.bonus.reduce((a, b) => a + b, 0), shown = Math.round(total * k);
+    const key = shown;
+    if (tally.key === key) return;
+    tally.key = key;
+    const img = S3D.tallyImage(romArt.d, { act: tally.act, time: tally.time, score: shown, bonus: left, total: shown });
+    const c = $('tallyCanvas'); c.getContext('2d').putImageData(new ImageData(img.px, img.width, img.height), 0, 0);
+    $('tally').style.background = `rgb(${img.background.join(',')})`;
+    if (k > 0 && k < 1 && Math.floor(now * 12) % 2) Sfx.play('tick');
+  }
   function actClear() {
     const idx = L.rom ? S3D.LEVELS.findIndex(l => l[0] === L.rom.level) : -1, here = idx >= 0 ? S3D.LEVELS[idx][1] : L.name;
     const next = idx >= 0 && romBytes ? S3D.LEVELS[idx + 1] : null, secs = Math.floor(world.time);
-    $('clearTitle').textContent = `${here} clear`;
-    $('clearInfo').textContent = `Rings ${world.ringCount}   Time ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}` + (next ? `\nNext: ${next[1]}` : '\nOpen ? to play again or choose another level.');
-    $('clearCard').hidden = false;
+    const time = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+    let wait = 5000;
+    if (romOn() && L.rom) {
+      const act = Number((here.match(/(\d)$/) || [0, 1])[1]);
+      tally = { t0: performance.now() / 1000, act, time, bonus: [timeBonus(secs), world.ringCount * 100, world.saved * 100, 0, 0], key: null };
+      $('tally').hidden = false; drawTally(tally.t0); wait = 7000;
+    } else {
+      $('clearTitle').textContent = `${here} clear`;
+      $('clearInfo').textContent = `Rings ${world.ringCount}   Time ${time}` + (next ? `\nNext: ${next[1]}` : '\nOpen ? to play again or choose another level.');
+      $('clearCard').hidden = false;
+    }
     clearTimeout(clearTimer);
     clearTimer = setTimeout(() => {
-      clearTimer = 0; $('clearCard').hidden = true;
-      if (!next) return;
+      clearCardOff();
+      if (!next) { if (tally) toast('That was the last act. Open ? to play again or choose another level.', 5); return; }
       try {
         const raw = S3D.convert(romBytes, next[0], L.rom.vscale);
         useLevel(Sim.importLevel(raw), true);
@@ -1053,7 +1079,7 @@
         $('romLevel').value = String(next[0]);
         toast(next[1], 2.5);
       } catch (err) { toast('The next level could not be converted: ' + err.message + '.', 4); }
-    }, 5000);
+    }, wait);
   }
   function restart() {
     Sim.resetLevel(world);
@@ -1244,6 +1270,7 @@
       else goalSprites[q].material = goalMats[Math.floor(t * 3) % 2];
       goalSprites[q].visible = q === world.section && !world.cleared;
     }
+    if (tally && romArt) drawTally(now / 1000);
     // a used big ring shrinks away through its own frames (ROM look) or grows and fades (scribbled)
     if (goalFx) {
       const k = (t - goalFx.t0) / 0.6, s = goalFx.sprite;

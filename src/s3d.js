@@ -331,6 +331,46 @@ const S3D = (() => {
     blit(px, size, d.subarray(MONITOR_ICONS + k * 0x80, MONITOR_ICONS + k * 0x80 + 128), 2, 2, ox - 13, oy - 23, false, false, paletteRGB(d, palBytes[2]));
     return px;
   }
+  // The act results screen, drawn as the original lays it out (320 x 224, seen in the emulator): a navy screen,
+  // "SONIC GOT THROUGH ACT n" in the big font (sprites, 16 px letters; act digits 16 x 32 after the 26 letters),
+  // then lines of the small 8 x 16 font (A to Z, 0 to 9, colon). Both fonts are RNC packed; palettes 26, 27 and 3.
+  const TALLY_BIG = 0x15DEBA, TALLY_SMALL = 0x15E3E6, tallyFonts = new WeakMap();
+  function tallyImage(d, info) {
+    if (!tallyFonts.has(d)) tallyFonts.set(d, { big: rncUnpack(d, TALLY_BIG), small: rncUnpack(d, TALLY_SMALL) });
+    const F = tallyFonts.get(d), W = 320, H = 224, px = new Uint8ClampedArray(W * H * 4);
+    const white = paletteRGB(d, 26), yellow = paletteRGB(d, 27), digits = paletteRGB(d, 3);
+    for (let i = 0; i < W * H; i++) { px.set(white[0], i * 4); px[i * 4 + 3] = 255; }
+    const tile = (src, t, x, y, pal) => {
+      for (let py = 0; py < 8; py++) for (let qx = 0; qx < 8; qx++) {
+        const b = src[t * 32 + py * 4 + (qx >> 1)], c = qx & 1 ? b & 15 : b >> 4;
+        if (!c || x + qx < 0 || x + qx >= W || y + py >= H) continue;
+        const o = ((y + py) * W + x + qx) * 4; px[o] = pal[c][0]; px[o + 1] = pal[c][1]; px[o + 2] = pal[c][2];
+      }
+    };
+    const big = (text, x, y) => {
+      for (const ch of text) {
+        const g = ch.charCodeAt(0) - 65;
+        if (g >= 0 && g < 26) for (let k = 0; k < 4; k++) tile(F.big, g * 4 + k, x + (k >> 1) * 8, y + (k & 1) * 8, white);
+        x += 16;
+      }
+    };
+    const small = (text, col, row, pal) => {
+      for (const ch of String(text)) {
+        const c = ch.charCodeAt(0), g = c >= 65 && c <= 90 ? c - 65 : c >= 48 && c <= 57 ? c - 22 : ch === ':' ? 36 : -1;
+        if (g >= 0) { tile(F.small, g * 2, col * 8, row * 8, pal); tile(F.small, g * 2 + 1, col * 8, row * 8 + 8, pal); }
+        col++;
+      }
+    };
+    const right = (n, endCol, row) => { const t = String(n); small(t, endCol - t.length + 1, row, white); };
+    big('SONIC GOT', 88, 16); big('THROUGH ACT', 64, 36);
+    const a = Math.min(3, Math.max(1, info.act | 0)) - 1;
+    for (let k = 0; k < 8; k++) tile(F.big, 104 + a * 8 + k, 244 + (k >> 2) * 8, 22 + (k & 3) * 8, digits);
+    small('TIME TAKEN', 3, 8, white); small(info.time, 14, 8, white); small('SCORE', 24, 8, white); right(info.score, 37, 8);
+    const labels = ['TIME', 'RING', 'FLICKY', 'KNUCKLES', 'TAILS'];
+    labels.forEach((l, i) => { small(l, 16 - l.length, 12 + i * 2, yellow); small('BONUS', 17, 12 + i * 2, yellow); right(info.bonus[i], 27, 12 + i * 2); });
+    small('TOTAL', 12, 23, white); right(info.total, 27, 23);
+    return { px, width: W, height: H, background: white[0] };
+  }
   function ringImage(d, k, pal, size = 16) {
     const px = new Uint8ClampedArray(size * size * 4);
     blit(px, size, d.subarray(RING_ART + k * 0x80, RING_ART + k * 0x80 + 128), 2, 2, 0, 0, false, false, pal);
@@ -758,5 +798,5 @@ const S3D = (() => {
     return { top, wall, atlas, foliage, rejects, get count() { return slots.length; } };
   }
 
-  return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, ringImage, levelPalettes, OCTANT, HERO };
+  return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, ringImage, levelPalettes, OCTANT, HERO };
 })();

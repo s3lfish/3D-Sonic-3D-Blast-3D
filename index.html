@@ -78,6 +78,8 @@ body {
 .clearcard { position: fixed; left: 50%; top: 22%; transform: translateX(-50%); text-align: center; pointer-events: none; z-index: 30; }
 .clearcard h2 { margin: 0; font: 400 clamp(28px, 7vw, 56px)/1.05 var(--font-display); color: var(--gold); text-shadow: 0 3px 0 var(--void), 0 0 18px rgba(0,0,0,0.5); text-transform: uppercase; }
 .clearcard p { margin: 10px 0 0; font: 700 16px/1.5 var(--font-ui); color: #fff; white-space: pre-line; text-shadow: 0 2px 0 var(--void); }
+.tally { position: fixed; inset: 0; z-index: 28; display: grid; place-items: center; pointer-events: none; }
+.tally canvas { width: min(100vw, calc(100vh * 320 / 224)); height: auto; image-rendering: pixelated; }
 .flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 25; }
 .flash.on { animation: flash 0.5s ease-out; }
 @keyframes flash { from { opacity: 0.9; } to { opacity: 0; } }
@@ -173,6 +175,7 @@ body {
 <div class="toast" id="toast" hidden></div>
 <div class="clearcard" id="clearCard" hidden><h2 id="clearTitle"></h2><p id="clearInfo"></p></div>
 <div class="flash" id="flash"></div>
+<div class="tally" id="tally" hidden><canvas id="tallyCanvas" width="320" height="224"></canvas></div>
 
 <script type="application/json" id="level">
 {
@@ -1326,7 +1329,7 @@ const Sim = (() => {
   function resetLevel(w) {
     const L = w.L;
     w.ringCount = 0; w.loose.length = 0; w.cleared = false; w.section = 0; w.spawn = null; w.inGoal = false; w.warpedAt = -9;
-    w.flickies = []; w.delivered = 0; w.trail = []; w.seed = 12345;
+    w.flickies = []; w.delivered = 0; w.saved = 0; w.trail = []; w.seed = 12345;
     for (const g of w.rings) g.got = false;
     w.enemies = L.entities.filter(e => e.type === 'enemy').map((e, i) => ({ x0: e.x, z0: e.z, x: e.x, z: e.z, y: e.y, radius: e.radius, speed: e.speed, chase: e.chase, ang: i * 1.7, alive: true, diedAt: -9, skin: e.skin }));
     w.monitors = L.entities.filter(e => e.type === 'monitor').map(e => ({ x: e.x, z: e.z, y: e.y, broken: false, skin: e.skin, kind: e.kind || 'rings' }));
@@ -1573,7 +1576,7 @@ const Sim = (() => {
         const following = w.flickies.filter(f => f.state === 'follow');
         const left = w.flickies.filter(f => f.state === 'free').length + w.enemies.filter(e => e.alive).length;
         const need = Math.min(L.flickies, w.delivered + following.length + left);
-        for (const f of following.slice(0, Math.max(0, need - w.delivered))) { f.state = 'gone'; w.delivered++; }
+        for (const f of following.slice(0, Math.max(0, need - w.delivered))) { f.state = 'gone'; w.delivered++; w.saved++; }
         ready = w.delivered >= need;
         if (!ready) w.events.push('needFlickies');
       }
@@ -2011,6 +2014,46 @@ const S3D = (() => {
     blit(px, size, d.subarray(MONITOR_ICONS + k * 0x80, MONITOR_ICONS + k * 0x80 + 128), 2, 2, ox - 13, oy - 23, false, false, paletteRGB(d, palBytes[2]));
     return px;
   }
+  // The act results screen, drawn as the original lays it out (320 x 224, seen in the emulator): a navy screen,
+  // "SONIC GOT THROUGH ACT n" in the big font (sprites, 16 px letters; act digits 16 x 32 after the 26 letters),
+  // then lines of the small 8 x 16 font (A to Z, 0 to 9, colon). Both fonts are RNC packed; palettes 26, 27 and 3.
+  const TALLY_BIG = 0x15DEBA, TALLY_SMALL = 0x15E3E6, tallyFonts = new WeakMap();
+  function tallyImage(d, info) {
+    if (!tallyFonts.has(d)) tallyFonts.set(d, { big: rncUnpack(d, TALLY_BIG), small: rncUnpack(d, TALLY_SMALL) });
+    const F = tallyFonts.get(d), W = 320, H = 224, px = new Uint8ClampedArray(W * H * 4);
+    const white = paletteRGB(d, 26), yellow = paletteRGB(d, 27), digits = paletteRGB(d, 3);
+    for (let i = 0; i < W * H; i++) { px.set(white[0], i * 4); px[i * 4 + 3] = 255; }
+    const tile = (src, t, x, y, pal) => {
+      for (let py = 0; py < 8; py++) for (let qx = 0; qx < 8; qx++) {
+        const b = src[t * 32 + py * 4 + (qx >> 1)], c = qx & 1 ? b & 15 : b >> 4;
+        if (!c || x + qx < 0 || x + qx >= W || y + py >= H) continue;
+        const o = ((y + py) * W + x + qx) * 4; px[o] = pal[c][0]; px[o + 1] = pal[c][1]; px[o + 2] = pal[c][2];
+      }
+    };
+    const big = (text, x, y) => {
+      for (const ch of text) {
+        const g = ch.charCodeAt(0) - 65;
+        if (g >= 0 && g < 26) for (let k = 0; k < 4; k++) tile(F.big, g * 4 + k, x + (k >> 1) * 8, y + (k & 1) * 8, white);
+        x += 16;
+      }
+    };
+    const small = (text, col, row, pal) => {
+      for (const ch of String(text)) {
+        const c = ch.charCodeAt(0), g = c >= 65 && c <= 90 ? c - 65 : c >= 48 && c <= 57 ? c - 22 : ch === ':' ? 36 : -1;
+        if (g >= 0) { tile(F.small, g * 2, col * 8, row * 8, pal); tile(F.small, g * 2 + 1, col * 8, row * 8 + 8, pal); }
+        col++;
+      }
+    };
+    const right = (n, endCol, row) => { const t = String(n); small(t, endCol - t.length + 1, row, white); };
+    big('SONIC GOT', 88, 16); big('THROUGH ACT', 64, 36);
+    const a = Math.min(3, Math.max(1, info.act | 0)) - 1;
+    for (let k = 0; k < 8; k++) tile(F.big, 104 + a * 8 + k, 244 + (k >> 2) * 8, 22 + (k & 3) * 8, digits);
+    small('TIME TAKEN', 3, 8, white); small(info.time, 14, 8, white); small('SCORE', 24, 8, white); right(info.score, 37, 8);
+    const labels = ['TIME', 'RING', 'FLICKY', 'KNUCKLES', 'TAILS'];
+    labels.forEach((l, i) => { small(l, 16 - l.length, 12 + i * 2, yellow); small('BONUS', 17, 12 + i * 2, yellow); right(info.bonus[i], 27, 12 + i * 2); });
+    small('TOTAL', 12, 23, white); right(info.total, 27, 23);
+    return { px, width: W, height: H, background: white[0] };
+  }
   function ringImage(d, k, pal, size = 16) {
     const px = new Uint8ClampedArray(size * size * 4);
     blit(px, size, d.subarray(RING_ART + k * 0x80, RING_ART + k * 0x80 + 128), 2, 2, 0, 0, false, false, pal);
@@ -2438,7 +2481,7 @@ const S3D = (() => {
     return { top, wall, atlas, foliage, rejects, get count() { return slots.length; } };
   }
 
-  return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, ringImage, levelPalettes, OCTANT, HERO };
+  return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, ringImage, levelPalettes, OCTANT, HERO };
 })();
 </script>
 
@@ -3055,6 +3098,7 @@ const Art = (() => {
       respawn: () => arp([392, 330, 262, 196], 0.12, 'triangle', 0.35),
       needFlickies: () => tone('square', 300, 220, 0.25, 0.2),
       flicky: () => tone('sine', 1800, 2600, 0.12, 0.25),
+      tick: () => tone('square', 2200, 2200, 0.03, 0.12),
     };
     function play(name) {
       if (muted || !SOUNDS[name] || !ready()) return;
@@ -3786,18 +3830,43 @@ const Art = (() => {
   let cleared = false, clearTimer = 0;
   // a white flash when a big ring is used, as in the original
   function flash() { const f = $('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
-  function clearCardOff() { $('clearCard').hidden = true; clearTimeout(clearTimer); clearTimer = 0; }
+  function clearCardOff() { $('clearCard').hidden = true; $('tally').hidden = true; tally = null; clearTimeout(clearTimer); clearTimer = 0; }
   // act clear: show the result, then move on to the next act in the original's order (ROM levels)
+  // act results: in the ROM look the original's own results screen (fonts and layout from the ROM, bonuses counted
+  // into the score), otherwise a plain card; then the next act in the original's order (ROM levels)
+  // Bonus rules are mine (the original's tables are not decoded): time 10000 under a minute, less after; 100 a ring
+  // and 100 a Flicky saved; Knuckles and Tails bonuses need special stages, which this game does not have.
+  let tally = null;
+  function timeBonus(secs) { return secs < 60 ? 10000 : secs < 120 ? 5000 : secs < 180 ? 3000 : secs < 240 ? 2000 : secs < 300 ? 1000 : secs < 600 ? 500 : 0; }
+  function drawTally(now) {
+    const k = Math.max(0, Math.min(1, (now - tally.t0 - 1.5) / 2.5)), left = tally.bonus.map(b => Math.round(b * (1 - k)));
+    const total = tally.bonus.reduce((a, b) => a + b, 0), shown = Math.round(total * k);
+    const key = shown;
+    if (tally.key === key) return;
+    tally.key = key;
+    const img = S3D.tallyImage(romArt.d, { act: tally.act, time: tally.time, score: shown, bonus: left, total: shown });
+    const c = $('tallyCanvas'); c.getContext('2d').putImageData(new ImageData(img.px, img.width, img.height), 0, 0);
+    $('tally').style.background = `rgb(${img.background.join(',')})`;
+    if (k > 0 && k < 1 && Math.floor(now * 12) % 2) Sfx.play('tick');
+  }
   function actClear() {
     const idx = L.rom ? S3D.LEVELS.findIndex(l => l[0] === L.rom.level) : -1, here = idx >= 0 ? S3D.LEVELS[idx][1] : L.name;
     const next = idx >= 0 && romBytes ? S3D.LEVELS[idx + 1] : null, secs = Math.floor(world.time);
-    $('clearTitle').textContent = `${here} clear`;
-    $('clearInfo').textContent = `Rings ${world.ringCount}   Time ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}` + (next ? `\nNext: ${next[1]}` : '\nOpen ? to play again or choose another level.');
-    $('clearCard').hidden = false;
+    const time = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+    let wait = 5000;
+    if (romOn() && L.rom) {
+      const act = Number((here.match(/(\d)$/) || [0, 1])[1]);
+      tally = { t0: performance.now() / 1000, act, time, bonus: [timeBonus(secs), world.ringCount * 100, world.saved * 100, 0, 0], key: null };
+      $('tally').hidden = false; drawTally(tally.t0); wait = 7000;
+    } else {
+      $('clearTitle').textContent = `${here} clear`;
+      $('clearInfo').textContent = `Rings ${world.ringCount}   Time ${time}` + (next ? `\nNext: ${next[1]}` : '\nOpen ? to play again or choose another level.');
+      $('clearCard').hidden = false;
+    }
     clearTimeout(clearTimer);
     clearTimer = setTimeout(() => {
-      clearTimer = 0; $('clearCard').hidden = true;
-      if (!next) return;
+      clearCardOff();
+      if (!next) { if (tally) toast('That was the last act. Open ? to play again or choose another level.', 5); return; }
       try {
         const raw = S3D.convert(romBytes, next[0], L.rom.vscale);
         useLevel(Sim.importLevel(raw), true);
@@ -3805,7 +3874,7 @@ const Art = (() => {
         $('romLevel').value = String(next[0]);
         toast(next[1], 2.5);
       } catch (err) { toast('The next level could not be converted: ' + err.message + '.', 4); }
-    }, 5000);
+    }, wait);
   }
   function restart() {
     Sim.resetLevel(world);
@@ -3996,6 +4065,7 @@ const Art = (() => {
       else goalSprites[q].material = goalMats[Math.floor(t * 3) % 2];
       goalSprites[q].visible = q === world.section && !world.cleared;
     }
+    if (tally && romArt) drawTally(now / 1000);
     // a used big ring shrinks away through its own frames (ROM look) or grows and fades (scribbled)
     if (goalFx) {
       const k = (t - goalFx.t0) / 0.6, s = goalFx.sprite;
