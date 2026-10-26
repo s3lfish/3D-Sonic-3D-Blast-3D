@@ -305,7 +305,8 @@ serves index.html from main.
     neighbours one walks in from; past the line he is put on it; walking, his speed becomes its part along the line
     (0xB5 fixed point); rolling, it is mirrored off it and his facing turned (0x200 - f or 0x600 - f).
   * Jump 5.625 units a frame; let go while rising: over 3.125 loses 1.5, then halves, no gravity that frame.
-  * A roll keeps its table in the air and bounces off walls there too. Bumpers (SS) set one speed part to 5 and turn
+  * A roll keeps its table in the air and bounces off walls there too (0x42A0: a part back 0x4000 slower, the facing
+    mirrored unless that part stops; a corner that stops both, 0x442C: both parts back, facing + 0x400 always). Bumpers (SS) set one speed part to 5 and turn
     the ice flag on for their helper's 20 counts (`bumped`, `w.bumpIce`); the pad keeps working.
   * Monitors are solid boxes (`monSides`, `monTop`, 0x3788): 27 x 21 from x - 14, z - 6, top 24 up; walking into a
     side stops him at it, a roll into a side or the ball onto it breaks it (an airborne player then thrown 5 up).
@@ -412,13 +413,14 @@ serves index.html from main.
   frames (the timer snaps to 0). SS1 and SS2 too: the jump word $46 (`p.jb`, 0x2E0E: pressed in the air and held,
   he jumps as he lands), floor springs' exact speed, the scroll after springs. A second private script (jumps, rolls,
   spin dashes) and a third (diagonal stick, revs, rolls through fire bars) are exact in all 15 regular acts too (ride's last frame takes the locked pad; low roofs keep a cell's
-  other raise); bosses RR3, SS3 and GnG3 (belt as 0x11176: pushed up or right, end row always hurts) on all three. GnG1, RR3 and SS3 (positions) too: a
+  other raise); bosses RR3, SS3, GnG3 (belt as 0x11176: pushed up or right, end row always hurts) and PP3 (links and
+  claws, 0x12FA2 in 16.16, touch by their bytes) on all three. GnG1, RR3 and SS3 (positions) too: a
   reload's blank and pad wait per level (`rom.blank` [frames blank counting the death's last frame, frames after
   until the pad acts]; measured GG3 [44, 30], GnG1 [51, 34], RR3 [49, 33], VV2 [55, 34], VV3 [44, 34], SS3 [46, 30],
   else VV1's [52, 34]); SS spike fields count on the original's 4-frame count ($0AF8, `gZero(w, 4)`); the start
   faces the start table's way, bosses too (SS3's is not toward the boss). Still off: GnG1 after its reload (51 blank frames, VV1 52: not modelled), the 13
   frames after a reload when the original shows frame 0 (its player not yet run), RR3's boss scroll targets
-  ($084A/$084C), GG3, DD3, VV3, PP3 and FF in places (boss state at a trace's start; their models), a fall onto a no-floor cell (the original lands at map
+  ($084A/$084C), GG3, DD3, VV3 and FF in places (boss state at a trace's start; their models), a fall onto a no-floor cell (the original lands at map
   height 0; the act never lets him there), bosses. 140 sim tests.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;

@@ -1888,11 +1888,11 @@ const Sim = (() => {
   // high to step onto stops him at the edge of his own cell on that axis (x first, then z, so a corner is met by the
   // second), and the speed into it is gone (the caller's response), the other kept: he slides along at full speed.
   // Corner pieces as in resolveWalls.
-  const _ax = [0, 0, 0];   // the axes resolveWallsOrig stopped ([2] set when any)
+  const _ax = [0, 0, 0, 0];   // the axes resolveWallsOrig stopped ([2] set when any, [3] when a corner stopped both)
   // the highest floor Sonic at height y (m) goes onto: 8 whole units over his (his height cut to whole units, 0x40D0)
   const origLim = (L, y) => { const vs = L.rom.vscale; return (Math.floor(y * 32 / vs - 8 + 1e-6) + 8 + 8 + 0.5) / 32 * vs; };
   function resolveWallsOrig(L, p, ox, oz) {
-    _dn[2] = 0; _ax[0] = _ax[1] = _ax[2] = 0;
+    _dn[2] = 0; _ax[0] = _ax[1] = _ax[2] = _ax[3] = 0;
     const air = p.flyT > 0, E = 1 / (32 * 65536), ci = Math.floor(ox), cj = Math.floor(oz);
     // (0x40D6: a wall where the floor there is 9 or more whole units over Sonic's, in the air too; converted levels)
     const lim = L.rom ? origLim(L, p.y) : p.y + L.phys.stepUp;
@@ -1920,7 +1920,7 @@ const Sim = (() => {
       if (tileTopNear(L, i, j, p.x, p.z, air) <= lim) { /* through */ }
       else if (cornerTop(ci, j, S_ ? (E_ ? 1 : 0) : (E_ ? 2 : 3)) <= lim) bx = true;
       else if (cornerTop(i, cj, E_ ? (S_ ? 3 : 0) : (S_ ? 2 : 1)) <= lim) bz = true;
-      else bx = bz = true;
+      else { bx = bz = true; _ax[3] = 1; }   // (0x3F20: both, at the old cell's corner; 0x442C answers)
     } else {
       bx = i !== ci && tileTopNear(L, i, cj, p.x, oz, air) > lim;
       bz = j !== cj && tileTopNear(L, bx ? ci : i, j, p.x, p.z, air) > lim;
@@ -2647,8 +2647,22 @@ const Sim = (() => {
     // the serpent (routine 0xA3F2, see serpentStep): first south-east, then after Sonic
     if (b.serp && !serpentStep(b.serp, p, rnd, 5, V)) b.serp = null;
     // what hurts: the claws and the links of the arms, the serpent (a hit on a shoulder just now spares the player)
+    // (on the original's levels the links (0x12FA2: 16.16, an eighth of the way a step, six) and claws touch by their
+    // records' bytes: 174 links 27/21, 1A0 claws 22/24)
+    const L = w.L;
+    if (!(p.inv > 0 || p.invuln > 0) && L.rom && L.phys.orig) {
+      const o = L.rom.origin, S = 65536, R = v => Math.round(v * 32 * S), vs = L.rom.vscale;
+      for (const a of b.arms) {
+        const sh = a.shoulder, S0 = [R(sh[0] + o[0]), R((sh[1] / vs - 8 / 32)), R(sh[2] + o[1])], C = [R(a.x + o[0]), R(a.y / vs - 8 / 32), R(a.z + o[1])];
+        const d = [0, 1, 2].map(i => Math.floor((C[i] - S0[i]) / 8));   // (asr.l #3)
+        const parts = [];
+        for (let k = 1; k <= 6; k++) parts.push([S0[0] + k * d[0], S0[1] + k * d[1], S0[2] + k * d[2], [27, 21]]);
+        parts.push([C[0], C[1], C[2], [22, 24]]);
+        for (const [X, Y, Z, tb] of parts) if (origTouch(L, p, { X, Z, touch: tb, win: [0, 0, 0, 0, Math.floor(Y / S)], y: 0, y0: 0 })) { hurt(w, p.x - X / S / 32 + o[0], p.z - Z / S / 32 + o[1]); if (w.events.includes('respawn')) return true; return false; }
+      }
+    }
     if (!(p.inv > 0 || p.invuln > 0)) {
-      const pts = b.arms.flatMap(a => ppLinks(a)).concat(b.serp ? b.serp.segs : []);
+      const pts = (L.rom && L.phys.orig ? [] : b.arms.flatMap(a => ppLinks(a))).concat(b.serp ? b.serp.segs : []);
       for (const [x, y, z] of pts) {
         if (Math.abs(p.x - x) < 14 * U && Math.abs(p.z - z) < 14 * U && p.y < y + 20 * V && p.y + 32 * V > y - 8 * V) { hurt(w, p.x - x, p.z - z); if (w.events.includes('respawn')) return true; break; }
       }
@@ -3598,8 +3612,11 @@ const Sim = (() => {
             const back = v => { const l = 0.25 * 60 / 32; return v < 0 ? Math.max(0, -v - l) : Math.min(0, -v + l); };
             const turn = a => Math.atan2(Math.sin(a), Math.cos(a));
             let met = false;
-            if (_ax[0] && p.vx * _ax[0] < 0) { if (bounce) { p.vx = back(p.vx); if (p.vx) p.facing = turn(-p.facing); } else p.vx = 0; met = true; }
-            if (_ax[1] && p.vz * _ax[1] < 0) { if (bounce) { p.vz = back(p.vz); if (p.vz) p.facing = turn(-Math.PI - p.facing); } else p.vz = 0; met = true; }
+            if (_ax[3] && bounce) {   // (0x442C: a corner met rolling: both parts back 0x4000 slower, the facing turned half round)
+              p.vx = back(p.vx); p.vz = back(p.vz); p.facing = turn(p.facing + Math.PI); met = true;
+            } else if (_ax[3]) { p.vx = p.vz = 0; met = true; }
+            else if (_ax[0] && p.vx * _ax[0] < 0) { if (bounce) { p.vx = back(p.vx); if (p.vx) p.facing = turn(-p.facing); } else p.vx = 0; met = true; }
+            if (!_ax[3] && _ax[1] && p.vz * _ax[1] < 0) { if (bounce) { p.vz = back(p.vz); if (p.vz) p.facing = turn(-Math.PI - p.facing); } else p.vz = 0; met = true; }
             if (met && bounce) { if (!p.vx && !p.vz) p.rolling = false; w.events.push('rollBounce'); bouncedO = true; }   // (it moves once a frame: no more this frame)
           }
         } else {

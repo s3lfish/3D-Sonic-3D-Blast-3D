@@ -833,6 +833,14 @@ const ROMLV = (up = 1, split = 0, ents = [], vs = 1) => {
   return world({ version: 1, format: 'tiles', width: W, depth: D, tiles, entities: [{ type: 'start', x: 1.5, z: 4.5, facing: 90 }].concat(ents),
     physics: Object.assign({}, ORIG.physics, { orig: 1 }), rom: { level: 1, origin: [0, 0], vscale: vs } });
 };
+test('original movement: a roll into a corner comes back on both axes, turned half round (0x442C)', () => {
+  const w = ROMLV(0); place(w, 1.5, 4.5);
+  Object.assign(w.p, { x: 1 + 1 / 32, z: 5 - 1 / (32 * 65536), rolling: true, grounded: true, facing: 0x80 / 0x800 * -2 * Math.PI + 2 * Math.PI, vx: -4 * 60 / 32, vz: 0.5 * 60 / 32 });
+  const f0 = w.p.facing; run(w, 1, {});
+  assert.ok(w.p.vx > 0 && w.p.vz <= 0, `back on both (${w.p.vx}, ${w.p.vz})`);
+  const d = ((w.p.facing - f0) % (2 * Math.PI) + 3 * Math.PI) % (2 * Math.PI) - Math.PI;
+  assert.ok(Math.abs(Math.abs(d) - Math.PI) < 0.3, `half round (${d})`);
+});
 test('a half-height level keeps the original\'s speeds across', () => {
   const sp = vs => { const w = ROMLV(0, 0, [], vs); place(w, 1.5, 4.5); w.p.facing = Math.PI / 2; run(w, 40, { mx: 1 }); return w.p.vx; };
   near(sp(0.5), sp(1), 1e-9, 'same speed');

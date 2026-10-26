@@ -375,6 +375,12 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - Touch (armgrid.py, armstand.py): links hurt within about 16 units across and 12 along; the fist's top (one unit under
   its record) holds Sonic over x -4..+20, z -2..+36 of the record and carries him as it lifts and pulls back; a slam
   coming down on him hurts. From a raised fist a jump reaches the pod.
+- Roll bounces: 0x41A0/0x41C0/0x41DE/0x4202 put him at the old cell's edge on the axis met; rolling, 0x42A0 (x) /
+  0x42E8 (z): the part negated and 0x4000 toward 0 (cleared, no turn, if it crosses 0; both 0 ends the roll), facing
+  0x800 - f / 0x400 - f. A corner crossing with both ways blocked (0x3F20) puts him at the old cell's corner and
+  0x442C: both parts back as above, facing + 0x400 whatever the speeds (PP3 ex3 frame 359); not rolling, both 0.
+- PP3 arms (0x12FA2): links k = 1..6 at shoulder + k ((claw - shoulder) asr 3) in 16.16 (y as 16.16 too), the claw
+  its record; 174 links touch 27/21, 1A0 claws 22/24.
 - 0x727C exactly: d5 = 2 reach, d6 = 2 lift (words); s = (d5^2 + d6^2) & 0xFFFF; l = isqrt(s), h = isqrt(-s & 0xFFFF)
   (0xBEFE: bitwise root of an unsigned word); d6 -= d5 h / l, d5 += d6 h / l (divs: truncated); both asr 2. Links i =
   1..4: z = (i d5 >> 2) + 0x820, y = (i d6 >> 2) + 0x80; fist z = reach + 0x820, y = lift + 0x94; then
