@@ -1147,6 +1147,15 @@ test('Tails and Knuckles: hidden until shown; fifty rings given in all open the 
   run(w, 130, (f, ww) => { if (ww.events.includes('bonusIn')) open = f; return {}; });
   assert.ok(open < 0, 'only the gift that passes 50 opens it');
 });
+test('a death reloads the act: rings, enemies and monitors are back; the player starts at the section start', () => {
+  const w = FLAT([{ type: 'ring', x: 4.5, z: 2.5 }, { type: 'enemy', x: 10.5, z: 2.5, radius: 0 }, { type: 'monitor', x: 13.5, z: 2.5 }]);
+  place(w, 4.5, 2.5); Sim.step(w, {});
+  w.enemies[0].alive = false; w.monitors[0].broken = true;
+  assert.ok(w.rings[0].got && w.ringCount === 1, 'ring taken');
+  w.L.killY = 5; Sim.step(w, {}); w.L.killY = -50;
+  assert.ok(w.events.includes('respawn') && w.deaths === 1, 'died');
+  assert.ok(!w.rings[0].got && w.enemies[0].alive && !w.monitors[0].broken && w.ringCount === 0, 'all back');
+});
 // a special stage of my own: a straight track 64 wide, a step up of 40 at distance 200, rings, a spiked ball, a gate
 // at 900 wanting 50, the emerald at 1200
 function bonusData(rings) {

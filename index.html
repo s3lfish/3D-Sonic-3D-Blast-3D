@@ -115,6 +115,7 @@ body {
 <div class="hud hud-tl">
   <div class="chip" aria-live="polite"><span class="label">Rings</span><span class="count" id="ringCount">0</span><span class="total" id="ringTotal">/ 0</span></div>
   <div class="chip" id="flickyHud" hidden aria-label="Flickies: filled are in the ring, outlined are following you"><span class="label">Flickies</span><span class="dots" id="flickyDots"></span></div>
+  <div class="chip" id="livesHud"><span class="label">Lives</span><span class="count" id="livesCount">3</span></div>
   <div class="chip" id="emeraldHud" hidden><span class="label">Emeralds</span><span class="count" id="emeraldCount">0</span><span class="total">/ 7</span></div>
 </div>
 <div class="hud hud-tr">
@@ -1870,19 +1871,36 @@ const Sim = (() => {
     resetLevel(w);
     return w;
   }
+  // enemies, Flicky capsules, monitors and mines as the level has them
+  function objectsBack(w) {
+    const L = w.L;
+    w.enemies = L.entities.filter(e => e.type === 'enemy').map((e, i) => ({ x0: e.x, z0: e.z, x: e.x, z: e.z, y: e.y, radius: e.radius, speed: e.speed, chase: e.chase, ang: i * 1.7, alive: true, diedAt: -9, skin: e.skin, patrol: e.patrol, pdir: 1,
+      orbit: e.orbit || 0, orbitY: e.orbitY || 0, phase: i * 1.7, ball: e.orbit ? { x: e.x, y: e.y, z: e.z } : null, flicky: e.flicky ?? -1, shoot: e.shoot ?? -1, line: e.line ?? 3,
+      wander: e.wander || null, wt: 0, wd: [0, 0] }));
+    w.capsules = L.entities.filter(e => e.type === 'capsule').map(e => ({ ...e, alive: true, diedAt: -9 }));
+    w.monitors = L.entities.filter(e => e.type === 'monitor').map(e => ({ x: e.x, z: e.z, y: e.y, broken: false, skin: e.skin, kind: e.kind || 'rings' }));
+    w.mines = L.entities.filter(e => e.type === 'mine').map(e => ({ x: e.x, z: e.z, y: e.y, alive: true, diedAt: -9, skin: e.skin }));
+  }
+  // a death: the original reloads the act (its main loop, 0x59C): rings, enemies, monitors and the rest are back, and
+  // freed Flickies not yet taken to a ring go with their holders (who hold them again); the section, the Flickies in
+  // the ring and the rings given to Tails and Knuckles stay; the player starts at the section's start
+  function death(w) {
+    w.deaths++;
+    for (const g of w.rings) g.got = false;
+    w.loose.length = 0; w.ringCount = 0;
+    w.flickies = w.flickies.filter(f => f.state === 'gone');
+    objectsBack(w);
+    respawn(w);
+    w.events.push('respawn');
+  }
   // put every ring, enemy and monitor back and the player at the start
   function resetLevel(w) {
     const L = w.L;
     w.ringCount = 0; w.loose.length = 0; w.cleared = false; w.clearAt = 0; w.section = 0; w.spawn = null; w.inGoal = false; w.warpedAt = -9; w.padOff = null;
     w.flickies = []; w.delivered = 0; w.saved = 0; w.trail = []; w.seed = 12345;
     for (const g of w.rings) g.got = false;
-    w.enemies = L.entities.filter(e => e.type === 'enemy').map((e, i) => ({ x0: e.x, z0: e.z, x: e.x, z: e.z, y: e.y, radius: e.radius, speed: e.speed, chase: e.chase, ang: i * 1.7, alive: true, diedAt: -9, skin: e.skin, patrol: e.patrol, pdir: 1,
-      orbit: e.orbit || 0, orbitY: e.orbitY || 0, phase: i * 1.7, ball: e.orbit ? { x: e.x, y: e.y, z: e.z } : null, flicky: e.flicky ?? -1, shoot: e.shoot ?? -1, line: e.line ?? 3,
-      wander: e.wander || null, wt: 0, wd: [0, 0] }));
+    objectsBack(w);
     w.beams = L.entities.filter(e => e.type === 'beamPost').map(e => ({ ...e, on: false, idx: e.phase }));
-    w.capsules = L.entities.filter(e => e.type === 'capsule').map(e => ({ ...e, alive: true, diedAt: -9 }));
-    w.monitors = L.entities.filter(e => e.type === 'monitor').map(e => ({ x: e.x, z: e.z, y: e.y, broken: false, skin: e.skin, kind: e.kind || 'rings' }));
-    w.mines = L.entities.filter(e => e.type === 'mine').map(e => ({ x: e.x, z: e.z, y: e.y, alive: true, diedAt: -9, skin: e.skin }));
     w.crawlers = L.entities.filter(e => e.type === 'crawler').map(e => ({ ...e, dir: 1 }));
     w.balloons = L.entities.filter(e => e.type === 'balloon').map(e => ({ ...e, by: e.y, pop: 0 })); w.spike = 0;
     w.spear = null; w.inTri = false; w.roofUp = false; w.ice = false; w.iceCell = -1;
@@ -3223,7 +3241,7 @@ const Sim = (() => {
     }
 
     if (speed > 0.3 && !charging && !(O && !p.whirl)) p.facing = Math.atan2(p.vx, p.vz);
-    if (p.y < L.killY) { w.deaths++; respawn(w); w.events.push('respawn'); return w; }
+    if (p.y < L.killY) { death(w); return w; }
 
     // lifts (Rusty Ruin 2's slabs): stood on, they wait a second, then sink (the original: about 40 frames for 84 units)
     for (const f of w.lifts) {
@@ -3849,7 +3867,7 @@ const Sim = (() => {
       p.invuln = P.hurtTime; w.events.push('shieldLost'); return;
     }
     scatterFlickies(w);
-    if (w.ringCount <= 0) { w.deaths++; respawn(w); w.events.push('respawn'); return; }
+    if (w.ringCount <= 0) { death(w); return; }
     const n = Math.min(P.scatterMax, w.ringCount);
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2, sp = 2.5 + (i % 3);
@@ -5696,7 +5714,7 @@ const S3D = (() => {
       ffDoor: [0xB8], ffBeep: [0xAD], timeUp: [0x78], ffAway: [0x60], ffHum: [0xC6], ffReady: [0x9D], laser: [0x5E], ffRise: [0xD0],
       ffSink: [0x73], ffLetGo: [0xB6], ffAim: [0x53], ffSlam: [0x5F], ffTarget: [0x51] /* Final Fight's routine */,
       friend: [0xB0] /* 0xCF1E */, bonusFail: [0xB2], gate: [0x63], emerald: [0x1A], emeraldNo: [0x19], bonusRise: [0x6A] /* the special stage */ },
-    power: { shield: 0x3A, gold: 0x3F },
+    power: { shield: 0x3A, gold: 0x3F, oneup: 0x19 /* 0xC19C */ },
   };
   // Special stages (entry 0x1E218, set up by 0x1C2AA): table 0x1CA94, 14 entries of 24 bytes [look (1: stone over
   // lava, Knuckles' stages 0-6; 0: a grating over a river, Tails' 7-13), top speed (x 16 / 0x10000 units a frame),
@@ -9190,7 +9208,8 @@ const Art = (() => {
     if (won && !B.noEm) {
       const n = emeraldCount() + 1; store.set(EM_KEY, String(n));
       title = 'Sonic got a Chaos Emerald'; info += `\nEmerald bonus 10000\n${n} of 7`;
-    } else title = won ? 'Special stage clear' : 'No emerald this time';
+    } else if (won) { title = 'Special stage clear'; setLives(Math.min(9, lives + 1)); info += '\nOne up'; }
+    else title = 'No emerald this time';
     bonus = null;
     $('bonusMsg').hidden = true;
     $('clearTitle').textContent = title; $('clearInfo').textContent = info; $('clearCard').hidden = false;
@@ -9198,6 +9217,15 @@ const Art = (() => {
     $('ringCount').textContent = String(world.ringCount); shownRings = world.ringCount; $('ringTotal').textContent = `/ ${world.rings.length}`;
     $('flickyHud').hidden = !L.flickies; flickyHudKey = -1; showEmeralds();
     levelMusic(); fadeCut(); resetCamera();
+  }
+  // lives (the original's $0680: three at the start of a game, a 1-up monitor adds one, nine at most; a special stage
+  // won with all seven emeralds adds one). With none left the act starts again from its beginning with three (the
+  // original's continue, without the count of continues)
+  let lives = 3;
+  function setLives(n) { lives = n; $('livesCount').textContent = String(Math.max(0, n)); }
+  function gameOver() {
+    $('clearTitle').textContent = 'Game over'; $('clearInfo').textContent = 'The act starts again.'; $('clearCard').hidden = false;
+    clearTimeout(clearTimer); clearTimer = setTimeout(() => { clearCardOff(); restart(); setLives(3); }, 3000);
   }
   function showEmeralds() { const n = emeraldCount(); $('emeraldHud').hidden = !n; $('emeraldCount').textContent = String(n); }
   showEmeralds();
@@ -9283,7 +9311,13 @@ const Art = (() => {
     while (acc >= STEP && steps < 5) {
       prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
       Sim.step(world, inp);
-      if (world.events.includes('respawn')) { prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z; toast('Back to the start.', 1.4); }
+      if (world.events.includes('respawn')) {   // a death: a life gone, the act as it was (see Sim's death)
+        prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
+        for (let q = 0; q < ringSprites.length; q++) ringSprites[q].visible = !world.rings[q].got;
+        setLives(lives - 1);
+        if (lives < 0) gameOver(); else toast(lives ? `${lives} ${lives === 1 ? 'life' : 'lives'} left.` : 'Last life.', 1.6);
+      }
+      if (world.events.includes('monitor') && world.power === 'oneup') setLives(Math.min(9, lives + 1));
       for (const ev of world.events) Sfx.play(ev);
       if (world.p.charge > 0 && !wasCharging) Sfx.play('charge');
       wasCharging = world.p.charge > 0;

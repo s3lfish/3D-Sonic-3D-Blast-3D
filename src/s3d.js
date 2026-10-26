@@ -1153,7 +1153,7 @@ const S3D = (() => {
       ffDoor: [0xB8], ffBeep: [0xAD], timeUp: [0x78], ffAway: [0x60], ffHum: [0xC6], ffReady: [0x9D], laser: [0x5E], ffRise: [0xD0],
       ffSink: [0x73], ffLetGo: [0xB6], ffAim: [0x53], ffSlam: [0x5F], ffTarget: [0x51] /* Final Fight's routine */,
       friend: [0xB0] /* 0xCF1E */, bonusFail: [0xB2], gate: [0x63], emerald: [0x1A], emeraldNo: [0x19], bonusRise: [0x6A] /* the special stage */ },
-    power: { shield: 0x3A, gold: 0x3F },
+    power: { shield: 0x3A, gold: 0x3F, oneup: 0x19 /* 0xC19C */ },
   };
   // Special stages (entry 0x1E218, set up by 0x1C2AA): table 0x1CA94, 14 entries of 24 bytes [look (1: stone over
   // lava, Knuckles' stages 0-6; 0: a grating over a river, Tails' 7-13), top speed (x 16 / 0x10000 units a frame),

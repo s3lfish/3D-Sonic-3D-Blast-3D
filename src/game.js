@@ -2544,7 +2544,8 @@
     if (won && !B.noEm) {
       const n = emeraldCount() + 1; store.set(EM_KEY, String(n));
       title = 'Sonic got a Chaos Emerald'; info += `\nEmerald bonus 10000\n${n} of 7`;
-    } else title = won ? 'Special stage clear' : 'No emerald this time';
+    } else if (won) { title = 'Special stage clear'; setLives(Math.min(9, lives + 1)); info += '\nOne up'; }
+    else title = 'No emerald this time';
     bonus = null;
     $('bonusMsg').hidden = true;
     $('clearTitle').textContent = title; $('clearInfo').textContent = info; $('clearCard').hidden = false;
@@ -2552,6 +2553,15 @@
     $('ringCount').textContent = String(world.ringCount); shownRings = world.ringCount; $('ringTotal').textContent = `/ ${world.rings.length}`;
     $('flickyHud').hidden = !L.flickies; flickyHudKey = -1; showEmeralds();
     levelMusic(); fadeCut(); resetCamera();
+  }
+  // lives (the original's $0680: three at the start of a game, a 1-up monitor adds one, nine at most; a special stage
+  // won with all seven emeralds adds one). With none left the act starts again from its beginning with three (the
+  // original's continue, without the count of continues)
+  let lives = 3;
+  function setLives(n) { lives = n; $('livesCount').textContent = String(Math.max(0, n)); }
+  function gameOver() {
+    $('clearTitle').textContent = 'Game over'; $('clearInfo').textContent = 'The act starts again.'; $('clearCard').hidden = false;
+    clearTimeout(clearTimer); clearTimer = setTimeout(() => { clearCardOff(); restart(); setLives(3); }, 3000);
   }
   function showEmeralds() { const n = emeraldCount(); $('emeraldHud').hidden = !n; $('emeraldCount').textContent = String(n); }
   showEmeralds();
@@ -2637,7 +2647,13 @@
     while (acc >= STEP && steps < 5) {
       prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
       Sim.step(world, inp);
-      if (world.events.includes('respawn')) { prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z; toast('Back to the start.', 1.4); }
+      if (world.events.includes('respawn')) {   // a death: a life gone, the act as it was (see Sim's death)
+        prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
+        for (let q = 0; q < ringSprites.length; q++) ringSprites[q].visible = !world.rings[q].got;
+        setLives(lives - 1);
+        if (lives < 0) gameOver(); else toast(lives ? `${lives} ${lives === 1 ? 'life' : 'lives'} left.` : 'Last life.', 1.6);
+      }
+      if (world.events.includes('monitor') && world.power === 'oneup') setLives(Math.min(9, lives + 1));
       for (const ev of world.events) Sfx.play(ev);
       if (world.p.charge > 0 && !wasCharging) Sfx.play('charge');
       wasCharging = world.p.charge > 0;

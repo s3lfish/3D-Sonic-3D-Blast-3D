@@ -681,6 +681,17 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   falling, 24 on the floor).
 - Not done: the floor pads' frames, the hatch's frames and the original's camera.
 
+## Lives and deaths (2026-10-27; main loop 0x59C..0x918)
+- Lives $0680: 3 at a new game ($0408 + 1), shown on the HUD; a 1-up monitor (0xC19C, sound 0x19) adds one, as does a
+  special stage won with all seven emeralds (0x83C); 9 at most. There is no ring 1-up.
+- A death ($C228 = 1): lives - 1, then the act is reloaded (LoadLevel 0x1A262 from 0x59C): rings, enemies and
+  monitors back; Sonic at the start table's entry for the section ($06B2 kept); the Flickies already in the ring
+  ($0A92) kept; the friends' counts kept; $068A says what the act's routine had done (shown friends, broken walls).
+- Lives under 0: with continues ($06AA, one for every ten 044 heads, 0x18124) the continue screen (0x1E68E) and the
+  act again from its start with 3 lives; without, game over.
+- The return from a special stage goes through the same reload with Sonic at $0686/$0688 (where he was), facing
+  0x700, and $0A92 from $068C.
+
 ## Tails, Knuckles and the special stage (2026-10-27; ssrun.py, sstrace.py, bonus_parity.js)
 - 15C Tails (handler 0x161C4, art 0x8EFF4) and 160 Knuckles (0x1626A, 0x93AA2; both palette line 2) call 0xCF1E: a
   grounded Sonic with rings whose x + 8 and z + 8 are within 0..16 of the record's is walked beside it (16 units to
