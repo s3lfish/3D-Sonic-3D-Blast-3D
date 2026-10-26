@@ -651,6 +651,16 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   from the air: vy -5, ball; then broken (0x192C2: sound 0x3D, Flicky by byte +0x19). Routine 0x192C2 frees a Flicky
   only for byte +0x19 = 1..4 (colour; counts $069A..$069D): Scouters (058) and 178 hold none; in PP1 the capsules
   hold the five.
+- Freed Flicky (0x192C2): a particle (template 0xD982) at the holder's position, vx = vz = 0, 4 up, gravity 0x2000,
+  no life limit, type = colour 1..4, way $36 = 0; $0AA4 = 30 (no Flicky caught for 30 frames, after any release); a
+  catch needs $0A8E (following) < 5 (0x1BA44; sound 0x38). Landing (0xD49C), y put on the floor, no 3/4 bounce:
+  type 1 turns (0xD5FA) and hops 1.0 up; 4 turns and hops 0.5; 2 hops 0.5 and steps $36 one way by bit 0 of the
+  random byte; 3 hops 4.0 with $36 - 7. The turn: target (4 - 2·octant to Sonic) & 15 (octant from the 0xDBEE byte
+  table, as 0xDBAE); $36 - target as a byte: 0 stays, else (& 15) > 8 adds 1, otherwise subtracts 1, and $36 is not
+  masked after it (a $36 of 0xF8 against target 8 wobbles a sixteenth each landing). Then speed 1 unit a frame:
+  index ((0x12 - $36) & 15) << 6 into the sine table, vx = sin·2, vz = cos·2. Walls as a lost ring's, but type 2
+  stops at the edge with its speed kept; the others reverse that part and mirror $36 ((4 - d) & 15 off an x wall,
+  (12 - d) & 15 off a z wall).
 - Palette line of an object's sprite: bits 13-14 of word +0x16 (178, 194, 19C: line 0).
 - Ring used: $0A18 = 0x5A, camera to (0xA94, 0x634) (not modelled). Fans: 16 tiles 0xDD8FE at tile 125, speed
   $0ACE up to 0x40 while hovering (here steady).

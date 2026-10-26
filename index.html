@@ -3030,7 +3030,16 @@ const Sim = (() => {
   // what can still free a Flicky: enemies alive that hold one, unbroken capsules
   const holders = w => w.enemies.filter(e => e.alive && e.flicky !== 0).length + w.capsules.filter(c => c.alive).length;
   const freeFlicky = (w, x, y, z, colour) => {
-    if (w.L.flickies) w.flickies.push({ x, y, z, vx: 0, vy: 4, vz: 0, state: 'free', age: 0, kind: colour > 0 ? (colour - 1) & 3 : w.flickies.length % 4, dir: rand(w) * 6.283 });
+    if (!w.L.flickies) return;
+    const kind = colour > 0 ? (colour - 1) & 3 : w.flickies.length % 4;
+    if (w.L.rom && w.L.phys.orig) {   // (0x192C2: a particle of the enemy's colour, 4 up; no catching for 30 frames)
+      const S = 65536, vs = w.L.rom.vscale;
+      const f = { o: 1, type: kind + 1, d: 0, t: Infinity, X: Math.floor(x * 32) * S, Y: Math.floor(y * 32 / vs - 8 + 1e-6) * S, Z: Math.floor(z * 32) * S,
+        vx: 0, vy: -4 * S, vz: 0, x, y, z, state: 'free', age: 0, kind };
+      ringPos(w.L, f); w.flickies.push(f); w.flickyWait = 30;
+      return;
+    }
+    w.flickies.push({ x, y, z, vx: 0, vy: 4, vz: 0, state: 'free', age: 0, kind, dir: rand(w) * 6.283 });
   };
   // the score (the original's $06A6, in hundreds; kept over deaths): an enemy 1, a boss 10 (the Final Fight's 50),
   // the Flickies taken to a ring 1, 2, 4, 8, 16 in turn ($0A8C doubling, 0xCD5E)
@@ -3965,7 +3974,7 @@ const Sim = (() => {
       if (dx * dx + dz * dz < er2 && Math.abs(pcy - (en.y + 0.4)) < 0.8) {
         if (attacking || p.inv > 0) {
           en.alive = false; en.diedAt = w.time; w.events.push('enemy');
-          if (en.flicky !== 0) freeFlicky(w, en.x, en.y + 0.3, en.z, en.flicky);
+          if (en.flicky !== 0) freeFlicky(w, en.x, en.y + (L.rom && L.phys.orig ? 0 : 0.3), en.z, en.flicky);
           if (!p.grounded) { p.vy = Math.max(p.vy, 6); p.jumping = false; }
         } else if (p.invuln <= 0) { hurt(w, dx, dz); if (w.events.includes('respawn')) return w; }
       }
@@ -4118,6 +4127,7 @@ const Sim = (() => {
       break;
     }
     // Flickies: freed ones hop about until touched, then follow the player's trail in a line
+    if (w.flickyWait > 0) w.flickyWait--;
     w.trail.push(p.x, p.y, p.z);
     if (w.trail.length > 3 * 400) w.trail.splice(0, 3);
     let k = 0;
@@ -4130,6 +4140,13 @@ const Sim = (() => {
         continue;
       }
       if (f.state !== 'free') continue;
+      if (f.o) {
+        origRing(L, f, w);
+        if (f.y < L.killY) { f.state = 'gone'; continue; }
+        const dx = p.x - f.x, dz = p.z - f.z, follow = w.flickies.filter(q => q.state === 'follow').length;
+        if (!(w.flickyWait > 0) && follow < 5 && dx * dx + dz * dz < 0.64 && Math.abs(p.y - f.y) < 1.2 && !(p.knockT > 0)) { f.state = 'follow'; w.events.push('flicky'); }
+        continue;
+      }
       const fl = floorAt(L, f.x, f.z);
       f.vy -= L.phys.gravity * 0.5 * dt;
       if (f.y + f.vy * dt <= fl && f.vy < 0) {          // landed: hop again, now and then in a new direction
@@ -4160,7 +4177,7 @@ const Sim = (() => {
     for (let i = w.loose.length - 1; i >= 0; i--) {
       const r = w.loose[i];
       r.age += dt;
-      if (r.o) { if (!origRing(L, r)) { w.loose.splice(i, 1); continue; } }
+      if (r.o) { if (!origRing(L, r, w)) { w.loose.splice(i, 1); continue; } }
       else {
         if (r.age > P.scatterLife) { w.loose.splice(i, 1); continue; }
         r.vy -= L.phys.gravity * 0.6 * dt; r.x += r.vx * dt; r.z += r.vz * dt; r.y += r.vy * dt;
@@ -4188,14 +4205,23 @@ const Sim = (() => {
   function scatterFlickies(w) {
     for (const f of w.flickies) if (f.state === 'follow') {
       f.state = 'free'; f.age = 0; f.dir = rand(w) * 6.283; f.vy = 5; f.vx = Math.cos(f.dir) * 3; f.vz = Math.sin(f.dir) * 3;
+      if (f.o) {   // (as the original's particles again: 4 up from where they were, a random way)
+        const S = 65536, vs = w.L.rom.vscale;
+        Object.assign(f, { X: Math.floor(f.x * 32) * S, Y: Math.floor(f.y * 32 / vs - 8 + 1e-6) * S, Z: Math.floor(f.z * 32) * S, vx: 0, vz: 0, vy: -4 * S, d: Math.floor(rand(w) * 16) });
+        w.flickyWait = 30;
+      }
     }
   }
   // A lost ring's flight (particle type 0, routine 0xD20E; 16.16 units, y up here): x and z move; crossing into a cell
   // whose edge corner (NW going +x or +z, NE going -x, SE going -z) is 9+ whole units over the ring, or that has no
   // floor, turns that part back at the edge; gravity 0x2000 a frame; landing (on the triangles, split ignored) comes back
   // up at 3/4 and takes 0x1000 off each horizontal part; a landing with neither left, or 240 frames, ends it.
-  function ringPos(L, r) { const vs = L.rom.vscale; r.x = r.X / 65536 / 32; r.z = r.Z / 65536 / 32; r.y = (r.Y / 65536 + 8) / 32 * vs + 0.3; }
-  function origRing(L, r) {
+  function ringPos(L, r) { const vs = L.rom.vscale; r.x = r.X / 65536 / 32; r.z = r.Z / 65536 / 32; r.y = (r.Y / 65536 + 8) / 32 * vs + (r.type ? 0 : 0.3); }
+  // Free Flickies are the same particles with their colour as type 1..4 (no life limit): a wall does not turn back
+  // type 2, the others turn back with their way mirrored (r.d, 16 ways: 4 - d off x walls, 12 - d off z walls); each
+  // landing hops them (type 1: 1.0 up, 2: 0.5, 3: 4.0, 4: 0.5) and turns them: 1 and 4 a sixteenth toward a way 45
+  // degrees beside Sonic's octant (0xD5FA), 2 a random sixteenth, 3 seven sixteenths; then a unit a frame that way.
+  function origRing(L, r, w) {
     if (--r.t <= 0) return false;
     const S = 65536, vs = L.rom.vscale, W = L.width, Yi = Math.floor(r.Y / S);
     const edge = (i, j, corner) => {   // a cell's corner in whole units, or Infinity for no floor
@@ -4209,14 +4235,16 @@ const Sim = (() => {
     if (r.vx) {
       r.X += r.vx; const ni = Math.floor(r.X / S / 32);
       if (ni !== ci && Yi - edge(ni, cj, ni > ci ? 0 : 1) <= -9) {
-        r.X = (ci * 32 + (ni > ci ? 31 : 0)) * S + (r.X & 0xFFFF); r.vx = -r.vx;
+        r.X = (ci * 32 + (ni > ci ? 31 : 0)) * S + (r.X & 0xFFFF);
+        if (r.type !== 2) { r.vx = -r.vx; if (r.type) r.d = (4 - r.d) & 15; }
       }
     }
     const i2 = Math.floor(r.X / S / 32);
     if (r.vz) {
       r.Z += r.vz; const nj = Math.floor(r.Z / S / 32);
       if (nj !== cj && Yi - edge(i2, nj, nj > cj ? 0 : 2) <= -9) {
-        r.Z = (cj * 32 + (nj > cj ? 31 : 0)) * S + (r.Z & 0xFFFF); r.vz = -r.vz;
+        r.Z = (cj * 32 + (nj > cj ? 31 : 0)) * S + (r.Z & 0xFFFF);
+        if (r.type !== 2) { r.vz = -r.vz; if (r.type) r.d = (12 - r.d) & 15; }
       }
     }
     r.vy += 0x2000; r.Y -= r.vy;
@@ -4226,6 +4254,19 @@ const Sim = (() => {
       const h = Math.round(T[0] * 32 / vs - 8) + Math.floor((T[1] * T[3] + T[2] * T[4]) / 4);
       if (r.vy >= 0 && h >= Math.floor(r.Y / S)) {
         r.Y = h * S + (r.Y & 0xFFFF);
+        if (r.type) {
+          if (r.type === 1 || r.type === 4) {
+            const p = w.p, oct = octantTo(Math.floor(p.x * 32) - Math.floor(r.X / S), Math.floor(p.z * 32) - Math.floor(r.Z / S)) >> 8;
+            const want = (4 - 2 * oct) & 15, dd = (r.d - want) & 0xFF;   // ($36 is a byte this turn leaves unmasked)
+            if (dd) r.d = (r.d + ((dd & 15) > 8 ? 1 : -1)) & 0xFF;
+            r.vy = r.type === 1 ? -S : -S / 2;
+          } else if (r.type === 2) { r.vy = -S / 2; r.d = (r.d + (rand(w) < 0.5 ? 1 : -1)) & 15; }
+          else { r.vy = -4 * S; r.d = (r.d - 7) & 15; }
+          const k = ((0x12 - r.d) & 15) << 6;
+          r.vx = P.orig.sin[k] * 2; r.vz = P.orig.sin[k + 0x100] * 2;
+          ringPos(L, r);
+          return true;
+        }
         if (!r.vx && !r.vz) return false;
         r.vy = -(r.vy - (r.vy >> 2));
         r.vx = r.vx > 0 ? Math.max(0, r.vx - 0x1000) : Math.min(0, r.vx + 0x1000);

@@ -877,6 +877,29 @@ test('058 bursts into four shots when Sonic comes near, then is gone', () => {
   let first = -1; run(w, 40, (f, x) => { if (first < 0 && x.shots.length) first = f; return { mx: 1 }; });
   assert.ok(first > 0 && !w.enemies[0].alive, `burst at frame ${first}`);
 });
+test('the original\'s freed Flickies: 4 units up, a hop a landing turning toward Sonic, not caught for 30 frames', () => {
+  const w = ROMLV(0, 0, [{ type: 'enemy', x: 4.5, z: 4.5, radius: 0, flicky: 1 }], 1); w.L.flickies = 5; place(w, 2.5, 4.5); w.p.facing = Math.PI / 2;
+  let freed = -1, top = 0, lands = 0, caught = -1, x0 = 0;
+  run(w, 300, (f, x) => {
+    const fl = x.flickies[0];
+    if (fl && freed < 0) { freed = f; x0 = fl.x; }
+    if (fl && fl.state === 'free') { top = Math.max(top, fl.y); if (fl.vy === -65536) lands++; }
+    if (fl && caught < 0 && fl.state === 'follow') caught = f;
+    return freed < 0 ? { mx: 1, dash: f > 12 } : {};
+  });
+  const f = w.flickies[0];
+  assert.ok(freed > 0 && f.type === 1, 'freed, type 1');
+  near((top - 1) * 32, 62, 1, 'rises 62 units (4 up, gravity 1/8)');
+  assert.ok(lands >= 3, `hops 1.0 up at each landing (${lands} seen, caught ${caught - freed})`);
+  assert.ok(caught < 0 || caught - freed >= 30, `not caught for 30 frames (${caught - freed})`);
+  // with Sonic far to the north-west it turns a sixteenth a landing (from way 0, the tie going down) and comes his way
+  const v = ROMLV(0, 0, [{ type: 'enemy', x: 4.5, z: 4.5, radius: 0, flicky: 1 }], 1); v.L.flickies = 5; place(v, 2.5, 4.5); v.p.facing = Math.PI / 2;
+  run(v, 60, (f, x) => x.flickies.length ? {} : { mx: 1, dash: f > 12 });
+  const d0 = Math.hypot(v.flickies[0].x - 1.5, v.flickies[0].z - 1.5), ways = [];
+  run(v, 300, (f, x) => { place(x, 1.5, 1.5); if (x.flickies[0].vy === -65536) ways.push(x.flickies[0].d & 15); return {}; });
+  assert.deepStrictEqual(ways.slice(0, 5), [15, 14, 13, 12, 11], `ways ${ways.join(' ')}`);
+  assert.ok(Math.hypot(v.flickies[0].x - 1.5, v.flickies[0].z - 1.5) < d0 - 1, 'closer to Sonic');
+});
 test('the original\'s monitors are solid boxes: walking stops at a side, a roll or the ball onto it breaks it', () => {
   const mon = [{ type: 'monitor', x: 4.5, z: 4.5, kind: 'rings' }];
   let w = ROMLV(0, 0, mon); place(w, 3.2, 4.5); w.p.facing = Math.PI / 2;

@@ -47,7 +47,8 @@ serves index.html from main.
   thrown up; `w.padOff` keeps the arrival pad quiet until stepped off); `ride` = scripted move; plain = instant (doors:
   exitY/push/size). Only the current ring is drawn. Every warp fades from black and resets the camera.
 - Flickies: level `flickies` (converted levels with rings: 5). Each defeated enemy frees one (hops about; touch to
-  collect); followers trail the player (every 14 sim frames along `w.trail`); a hit or a death scatters them. A ring
+  collect). Converted levels: freed ones are the original's particles (`origRing` with `type` = colour 1..4, way `d`,
+  `w.flickyWait` 30 frames after a release or scatter, at most 5 follow); the built-in level keeps its own hop. Followers trail the player (every 14 sim frames along `w.trail`); a hit or a death scatters them. A ring
   takes followers up to its share; it opens at min(share, delivered + following + free + enemies alive), so it never
   locks. ROM look: the bird from object art 0x32950 (16 frames, palette 3); scribbled bird otherwise. HUD `#flickyHud`.
 - Foliage: `artBaker(...).foliage` lifts clumps of high-priority picture tiles that stand on a floor out of the baked
@@ -354,7 +355,7 @@ serves index.html from main.
 - 2026-10-27: movement ported to the original's fixed point and matched exactly over emulator traces in six zones
   (above): turn, velocity, dash button and roll, floors and slopes by triangle, point walls, diagonal pieces, roll
   bounces, landing; the hit, lost rings, dying and reloading; bumpers, monitors as boxes; roamers, aimers, sprinklers
-  on the original's counts and screen. 132 sim tests.
+  on the original's counts and screen; 058 bursts; freed Flickies as the original's particles. 134 sim tests.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;
   the Jam Flicky body is a flat quad (edge-on from the side).
