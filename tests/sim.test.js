@@ -350,6 +350,38 @@ test('jumping on a Hunter still defeats it', () => {
   run(w, 90, (f) => ({ mx: 1, mz: 0, jump: f > 5 && f < 30 }));
   assert.strictEqual(w.enemies[0].alive, false);
 });
+test('a cracked wall stops a walking player and breaks under a dash', () => {
+  const lvl = () => grid(W12('c' + row('4', 20) + 'c'), { entities: [{ type: 'start', x: 1.5, z: 2.5 }, { type: 'crack', cells: [[8, 2]], top: 6, dir: [1, 0] }] });
+  const a = world(lvl());
+  run(a, 200, { mx: 1, mz: 0 });
+  assert.ok(a.p.x < 8, `walked through to x ${a.p.x}`);
+  assert.strictEqual(a.cracks[0].broken, false);
+  const b = world(lvl());
+  let broke = false;
+  // face the wall, stop, rev a spin dash, release it
+  run(b, 200, (f, w) => { if (w.events.includes('crack')) broke = true; return { mx: f < 8 ? 1 : 0, mz: 0, dash: f > 30 && f < 80 }; });
+  assert.ok(broke, 'the dash broke it');
+  assert.ok(b.p.x > 9, `carried on through to x ${b.p.x}`);
+  assert.ok(Number.isFinite(Sim.floorAt(b.L, 8.5, 2.5)) && Sim.floorAt(b.L, 8.5, 2.5) < 2, 'the floor beneath is back');
+});
+test('a cannon catches a player dropping into its mouth and fires them on a jump', () => {
+  const w = world(grid(W12('c' + row('4', 20) + 'c'), { entities: [{ type: 'start', x: 1.5, z: 2.5 },
+    { type: 'cannon', x: 5, z: 1, y: 1.5, h: 0.4, vy: 12, vz: 6 }] }));
+  w.p.x = 5.4; w.p.z = 1.1; w.p.y = 2.5; w.p.vy = 0; w.p.grounded = false;
+  run(w, 30, { mx: 0, mz: 0 });
+  assert.ok(w.p.cannon, 'caught');
+  let fired = false, top = 0, drift = 0, flewTo = 0;
+  run(w, 90, (f, ww) => {
+    if (ww.events.includes('cannon')) fired = true;
+    top = Math.max(top, ww.p.y);
+    if (fired && !ww.p.grounded) { drift = Math.max(drift, Math.abs(ww.p.x - 5.40625)); flewTo = ww.p.z; }
+    return { mx: f > 3 ? -1 : 0, mz: 0, jump: f === 2 };
+  });
+  assert.ok(fired && !w.p.cannon, 'fired');
+  assert.ok(top > 4.5, `rose to ${top}`);
+  assert.ok(drift < 0.01, `no steering in flight (drifted ${drift})`);
+  assert.ok(flewTo > 3, `went south to z ${flewTo}`);
+});
 test('a ring with no Flickies left in the level still opens', () => {
   const w = world(Object.assign(arena([{ type: 'goal', x: 6.5, z: 2.5 }]), { flickies: 5 }));
   run(w, 90, { mx: 1, mz: 0 });

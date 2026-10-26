@@ -68,6 +68,11 @@ serves index.html from main.
 - Monitors in the ROM look: a 0.56 m box (`romMonitorBox`) in the sprite's commonest colour, the ROM icon
   (`S3D.monitorIcon`) on a dark screen on each side; geometry and materials shared (`userData.shared`, never disposed).
 - Scattered (free) Flickies never step onto a ledge above or off a drop of more than 1 m.
+- Green Grove gimmicks (`GIMMICKS` in s3d.js and convert.py, from the acts' routines): `cannon` {x, z cell, y mouth,
+  h window, vy, vz}: a falling player in the cell's north quarter (+ P.r) within the window is held (`p.cannon`) until
+  jump, then fired with no steering (`p.flyT`, `P.cannonFly`); during the flight W cells are open air. `crack` {cells,
+  top, dir}: raised for the sim only (`L.up`, read by floorAt, gradientAt, tileTopNear) until a fast roll along dir
+  breaks it; drawn as a 3 m rock column from `artBaker(...).rockSlot` (`crackMeshes`). Sounds 0x81 / 0x59.
 - Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
   ROM look draws springs as 3D drums coloured from the ROM sprite (`romSpringMats`).
 - Act end: the `goal` event shows `#clearCard`, flashes, and after 5 s converts the next act in `S3D.LEVELS` order.
@@ -129,7 +134,9 @@ serves index.html from main.
 - 2026-10-26: ROM results screen, Saturn screen option, ROM music and effects by emulation (GG1 music checked against
   the reference emulator: same notes at the same tempo, top-note agreement 0.53 vs 0.14 chance). 3D Sonic from Bill's Sonic Jam USA disc (formats from Sonic Retro SCHG),
   with skid, and Jam palms (GG 16/36/4), springs, big ring and Flickies; European disc; monitor boxes. 66 sim tests.
-  Hunter spike ball measured and in. 68 sim tests. Open: cannons and cracked walls, Flicky body is a flat quad (edge-on from the side).
+  Hunter spike ball measured and in. Animated water/lava, single flowers, rock on hidden cliffs, GG cannons and cracked
+  walls (GG1 cannon lands where the original does; GG2 about 2 m further). 70 sim tests. Open: Knuckles/Tails and the
+  bonus stage, Flicky body is a flat quad (edge-on from the side), other zones' gimmicks.
 - 2026-10-26: Springs measured (140 units), monitors with ROM icons and effects, mines, turrets, superchargers, Scouters
   chase, Hunters stand, Flickies coloured in turn, act end moves to the next act, sound effects, spin dash on hold. 64 sim tests.
 - 2026-10-26: Published on GitHub (s3lfish/3D-Sonic-3D-Blast-3D), Pages at https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/.

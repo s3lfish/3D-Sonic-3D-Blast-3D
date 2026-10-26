@@ -42,7 +42,8 @@ untested.
 - The original level art unprojected onto the 3D faces, with its water, waterfalls and lava animated as in the original;
   foliage as standing sprites (each flower on its own patch of ground), plain rock on cliffs the original never shows, zone skies.
 - Movement measured in the original (jump height, spring height, gravity, step height; edges are walls).
-- Green Grove sections: Flickies freed from enemies open each big ring; holes carry you to the next section.
+- Green Grove sections: Flickies freed from enemies open each big ring; holes carry you to the next section;
+  cracked walls break when you spin dash into them, and the cannons fire you across the level as in the original.
   Reaching the last ring ends the act and moves on to the next one.
 - Monitors show their icon and give rings, a shield, a gold shield, invincibility, speed shoes or a 1-up.
 - Mines, Turrets, chasing enemies, Hunters with their circling spike balls, and superchargers (stand on one and press jump).

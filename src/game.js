@@ -321,6 +321,9 @@
       spring: () => { tone('triangle', 180, 1400, 0.32, 0.5); tone('square', 360, 2000, 0.25, 0.12); },
       dash: () => { noise(0.25, 0.5, 3000); tone('sawtooth', 900, 140, 0.3, 0.25); },
       boostIn: () => tone('sawtooth', 200, 900, 0.9, 0.18),
+      cannonIn: () => tone('square', 300, 200, 0.2, 0.12),
+      cannon: () => { noise(0.4, 0.8, 600); tone('square', 160, 60, 0.5, 0.3); },
+      crack: () => { noise(0.5, 0.9, 1400); noise(0.3, 0.5, 300); },
       boost: () => { noise(0.35, 0.6, 2500); tone('square', 700, 120, 0.4, 0.25); },
       enemy: () => { noise(0.22, 0.7, 1400); tone('square', 520, 90, 0.2, 0.3); },
       boom: () => { noise(0.5, 0.9, 700); tone('sine', 120, 40, 0.5, 0.6); },
@@ -703,7 +706,7 @@
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
   let mineSprites = [], turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
-  let jamSprings = [], jamFlickies = [], ballSprites = [];
+  let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [];
   const SPRING_REST = 0.3;   // how far the Jam spring's coil stands at rest (fired: 1)
   function buildLevelObjects() {
     if (levelGroup) {
@@ -752,6 +755,27 @@
       if (rm) s.userData.rom = [rm, kind === 'enemy' ? romObjMat(kind, o.skin, true) : rm];
       return s;
     };
+    // cracked walls: a column of plain rock (from the level's own cliffs in the ROM look) on each cell until broken
+    crackMeshes = world.cracks.map(c => {
+      const g = new THREE.Group(), art = mesh.userData.art && levelArtFor(L);
+      for (const [cx, cz] of c.cells) {
+        // drawn 3 m tall (the original's 480 units would be a 15 m chimney); no jump clears either
+        const vs = L.rom ? L.rom.vscale : 1, k = (cz * L.width + cx) * 4;
+        const floor = Math.min(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]), h = Math.min(c.top - floor, 3 * vs);
+        let mat;
+        const slot = art && L.rom ? art.baker.rockSlot(cx + L.rom.origin[0], cz + L.rom.origin[1]) : -1;
+        if (slot >= 0) {
+          const cv = document.createElement('canvas'); cv.width = cv.height = 32;
+          cv.getContext('2d').putImageData(new ImageData(art.baker.slotPixels(slot).slice(), 32, 32), 0, 0);
+          const tex = new THREE.CanvasTexture(cv); tex.magFilter = THREE.NearestFilter; tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+          tex.repeat.set(1, h / vs);
+          mat = new THREE.MeshLambertMaterial({ map: tex });
+        } else mat = new THREE.MeshLambertMaterial({ color: 0x8a6a48 });
+        const m = new THREE.Mesh(new THREE.BoxGeometry(1, h, 1), mat);
+        m.position.set(cx + 0.5, floor + h / 2, cz + 0.5); g.add(m);
+      }
+      levelGroup.add(g); return g;
+    });
     jamSprings = [];
     springSprites = world.springs.map(sp => {
       if (rom && jamOn()) {
@@ -1675,6 +1699,7 @@
       if (Math.abs(sx) > 1e-4) s.userData.left = sx < 0;
       s.material = s.userData.rom ? s.userData.rom[s.userData.left ? 0 : 1] : enemyMat(Math.floor(t * 6) % 2, (Math.floor(t * 8) + q) % 3, !!s.userData.left);
     }
+    for (let q = 0; q < crackMeshes.length; q++) crackMeshes[q].visible = !world.cracks[q].broken;
     for (let q = 0; q < ballSprites.length; q++) {
       const b = ballSprites[q], en = world.enemies[q];
       if (!b) continue;

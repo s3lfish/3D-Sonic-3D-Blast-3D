@@ -8,7 +8,15 @@
 const S3D = (() => {
   'use strict';
   const HEADERS = 0x1AB62, HSIZE = 0x2A, CELL = 32, STEP = 8, RING_TABLE = 0x1936, RING_HOVER = 18;
-  const HUNTER_ORBIT = 23.5, HUNTER_BALL_Y = 20;   // units: spike ball circle radius (measured) and height (estimated)
+  const HUNTER_ORBIT = 23.5, HUNTER_BALL_Y = 20;
+  // Green Grove gimmicks that the act's own routine runs (RunLevel_GGz1 0xE59E, RunLevel_GGz2 0xE9C2, cannon 0xF0B0):
+  // cannons [cell x, cell z, mouth height, launch up and launch south in units a frame (emulator: the routine asks 9 and
+  // 7.5 / 6.5; Sonic moves 7.067 / 6.1 a frame south)]; cracked walls [cells, raised height in units, the way a dash
+  // must go to break them]. The ROM map holds the broken walls.
+  const GIMMICKS = {
+    1: { cannons: [[116, 12, 248, 9, 7.067]], cracks: [[[[108, 17]], 480, [0, -1]]] },
+    2: { cannons: [[21, 48, 576, 9, 6.1]], cracks: [[[[59, 47]], 784, [-1, 0]], [[[108, 41], [109, 41]], 688, [0, -1]]] },
+  };   // units: spike ball circle radius (measured) and height (estimated)
   // object types, identified by watching the game run: player start, springs, monitors, the act-end ring, main enemies
   const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
@@ -200,6 +208,11 @@ const S3D = (() => {
       if (kind !== 'goal') e.skin = t.toString(16).toUpperCase().padStart(3, '0');
       ents.push(e);
     }
+    const gm = GIMMICKS[id] || {}, mps = 60 / CELL;   // units a frame to metres a second
+    for (const [cx, cz, mouth, up, south] of gm.cannons || []) if (floorCell(cx, cz))
+      ents.push({ type: 'cannon', x: cx - x0, z: cz - z0, y: r3(mouth / CELL * vscale), h: r3(12 / CELL * vscale), vy: r3(up * mps * vscale), vz: r3(south * mps) });
+    for (const [cells, top, dir] of gm.cracks || []) if (cells.every(([cx, cz]) => floorCell(cx, cz)))
+      ents.push({ type: 'crack', cells: cells.map(([cx, cz]) => [cx - x0, cz - z0]), top: r3(top / CELL * vscale), dir });
     if (tableRings) for (let k = 0; k < 3; k++) {
       const x = s16(d, st + 0x14 + 6 * k), z = s16(d, st + 0x18 + 6 * k);
       if (!x) break;
@@ -395,7 +408,8 @@ const S3D = (() => {
     musicFor: (d, level) => u16(d, 0x24F78 + 2 * level),
     sfx: { jump: [0x62], charge: [0xAB], dash: [0xB6], ring: [0x33], spring: [0x68], enemy: [0x3D, 0x38], monitor: [0x3D],
       hurt: [0xB9], shot: [0x4D], boom: [0x9A], goal: [0x6A], boostIn: [0xAB], boost: [0xB6], goldDash: [0xB6],
-      shieldLost: [0xB9], section: [0xAC] /* near the big ring routine */ },
+      shieldLost: [0xB9], section: [0xAC] /* near the big ring routine */,
+      cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {
@@ -965,7 +979,13 @@ const S3D = (() => {
       });
       return { width: W, height: H, pixels: px, cols, slot: S };
     }
-    return { top, wall, atlas, foliage, palms, rejects, get count() { return slots.length; },
+    // the nearest plain rock wall band to a cell (for a wall the original only hints at, such as a cracked wall): a
+    // slot index, or -1
+    function rockSlot(cx, cz) {
+      for (const kk of [2, 1]) for (const edge of [1, 2]) { const f = donor(cx, cz, edge, kk); if (f && !leafy(...f)) return wall(...f); }
+      return -1;
+    }
+    return { top, wall, atlas, foliage, palms, rejects, rockSlot, get count() { return slots.length; },
       animSlots, animStep, slotPixels: i => slots[i] };
   }
 

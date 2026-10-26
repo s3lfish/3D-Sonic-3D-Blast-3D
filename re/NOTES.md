@@ -147,8 +147,17 @@ original art. The browser code carries reading rules only.
   radius 23.5 units (fit residual 1.8) in 253 frames (taken as 256: one 256th of a turn a frame), clockwise seen from
   above. Its height, about 20 units, is estimated from the screen. The Hunter at times stretched up tall with no ball
   in an earlier run with the camera poked; not modelled.
-- Cannon (GG1, GG2): behind a cracked wall; jump onto its front end, press jump again and Sonic is fired through the sky
-  (GG1: back to the lowered area where Knuckles waits; GG2: back to the first area) (StrategyWiki guide). Not decoded.
+- Cannons and cracked walls are run by the acts' own routines (RunLevel_GGz1 0xE59E, RunLevel_GGz2 0xE9C2), not by
+  objects. Cannon routine 0xF0B0 (args: player's map cell offset to match, mouth height, two launch speeds): Sonic in
+  the cell, z & 31 < 8, y in (mouth, mouth + 12) is caught ($64 = 2), held at cell x + 13, mouth + 3; a new press of
+  jump (A or C) fires him: up 9 units a frame and south (asked 7.5 GG1 / 6.5 GG2; measured 7.067 / 6.1 a frame,
+  `cannonprobe.py`), with control off for up to 100 frames; sound 0x81. GG1: cell (116, 12), mouth 248, lands at
+  (3725, 56, 1201) on Knuckles' ledge. GG2: cell (21, 48), mouth 576, lands about (685, 328, 2258).
+- Cracked walls (same routines): while a flag stands the routine writes a raised map word into the wall's cells; a
+  dash breaks it (player in the cell before it, $56 = 2, speed word $1E >= 0x4000, within 16 units, facing within 45
+  degrees of the wall; sound 0x59) and the cells get the ROM map's word back. GG1: (108, 17) raised to 480 units,
+  broken from the south. GG2: (59, 47) raised to 784, broken from the east; (108, 41) and (109, 41) raised to 688,
+  broken from the south. The 28 objects nearby are not the walls. `wallprobe.py` reads the map in RAM.
 - Sprite recipes 008 (mine) and 054 (turret) captured with `recipe.py`; the 008 snapshot also caught a spring and
   was trimmed to the mine's two pieces.
 - Act 1 ends at the second big ring from the start table, at ground level inside the brick U.

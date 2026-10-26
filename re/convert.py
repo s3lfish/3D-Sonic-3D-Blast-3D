@@ -39,6 +39,11 @@ def spring_power(vscale):
     return launch_for(vscale, 140)   # measured: a spring throws Sonic 140 units up
 
 
+GIMMICKS = {
+    1: {'cannons': [(116, 12, 248, 9, 7.067)], 'cracks': [([(108, 17)], 480, [0, -1])]},
+    2: {'cannons': [(21, 48, 576, 9, 6.1)], 'cracks': [([(59, 47)], 784, [-1, 0]), ([(108, 41), (109, 41)], 688, [0, -1])]},
+}
+
 def convert(rom, level_id, vscale=1.0):
     h = HEADERS + (level_id - 1) * HSIZE
     mp, start_tab = struct.unpack('>I', rom[h + 4:h + 8])[0], struct.unpack('>I', rom[h + 0x20:h + 0x24])[0]
@@ -95,6 +100,15 @@ def convert(rom, level_id, vscale=1.0):
         if kind == 'spring': e["power"] = spring_power(vscale)
         if kind != 'goal': e["skin"] = f'{t:03X}'
         ents.append(e)
+    # Green Grove gimmicks run by the act's own routine (see s3d.js GIMMICKS)
+    gm = GIMMICKS.get(level_id, {}); mps = 60 / CELL
+    for cx, cz, mouth, up, south in gm.get('cannons', []):
+        if floor_cell(cx, cz):
+            ents.append({"type": "cannon", "x": cx - x0, "z": cz - z0, "y": jround(mouth / CELL * vscale, 3), "h": jround(12 / CELL * vscale, 3),
+                         "vy": jround(up * mps * vscale, 3), "vz": jround(south * mps, 3)})
+    for cells, top, dr in gm.get('cracks', []):
+        if all(floor_cell(cx, cz) for cx, cz in cells):
+            ents.append({"type": "crack", "cells": [[cx - x0, cz - z0] for cx, cz in cells], "top": jround(top / CELL * vscale, 3), "dir": dr})
     if table_rings:
         for k in range(3):
             x, z = struct.unpack('>h', rom[st + 0x14 + 6 * k:st + 0x16 + 6 * k])[0], struct.unpack('>h', rom[st + 0x18 + 6 * k:st + 0x1A + 6 * k])[0]
