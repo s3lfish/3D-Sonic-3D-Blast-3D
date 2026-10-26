@@ -50,8 +50,10 @@ untested.
   tunnels and arches.
 - Spring Stadium: superchargers into loops and dash runs, floor springs, bumpers and triangle bumpers, spike fields
   that rise when you stand still, spears, twisted tunnels, balloons to bounce on, and the boss with its spring fists.
-- Diamond Dust 1: the ice chute, sled runs, currents that carry you along, snowdrift springs, dash runs, and
-  snowblowers that freeze you.
+- Diamond Dust 1 and 2: slippery ice, ice spikes you break with a spin dash, the ice chute, sled runs, currents that
+  carry you towards spikes, snowdrift springs, bumpers, dash runs, low roofs, and snowblowers that freeze you.
+- On levels from your ROM, Sonic moves by the original's own rules: how fast he speeds up, stops, turns, slides on
+  ice, rolls, and how hard each spin dash launches him.
 - Monitors show their icon and give rings, a shield, a gold shield, invincibility, speed shoes or a 1-up.
 - The Green Grove, Rusty Ruin and Spring Stadium bosses, moving as the original's routines move them: in Rusty Ruin, ride a stone
   fist up after it slams and jump at the pod.
@@ -63,7 +65,7 @@ untested.
 - With your ROM: the original music and sound effects, played by an emulated Mega Drive sound chip running the
   game's own sound program from your ROM. Without a ROM: simple sound effects made in the browser. M turns sound off.
 
-Not done yet: Spring Stadium's gates, Tails and Knuckles, Diamond Dust 2 and 3, and the zones after it. See `re/NOTES.md` for what is known and what is not.
+Not done yet: Spring Stadium's gates, Tails and Knuckles, the Diamond Dust boss, and the zones after it. See `re/NOTES.md` for what is known and what is not.
 
 ## Working on it
 

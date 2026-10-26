@@ -348,3 +348,35 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - Airborne, Sonic is lifted onto a ledge whose top is within 12 units above his feet (the current to ring 2's ledge).
 - Not modelled: warp holes (57, 50) <-> (59, 72), the wall cells 0x4C4C, gates.
 
+## Movement tables (2026-10-27; speedprobe.py)
+- Routine 0x3330 picks [accel $22, side loss $2A, forward loss $26] and top $2E: walking 480/380/260, top 0x5000; the
+  jump ball ($56 = 1 or $84) 300/200/160; rolling ($56 = 2) 0/200/10, a roll ends under forward 0x1000; ice ($0ACA or
+  $88) 100/20/20; $5C set: 200/80/80 (not identified); speed shoes ($7E) top 0x6800. Units 1/0x1000 unit a frame
+  (per frame). 0x342C: velocity is turned into Sonic's facing frame ($32, 0x800 a turn); forward gains $22 with any
+  direction held; each part loses its loss toward 0; above the top a part loses $22 instead; capped at 0x7F00.
+- Measured in GG2 (straight at (87, 37)): run up 0.1323 a frame per frame, top 4.73 to 5.0, stop 0.1489; facing turns
+  0x40 a frame, side part then lost at 0.219; jump ball without the stick 0.0864; walking off a ledge keeps the
+  walking table; rolling 0.0044. Spin dash (B held from standing): under 14 frames nothing, then 3.75, from 29 frames
+  5.625, from 44 6.5625, from 59 7.5 units a frame.
+
+## Diamond Dust 2 (2026-10-27; dd2_dis, mapdiff.py, iceblock.py, mapwords.py)
+- RunLevel_DDz2 (0xFA06): pads as act 1 (tables 0xFC82, 0xFCA6, 0xFCCA, 0xFCEE: record 1 <-> 3, 5 <-> 7); pad 5 used
+  sets the ice flag, pad 7 used clears it. The supercharger (record 9, mode 0x0F when fired) sets $4(a4), which lowers
+  cells (77..78, 95) and (91..92, 106) back to the ROM's heights (InitLevel raises them 0x20 steps: gates); cell
+  (91, 107) clears it. Cell (78, 95) starts ride 0x803E (pad let go 400 frames).
+- Grounded on (109, 80), (103, 82), (111, 72) (snowdrift records 26..28 still there): thrown 4.5 a frame up (40
+  units), sound 0x59. Cell (50, 45) under y 608: 7.5 a frame east, rolling, pad held 10 frames, sound 0xB1.
+  Current: x 96..117, z 88..95: grounded, +0.375 a frame per frame east while under 3.5; airborne once, at least 3.5.
+  Snowblowers: table 0xFD5E (7), as act 1.
+- Helper 0x10E78: ice on entering a cell of the first list, off entering one of the second (DD1 0x10B24 (21) /
+  0x10B4E (25); DD2 0xFE30 (39) / 0xFE7E (40)). DD1 also sets ice at the start of ride 0x8004 and clears it at
+  (86, 74).
+- Helper 0x10CC4: [cell, cell, y] until a negative word (DD1 0x10AF2, DD2 0xFE04): airborne in one under y, vy is set
+  to 0.25 down; while airborne elsewhere, the cells are raised 0x20 steps for collision (list at $CC92, applied at
+  0x2DDE, undone at 0x5CD6: negative entries raise, positive lower). Map 0xFF cells: hurt when y <= floor + 24.
+  Grounded, entering a 0x55 cell: pushed 5 a frame across the nearest edge (diagonals), sound 0xAA.
+- Helper 0x10EA6: 12-byte records [screen x, screen y, x, y, z, cell] (DD1 0x10B80 (27), DD2 0xFECE (17)): ice spikes
+  (object 0E8, palette line 0). At the start their cells are 3 steps lower and marked 0xFF (mapdiff.py), so the spikes
+  stand at the old floor height and hurt; grounded and rolling in one: the cell gets its height back (+0x0201), sound
+  0x59.
+

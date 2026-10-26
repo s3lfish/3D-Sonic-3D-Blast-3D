@@ -353,6 +353,7 @@
       bumper: () => { tone('square', 500, 900, 0.12, 0.2); tone('square', 750, 1300, 0.12, 0.12); },
       balloon: () => { noise(0.15, 0.9, 3000); tone('sine', 300, 700, 0.15, 0.2); },
       spikesUp: () => tone('sawtooth', 180, 420, 0.25, 0.15),
+      iceBreak: () => { noise(0.35, 0.8, 5000); tone('triangle', 1800, 600, 0.25, 0.2); },
       spear: () => tone('square', 900, 400, 0.1, 0.1),
       bossCap: () => { noise(0.3, 0.6, 600); tone('square', 120, 90, 0.2, 0.2); },
       padOut: () => { tone('triangle', 180, 1400, 0.32, 0.4); noise(0.2, 0.3, 2000); },
@@ -737,7 +738,7 @@
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
-  let mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
+  let iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
   let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
   // spiked ball on a chain, and a burst of fireballs when beaten
@@ -1041,6 +1042,21 @@
       const tip = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.4, 6), mat); tip.position.y = -0.2; g.add(tip);
       g.visible = false; levelGroup.add(g); spearObj = g;
     }
+    // Diamond Dust's ice spikes: the original's object art (type 0E8, palette line 0) on each cell, or pale cones of our own;
+    // gone when a roll breaks them
+    const iceConeGeo = new THREE.ConeGeometry(0.1, 0.55, 6), iceConeMat = new THREE.MeshLambertMaterial({ color: 0xc8dcff, emissive: 0x203050 });
+    iceSpikeObjs = [...world.iceSpikes.keys()].map(t => {
+      const cx = t % L.width, cz = (t - cx) / L.width, x = cx + 0.5, z = cz + 0.5;
+      let o;
+      if (rom) { o = new THREE.Sprite(romBossMat(0xE8, 0, 64, 48, 0)); o.center.set(0.5, 1 - 48 / 64); o.scale.set(64 * 0.025, 64 * 0.025, 1); }
+      else {
+        o = new THREE.Group();
+        for (const [ox, oz, h] of [[-0.22, -0.2, 0.8], [0.2, -0.22, 1], [0, 0.02, 1.25], [-0.2, 0.22, 0.9], [0.22, 0.2, 0.75]]) {
+          const c = new THREE.Mesh(iceConeGeo, iceConeMat); c.scale.y = h; c.position.set(ox, 0.275 * h, oz); o.add(c);
+        }
+      }
+      o.position.set(x, Sim.floorAt(L, x, z), z); o.userData.cell = t; levelGroup.add(o); return o;
+    });
     // Rusty Ruin's spiked crawlers: the original's eight turning frames (object art by type), centred on the sim's height
     crawlerSprites = world.crawlers.map(c => {
       const sp = new THREE.Sprite(rom ? romBossMat(0xAC, 0, 64, 40) : mineMat);
@@ -1232,9 +1248,11 @@
     anim.position.fromArray(f.pos); anim.rotation.set(turn(f.rot[2]), turn(f.rot[1]), turn(f.rot[0]), 'ZYX');
     nodes.forEach((n, k) => { const r = f.rots[k]; n.rotation.set(turn(r[2]), turn(r[1]), turn(r[0]), 'ZYX'); });
   }
+  // top running speed: the original's on converted levels (Sim.P.orig), ours otherwise
+  const runRef = () => (L && L.phys && L.phys.orig ? Sim.P.orig.run : Sim.P.run);
   // each frame: pick the move from the sim state, like the sprite hero does
   function updateHero3d(p, rp, dt, t) {
-    const h = hero3d, sp = Math.hypot(p.vx, p.vz), run = Sim.P.run;
+    const h = hero3d, sp = Math.hypot(p.vx, p.vz), run = runRef();
     h.root.position.copy(rp); h.root.rotation.y = p.facing + Math.PI / 2;   // the model faces its -x
     h.root.visible = !(p.invuln > 0 && Math.floor(t * 16) % 2);
     const balled = p.charge > 0 || p.ball || p.rolling;
@@ -1272,7 +1290,7 @@
     if (pose === 'ball' || pose === 'spring') { const q = S3D.HERO.ball(); return [q[Math.floor(look3.ballCycle * 2) % q.length], side]; }
     if (pose === 'run' || pose === 'air') {
       look3.romCycle += dt * (6 + sp * 2.2);
-      const q = sp > Sim.P.run * 0.75 ? S3D.HERO.run(v) : S3D.HERO.walk(v);
+      const q = sp > runRef() * 0.75 ? S3D.HERO.run(v) : S3D.HERO.walk(v);
       return [q[pose === 'air' ? 2 : Math.floor(look3.romCycle) % q.length], flip];
     }
     if (look3.idleFor > 5 && look3.oct === 0) return [235 + Math.floor(t * 6) % 7, false];
@@ -1441,9 +1459,9 @@
     orbit.yaw = orbit.pitch = 0;
     // at speed, ease round behind the direction of travel
     const sp = Math.hypot(p.vx, p.vz);
-    if (!looking && sp > Sim.P.run * 1.1) {
+    if (!looking && sp > runRef() * 1.1) {
       let d = Math.atan2(-p.vx, -p.vz) - yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
-      yaw += d * Math.min(1, dt * 1.6 * Math.min(1, (sp - Sim.P.run) / 8));
+      yaw += d * Math.min(1, dt * 1.6 * Math.min(1, (sp - runRef()) / 8));
     }
     // a boss: swing round behind the player so it stays in front (gently, and not when it is right overhead)
     const bo = world.boss && world.boss.dead < 0 ? world.boss : null;
@@ -1995,6 +2013,7 @@
       spearObj.visible = !!sp && sp.tip > sp.y - 0.05;
       if (spearObj.visible) spearObj.position.set(sp.x, sp.tip, sp.z);
     }
+    for (const o of iceSpikeObjs) o.visible = !!world.iceSpikes.get(o.userData.cell);
     for (let q = 0; q < crawlerSprites.length; q++) {
       const s = crawlerSprites[q], c = world.crawlers[q];
       s.position.set(c.x, c.y, c.z);

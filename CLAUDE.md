@@ -68,6 +68,7 @@ serves index.html from main.
   ROM sprite recipe 'SPK', Hunter recipe 00C without the ball). Player: `shield`, `inv`, `fast`
   timers; shields take a hit without losing rings; gold shield dashes on a second jump press in the air.
 - Spin dash: hold dash to brake and rev (any speed), release to launch; a tap under 0.12 s while running rolls.
+  Converted levels launch at the original's steps (P.orig.dash).
 - Monitors in the ROM look: a 0.56 m box (`romMonitorBox`) in the sprite's commonest colour, the ROM icon
   (`S3D.monitorIcon`) on a dark screen on each side; geometry and materials shared (`userData.shared`, never disposed).
 - Scattered (free) Flickies never step onto a ledge above or off a drop of more than 1 m.
@@ -129,6 +130,17 @@ serves index.html from main.
   (`p.frozen`, `P.freezeTime` 1.5 s estimated, no rings lost). On the original's levels (`L.rom`) an airborne player
   within stepUp of a ledge top is lifted onto it (measured in DD1). The game starts Sonic at the start table (header
   +0x20), not the 030 object (both converters).
+- Diamond Dust 2 (`GIMMICKS[10]`, RunLevel_DDz2 0xFA06) and both acts' helpers 0x10E78 (ice lists), 0x10EA6 (ice
+  spikes), 0x10CC4 (roofs, 0xFF spikes, 0x55 bumpers): `ice` {on, off} cells toggle `w.ice` (the original's $0ACA:
+  P.orig.ice table; pads into the icy part count as on/off cells); `iceSpikes` {cells} (object 0E8, ROM art palette
+  line 0; map lowered 3 steps + 0xFF at start, so at floor height; a grounded roll breaks one, `iceBreak`, else hurt);
+  `lowRoof` {cells, top} (no rising above top in them; walls via `L.up` while airborne outside, `w.roofUp`); 0xFF map
+  cells = 'H' spikes; 0x55 = `bumpers`. DD2: ride 0x803E at (78, 95), dash (50, 45), current east into spikes.
+- Original movement (`physics.orig` = 1 on converted levels, `P.orig`, routine 0x3330): velocity split along
+  `p.facing` (which is the heading there, turned 0x40/0x800 a frame toward the stick); tables [A, F, G] walk, ball,
+  ice, roll; top 5 units a frame; spin dash steps by held frames 14/29/44/59. Measured in GG2 (speedprobe.py): sim
+  within 1% of the emulator over a 60-frame run. A cannon's flight skips it. `runRef()` in game.js scales animation
+  and camera thresholds.
 - Object handlers: the table at 0x1BF42 + type (bra.w per type); `re/NOTES.md` lists the ones read.
 - Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
   ROM look draws springs as 3D drums coloured from the ROM sprite (`romSpringMats`).
@@ -174,7 +186,7 @@ serves index.html from main.
   fog in the horizon colour, cliffs 14 m deep, no water. Built-in level keeps the cartoon sky and water.
 - Level loading: help card "Load level file" (JSON, grid or tiles format), stored in localStorage `blastgrid.level`.
   Never embed Sega level data in the published page; players load their own files locally.
-- Sim tuning lives in `Sim.P`; a level's `physics` overrides gravity, jumpV, jumpCut, maxFall, stepUp, snapDown (`L.phys`).
+- Sim tuning lives in `Sim.P`; a level's `physics` overrides gravity, jumpV, jumpCut, maxFall, stepUp, snapDown, orig (`L.phys`).
   Defaults: stepUp 0.3 m grounded; airborne must clear ledge top (+0.02); jump peak ~1.28 m (built-in level: 1 m ledges
   reachable, 1.5 m not; border walls 'a' 1.5 m above ground).
 - Three r128 core only: no BufferGeometryUtils, Geometry, CapsuleGeometry. Hand-built BufferGeometry.
@@ -192,6 +204,9 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
+- 2026-10-27: the original's movement tables on converted levels (run up, stop, turn, ice, jump ball, roll, spin dash
+  steps, all measured); Diamond Dust 2 gimmicks; ice, ice spikes, low roofs, spikes and bumpers in both DD acts;
+  92 sim tests. flow.py: DD2 can be finished. Open: DD2 gate cells (raised until the supercharger fires), DD3 boss.
 - 2026-10-27: Diamond Dust 1: chute, dash, sled, currents, snowdrift springs, snowblowers that freeze, CC pads, rides
   mirrored correctly, start from the start table, airborne step-up; 87 sim tests. flow.py says DD1 can be finished.
   Open in DD1: warp holes (57,50)<->(59,72), the 0x4C4C wall, gates. Next: DD2 (RunLevel_DDz2 0xFA06), DD3 boss.

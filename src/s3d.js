@@ -71,7 +71,21 @@ const S3D = (() => {
       chutes: [[39, 40, 52, 70, [0, 1], 0.25, 1280]], dashes: [[54, 65, 704, [7.5, 0], 24, 14, 6]],
       sleds: [[78, 79, 66, 66, [2528, 672, 2128], [0, 1], 0.0625, 300]],
       currents: [[110, 113, 55, 89, [0, 1], 0.375, 2, 2.5], [50, 53, 83, 99, [0, 1], 0.375, 3, 4]],
-      hops: [[[94, 39], [90, 39], [80, 39]], 40], flames: [0x10976, 7], freeze: 1 },
+      hops: [[[94, 39], [90, 39], [80, 39]], 40], flames: [0x10976, 7], freeze: 1,
+      spikes: 0xFF, ice: [0x10B24, 21, 0x10B4E, 25, [[89, 50]], [[86, 74]]], iceSpikes: [0x10B80, 27], roofs: 0x10AF2, bumpers: [0x55, 0, 0] },
+    // Diamond Dust 2 (RunLevel_DDz2 0xFA06): pads as in act 1 (tables 0xFC82..); the supercharger (record 9) opens gate cells
+    // into a ride (state 0x803E at (78, 95), pad let go 400 frames); a dash east at (50, 45) under 608 (7.5 units a frame,
+    // pad held 10 frames); a current east over x 96-117, z 88-95 (0.375 a frame per frame up to 3.5, 3.5 on jumping off)
+    // into spikes; snowdrift springs (object records 26-28) at (109, 80), (103, 82), (111, 72); snowblowers (0xFD5E)
+    // Both acts (helpers 0x10E78, 0x10EA6, 0x10CC4): 0xFF cells are spikes (hurt under the floor + 24 units); ice on/off
+    // cell lists ($0ACA: the slippery table, also on after a pad into the icy part, off back out); ice spikes (12-byte
+    // records, cell at +10: map lowered 3 steps and marked 0xFF at the start, so at floor height) broken by a grounded
+    // roll; low roofs [cell, cell, top] (no rising above the top in them, walls to a player in the air outside); 0x55 cells
+    // are bumpers (grounded, entering: 5 units a frame out across the nearest edge, sound 0xAA)
+    10: { pads: [[0, 1, 1], [2, 3, 2]], rides: [[78, 95, 0, 0x803E, null, null, null, undefined, [400, null]]],
+      dashes: [[50, 45, 608, [7.5, 0], 10, 0, 0]], currents: [[96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5]],
+      hops: [[[109, 80], [103, 82], [111, 72]], 40], flames: [0xFD5E, 7], freeze: 1,
+      spikes: 0xFF, ice: [0xFE30, 39, 0xFE7E, 40, [[75, 100]], [[70, 105]]], iceSpikes: [0xFECE, 17], roofs: 0xFE04, bumpers: [0x55, 0, 0] },
     16: { floorSprings: 0x55, bumpers: [0xFF, 0x94EA, 30],
       rides: [[73, 105, 0, 4, null, null, null, undefined, [70, null]], [85, 76, 0, 0x8004, null, null, null, undefined, [84, null]],
         [87, 74, 0, 0x8044, null, null, null, undefined, [84, null]]],
@@ -265,11 +279,12 @@ const S3D = (() => {
   // The original's movement, measured in the running game (world units, 60 frames a second; one cell = 32 units):
   // gravity 0.25 units/frame², jump rise 60 units, terminal fall 7 units/frame, steps of 8 walked, 16 blocked.
   // Spring rise is not measured yet: 3.27 cells is a guess.
+  // orig: the original's movement tables (Sim.P.orig, routine 0x3330)
   function physicsFor(vscale) {
     const r4 = v => Math.round(v * vscale * 1e4) / 1e4, g = 900 / CELL, h = 60 / CELL;
     // launch speed that peaks at h under Blast Grid's 60 Hz stepping (it loses v/120 against the smooth formula)
     const jump = (g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * h)) / 2;
-    return { gravity: r4(g), jumpV: r4(jump), jumpCut: r4(jump * 0.4), maxFall: r4(420 / CELL), stepUp: r4(12 / CELL), snapDown: r4(12 / CELL) };
+    return { gravity: r4(g), jumpV: r4(jump), jumpCut: r4(jump * 0.4), maxFall: r4(420 / CELL), stepUp: r4(12 / CELL), snapDown: r4(12 / CELL), orig: 1 };
   }
   const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };
   const springPower = vscale => launchFor(vscale, 140);   // measured: a spring throws Sonic 140 units up
@@ -453,6 +468,21 @@ const S3D = (() => {
     for (const [ax, bx, az, bz, dir, acc, top, leave] of gm.currents || [])
       ents.push({ type: 'current', box: box(ax, bx, az, bz), dir, accel: r3(acc * 3600 / CELL), top: r3(top * mps), leave: r3(leave * mps) });
     if (gm.hops) { const cells = gm.hops[0].filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]); if (cells.length) ents.push({ type: 'springCells', cells, power: launchFor(vscale, gm.hops[1]) }); }
+    if (gm.ice) {
+      const [a, na, b, nb, moreOn, moreOff] = gm.ice;
+      const cl = (o, n, more) => [...Array.from({ length: n }, (_, k) => u16(d, o + 2 * k) >> 1), ...more.map(([cx, cz]) => cz * 128 + cx)]
+        .filter(c => floorCell(c % 128, c >> 7)).map(c => [c % 128 - x0, (c >> 7) - z0]);
+      ents.push({ type: 'ice', on: cl(a, na, moreOn), off: cl(b, nb, moreOff) });
+    }
+    if (gm.iceSpikes) {
+      const cells = Array.from({ length: gm.iceSpikes[1] }, (_, k) => u16(d, gm.iceSpikes[0] + 12 * k + 10) >> 1)
+        .filter(c => floorCell(c % 128, c >> 7)).map(c => [c % 128 - x0, (c >> 7) - z0]);
+      if (cells.length) ents.push({ type: 'iceSpikes', cells });
+    }
+    if (gm.roofs) for (let o = gm.roofs; s16(d, o) >= 0; o += 6) {
+      const cells = [u16(d, o) >> 1, u16(d, o + 2) >> 1].filter(c => floorCell(c % 128, c >> 7)).map(c => [c % 128 - x0, (c >> 7) - z0]);
+      if (cells.length) ents.push({ type: 'lowRoof', cells, top: r3((u16(d, o + 4) + 8) / CELL * vscale) });
+    }
     if (gm.tris) ents.push({ type: 'triBumpers', list: gm.tris.map(([band, b, sd, flip, vx, vz, along]) => ({ band,
       b: r3(b / CELL - (band === 'x' ? x0 : z0)), s: r3(sd / CELL - (band === 'x' ? z0 : x0)), flip: !!flip, v: [r3(vx * mps), r3(vz * mps)], along: !!along })) });
     if (gm.spears) {
@@ -691,7 +721,8 @@ const S3D = (() => {
       cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */,
       bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */,
       bossSlam: [0x5F], bossCap: [0x9E] /* RR3's routine */,
-      bumper: [0xB7], balloon: [0x77], spikesUp: [0x52], spear: [0x8C] /* Spring Stadium's routines */ },
+      bumper: [0xB7], balloon: [0x77], spikesUp: [0x52], spear: [0x8C] /* Spring Stadium's routines */,
+      iceBreak: [0x59] /* Diamond Dust's ice spikes */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {

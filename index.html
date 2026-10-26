@@ -1068,6 +1068,20 @@ const Sim = (() => {
     bumpSpeed: 5 * 60 / 32, bumpLock: 20 / 60, balloonR: 0.55, balloonBack: 70 / 60,
     spearWait: 34 / 60, spearRise: 28 / 60, fistR: 0.5,
     freezeTime: 1.5,    // a snowblower's blast freezes the player this long (estimated)
+    // the original's movement (routine 0x3330; levels with "physics": {"orig": 1}). Velocity is split along Sonic's
+    // facing: with a direction held the forward part gains A; the forward part loses F and the side part G every frame;
+    // above the top speed a part loses A instead of gaining it; each part is capped at 0x7F00. Facing turns toward the
+    // stick 0x40 of 0x800 a frame. Tables [A, F, G] in 1/0x1000 unit a frame per frame, here m/s² (x 3600 / 32 / 0x1000):
+    // walking 480/260/380, the jump ball 300/160/200, ice (Diamond Dust, $0ACA) 100/20/20, rolling 0/10/200 (a roll ends
+    // under 1 unit a frame). Top speed 5 units a frame (6.5 with shoes). Measured in Green Grove 2: run up 0.132 a frame
+    // per frame, stop 0.149, top 4.7 to 5.0, turn 0x40 a frame, roll 0.0044, ball in the air 0.086.
+    // Spin dash: held 14, 29, 44, 59 frames launches at 3.75, 5.625, 6.5625, 7.5 units a frame (shorter: no dash).
+    orig: (() => {
+      const t = v => v / 0x1000 * 3600 / 32, u = v => v * 60 / 32;
+      return { walk: [t(0x480), t(0x260), t(0x380)], ball: [t(0x300), t(0x160), t(0x200)], ice: [t(0x100), t(0x20), t(0x20)],
+        roll: [0, t(0x10), t(0x200)], rollMin: u(1), run: u(5), shoes: 6.5 / 5, cap: u(0x7F00 / 0x1000), turn: 0x40 / 0x800 * 2 * Math.PI * 60,
+        dash: [[14 / 60, u(3.75)], [29 / 60, u(5.625)], [44 / 60, u(6.5625)], [59 / 60, u(7.5)]] };
+    })(),
     chaseRange: 5,      // a chasing enemy starts after a player this close
     chaseSpeed: 3,
     turretRange: 8,     // turrets fire at a player this close
@@ -1288,6 +1302,18 @@ const Sim = (() => {
           L.entities.push({ type: e.type, cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]), power: e.power });
           break;
         }
+        // Diamond Dust: ice turns on entering an `on` cell and off entering an `off` cell (the original's $0ACA: its slippery
+        // table, see P.orig); ice spikes hurt until broken by a grounded roll; a low roof (`top` m) stops jumps in its cells
+        // and walls them off from a player in the air outside
+        case 'ice': case 'iceSpikes': case 'lowRoof': {
+          const okCells = a => Array.isArray(a) && a.every(c => Array.isArray(c) && inBounds(c[0], c[1]));
+          if (e.type === 'ice' ? !(okCells(e.on) && okCells(e.off)) : !okCells(e.cells) || (e.type === 'lowRoof' && !Number.isFinite(e.top))) {
+            errs.push(`"${e.type}" needs ${e.type === 'ice' ? '"on" and "off" cell lists' : '"cells"'} inside the map${e.type === 'lowRoof' ? ' and a height "top"' : ''}.`); break;
+          }
+          const fl = a => a.map(c => [Math.floor(c[0]), Math.floor(c[1])]);
+          L.entities.push(e.type === 'ice' ? { type: 'ice', on: fl(e.on), off: fl(e.off) } : { type: e.type, cells: fl(e.cells), top: e.top });
+          break;
+        }
         // triangle bumpers: a list of {band 'x' or 'z', b band start, s side start, flip, v [vx, vz] m/s, along}, each a 2 m
         // square whose triangle (side offset, from the far side if flipped, at most the band offset) bounces a player
         case 'triBumpers': {
@@ -1394,10 +1420,10 @@ const Sim = (() => {
   }
 
   // optional per-level physics, for layouts built at another scale (a converted level brings the original's)
-  const PHYS = { gravity: [1, 80], jumpV: [1, 30], jumpCut: [0, 30], maxFall: [1, 60], stepUp: [0, 2], snapDown: [0, 2] };
+  const PHYS = { gravity: [1, 80], jumpV: [1, 30], jumpCut: [0, 30], maxFall: [1, 60], stepUp: [0, 2], snapDown: [0, 2], orig: [0, 1] };
   function readPhysics(raw, errs) {
     const out = {};
-    for (const k in PHYS) out[k] = P[k];
+    for (const k in PHYS) out[k] = k === 'orig' ? 0 : P[k];
     if (raw === undefined) return out;
     if (!raw || typeof raw !== 'object') { errs.push('"physics" must be an object.'); return out; }
     for (const k in raw) {
@@ -1523,6 +1549,11 @@ const Sim = (() => {
       tris: L.entities.filter(e => e.type === 'triBumpers').flatMap(e => e.list),
       boxes: L.entities.filter(e => e.type === 'chute' || e.type === 'sled' || e.type === 'current'),
       dashes: L.entities.filter(e => e.type === 'dash'),
+      iceOn: new Set(L.entities.filter(e => e.type === 'ice').flatMap(e => e.on.map(([cx, cz]) => cz * L.width + cx))),
+      iceOff: new Set(L.entities.filter(e => e.type === 'ice').flatMap(e => e.off.map(([cx, cz]) => cz * L.width + cx))),
+      iceSpikes: new Map(L.entities.filter(e => e.type === 'iceSpikes').flatMap(e => e.cells.map(([cx, cz]) => [cz * L.width + cx, true]))),
+      roofs: new Map(L.entities.filter(e => e.type === 'lowRoof').flatMap(e => e.cells.map(([cx, cz]) => [cz * L.width + cx, e.top]))),
+      ice: false, iceCell: -1,
       spearCells: new Set(L.entities.filter(e => e.type === 'spears').flatMap(e => e.cells.map(([cx, cz]) => cz * L.width + cx))),
       spikeWall: new Map(L.entities.filter(e => e.type === 'spikeWall').flatMap(e => e.cells.map(([cx, cz]) => [cz * L.width + cx, e.top]))),
       p: null,
@@ -1542,7 +1573,8 @@ const Sim = (() => {
     w.mines = L.entities.filter(e => e.type === 'mine').map(e => ({ x: e.x, z: e.z, y: e.y, alive: true, diedAt: -9, skin: e.skin }));
     w.crawlers = L.entities.filter(e => e.type === 'crawler').map(e => ({ ...e, dir: 1 }));
     w.balloons = L.entities.filter(e => e.type === 'balloon').map(e => ({ ...e, by: e.y, pop: 0 })); w.spike = 0;
-    w.spear = null; w.inTri = false;
+    w.spear = null; w.inTri = false; w.roofUp = false; w.ice = false; w.iceCell = -1;
+    for (const t of w.iceSpikes.keys()) w.iceSpikes.set(t, true);
     // cracked walls stand again: their cells are raised for the sim only (L.up), the floor beneath stays in L
     L.up = new Map();
     w.cracks = L.entities.filter(e => e.type === 'crack').map(e => ({ ...e, broken: false, brokeAt: -9 }));
@@ -1816,7 +1848,8 @@ const Sim = (() => {
     let speed = Math.hypot(p.vx, p.vz);
     if (p.inv > 0) p.inv -= dt;
     if (p.fast > 0) p.fast -= dt;
-    const runTop = Math.max(P.run * (p.fast > 0 ? P.speedBoost : 1), p.force && p.force.dir ? p.force.top : 0);
+    const O = L.phys.orig ? P.orig : null;
+    const runTop = Math.max(O ? O.run * (p.fast > 0 ? O.shoes : 1) : P.run * (p.fast > 0 ? P.speedBoost : 1), p.force && p.force.dir ? p.force.top : 0);
 
     // a cannon holds the player in its mouth until jump is pressed, then fires them up and south (as in the original
     // they fly on their own: no steering until they land)
@@ -1924,14 +1957,15 @@ const Sim = (() => {
         p.dashHeld += dt;
         // a tap shorter than this keeps running speed (and rolls on release); held longer, the player brakes and revs
         if (p.dashHeld > 0.12 || speed < 2) {
-          p.rolling = false; p.charge = Math.min(P.dashCharge, p.charge + dt);
+          p.rolling = false; p.charge = Math.min(O ? O.dash[O.dash.length - 1][0] : P.dashCharge, p.charge + dt);
           p.vx *= 0.8; p.vz *= 0.8;
           if (m > 0.3) p.facing = Math.atan2(mx, mz);
         }
       }
       if (dashRelease) {
-        if (p.charge > 0.1) {
-          const s = P.dashMin + (P.dashMax - P.dashMin) * Math.min(1, p.charge / P.dashCharge);
+        const step = O ? O.dash.filter(([t]) => p.charge >= t - 1e-9).pop() : null;
+        if (O ? step : p.charge > 0.1) {
+          const s = O ? step[1] : P.dashMin + (P.dashMax - P.dashMin) * Math.min(1, p.charge / P.dashCharge);
           const a = m > 0.3 ? Math.atan2(mx, mz) : p.facing;
           p.vx = Math.sin(a) * s; p.vz = Math.cos(a) * s; p.rolling = true;
           w.events.push('dash');
@@ -1960,6 +1994,24 @@ const Sim = (() => {
     p.skid = p.grounded && !p.rolling && !p.whirl && !charging && m > 0.3 && speed > P.run * 0.5 && (mx * p.vx + mz * p.vz) / (m * speed) < -0.3;
     if (p.skid && !wasSkid) w.events.push('skid');
     if (charging) { /* braking handled above */ }
+    else if (O && !p.whirl && !(p.flyT > 0)) {   // (a cannon's flight keeps its speed: no steering, no drag)
+      // the original's tables (see P.orig): facing turns toward the stick; velocity split along it
+      const tab = p.rolling && p.grounded ? O.roll : p.ball && !p.grounded ? O.ball : w.ice ? O.ice : O.walk;
+      if (!Number.isFinite(p.facing)) p.facing = 0;
+      if (m > 0.3) {
+        let da = Math.atan2(mx, mz) - p.facing; da = Math.atan2(Math.sin(da), Math.cos(da));
+        p.facing += Math.max(-O.turn * dt, Math.min(O.turn * dt, da));
+      }
+      const hx = Math.sin(p.facing), hz = Math.cos(p.facing);
+      let f = p.vx * hx + p.vz * hz, sd = p.vx * hz - p.vz * hx;
+      if (m > 0.01 && f < runTop * m) f += tab[0] * m * dt;   // (a part-pushed stick stops gaining at its share of the top)
+      const fr = tab[1] * dt, gr = tab[2] * dt;
+      f = f > fr ? f - fr : f < -fr ? f + fr : 0; sd = sd > gr ? sd - gr : sd < -gr ? sd + gr : 0;
+      const top = runTop, over = v => v > top ? (v > O.cap ? O.cap : v - tab[0] * dt) : v < -top ? (v < -O.cap ? -O.cap : v + tab[0] * dt) : v;
+      f = over(f); sd = over(sd);
+      p.vx = f * hx + sd * hz; p.vz = f * hz - sd * hx;
+      if (p.rolling && p.grounded && f < O.rollMin) p.rolling = false;
+    }
     else if (p.whirl) {
       if (m > 0.01) {
         const dvx = mx * P.whirlTop - p.vx, dvz = mz * P.whirlTop - p.vz, dl = Math.hypot(dvx, dvz), mxd = P.whirlAccel * dt;
@@ -2029,6 +2081,15 @@ const Sim = (() => {
       breakCrack(w, c);
     }
 
+    // low roofs (Diamond Dust, helper 0x10CC4): in one, the player cannot rise above its top (0.25 units a frame down);
+    // in the air outside, its cells are walls (the original raises them 256 units while the player is airborne elsewhere)
+    if (w.roofs.size) {
+      const vs = L.rom ? L.rom.vscale : 1, here = w.roofs.get(Math.floor(p.z) * L.width + Math.floor(p.x));
+      if (here !== undefined && !p.grounded && p.y <= here) p.vy = Math.min(p.vy, -0.25 * 60 / 32 * vs);
+      const up = !p.grounded && here === undefined;
+      if (up !== !!w.roofUp) { w.roofUp = up; for (const [t, top] of w.roofs) if (up) L.up.set(t, top + 8 * vs); else L.up.delete(t); }
+    }
+
     // move in substeps no longer than half the radius
     const n = Math.max(1, Math.ceil(Math.max(speed, Math.abs(p.vy)) * dt / (P.r * 0.5)));
     const sdt = dt / n;
@@ -2054,7 +2115,7 @@ const Sim = (() => {
       }
     }
 
-    if (speed > 0.3 && !charging) p.facing = Math.atan2(p.vx, p.vz);
+    if (speed > 0.3 && !charging && !(O && !p.whirl)) p.facing = Math.atan2(p.vx, p.vz);
     if (p.y < L.killY) { w.deaths++; respawn(w); w.events.push('respawn'); return w; }
 
     // lifts (Rusty Ruin 2's slabs): stood on, they wait a second, then sink (the original: about 40 frames for 84 units)
@@ -2121,6 +2182,13 @@ const Sim = (() => {
         p.force = { t: ds.t, dir: [ds.v[0] / sp, ds.v[1] / sp], top: sp, jumpAt: ds.jumpAt, jumpV: ds.jumpV };
         w.events.push('dash'); break;
       }
+    }
+    // ice (Diamond Dust, helper 0x10E78): listed cells turn the slippery table on or off
+    if (cell !== w.iceCell) { w.iceCell = cell; if (w.iceOn.has(cell)) w.ice = true; else if (w.iceOff.has(cell)) w.ice = false; }
+    // ice spikes (helpers 0x10EA6, 0x10CC4): a grounded roll breaks one; otherwise standing in one hurts
+    if (w.iceSpikes.size && p.grounded && w.iceSpikes.get(cell)) {
+      if (p.rolling) { w.iceSpikes.set(cell, false); w.events.push('iceBreak'); }
+      else if (p.inv <= 0 && p.invuln <= 0) { hurt(w, -p.vx, -p.vz); if (w.events.includes('respawn')) return w; }
     }
     // spike fields (Spring Stadium 1): one count for them all, up a step every 4 frames while the player stands on one,
     // down when not; at the top (5 steps) they are out and hurt
@@ -3080,7 +3148,21 @@ const S3D = (() => {
       chutes: [[39, 40, 52, 70, [0, 1], 0.25, 1280]], dashes: [[54, 65, 704, [7.5, 0], 24, 14, 6]],
       sleds: [[78, 79, 66, 66, [2528, 672, 2128], [0, 1], 0.0625, 300]],
       currents: [[110, 113, 55, 89, [0, 1], 0.375, 2, 2.5], [50, 53, 83, 99, [0, 1], 0.375, 3, 4]],
-      hops: [[[94, 39], [90, 39], [80, 39]], 40], flames: [0x10976, 7], freeze: 1 },
+      hops: [[[94, 39], [90, 39], [80, 39]], 40], flames: [0x10976, 7], freeze: 1,
+      spikes: 0xFF, ice: [0x10B24, 21, 0x10B4E, 25, [[89, 50]], [[86, 74]]], iceSpikes: [0x10B80, 27], roofs: 0x10AF2, bumpers: [0x55, 0, 0] },
+    // Diamond Dust 2 (RunLevel_DDz2 0xFA06): pads as in act 1 (tables 0xFC82..); the supercharger (record 9) opens gate cells
+    // into a ride (state 0x803E at (78, 95), pad let go 400 frames); a dash east at (50, 45) under 608 (7.5 units a frame,
+    // pad held 10 frames); a current east over x 96-117, z 88-95 (0.375 a frame per frame up to 3.5, 3.5 on jumping off)
+    // into spikes; snowdrift springs (object records 26-28) at (109, 80), (103, 82), (111, 72); snowblowers (0xFD5E)
+    // Both acts (helpers 0x10E78, 0x10EA6, 0x10CC4): 0xFF cells are spikes (hurt under the floor + 24 units); ice on/off
+    // cell lists ($0ACA: the slippery table, also on after a pad into the icy part, off back out); ice spikes (12-byte
+    // records, cell at +10: map lowered 3 steps and marked 0xFF at the start, so at floor height) broken by a grounded
+    // roll; low roofs [cell, cell, top] (no rising above the top in them, walls to a player in the air outside); 0x55 cells
+    // are bumpers (grounded, entering: 5 units a frame out across the nearest edge, sound 0xAA)
+    10: { pads: [[0, 1, 1], [2, 3, 2]], rides: [[78, 95, 0, 0x803E, null, null, null, undefined, [400, null]]],
+      dashes: [[50, 45, 608, [7.5, 0], 10, 0, 0]], currents: [[96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5]],
+      hops: [[[109, 80], [103, 82], [111, 72]], 40], flames: [0xFD5E, 7], freeze: 1,
+      spikes: 0xFF, ice: [0xFE30, 39, 0xFE7E, 40, [[75, 100]], [[70, 105]]], iceSpikes: [0xFECE, 17], roofs: 0xFE04, bumpers: [0x55, 0, 0] },
     16: { floorSprings: 0x55, bumpers: [0xFF, 0x94EA, 30],
       rides: [[73, 105, 0, 4, null, null, null, undefined, [70, null]], [85, 76, 0, 0x8004, null, null, null, undefined, [84, null]],
         [87, 74, 0, 0x8044, null, null, null, undefined, [84, null]]],
@@ -3274,11 +3356,12 @@ const S3D = (() => {
   // The original's movement, measured in the running game (world units, 60 frames a second; one cell = 32 units):
   // gravity 0.25 units/frame², jump rise 60 units, terminal fall 7 units/frame, steps of 8 walked, 16 blocked.
   // Spring rise is not measured yet: 3.27 cells is a guess.
+  // orig: the original's movement tables (Sim.P.orig, routine 0x3330)
   function physicsFor(vscale) {
     const r4 = v => Math.round(v * vscale * 1e4) / 1e4, g = 900 / CELL, h = 60 / CELL;
     // launch speed that peaks at h under Blast Grid's 60 Hz stepping (it loses v/120 against the smooth formula)
     const jump = (g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * h)) / 2;
-    return { gravity: r4(g), jumpV: r4(jump), jumpCut: r4(jump * 0.4), maxFall: r4(420 / CELL), stepUp: r4(12 / CELL), snapDown: r4(12 / CELL) };
+    return { gravity: r4(g), jumpV: r4(jump), jumpCut: r4(jump * 0.4), maxFall: r4(420 / CELL), stepUp: r4(12 / CELL), snapDown: r4(12 / CELL), orig: 1 };
   }
   const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };
   const springPower = vscale => launchFor(vscale, 140);   // measured: a spring throws Sonic 140 units up
@@ -3462,6 +3545,21 @@ const S3D = (() => {
     for (const [ax, bx, az, bz, dir, acc, top, leave] of gm.currents || [])
       ents.push({ type: 'current', box: box(ax, bx, az, bz), dir, accel: r3(acc * 3600 / CELL), top: r3(top * mps), leave: r3(leave * mps) });
     if (gm.hops) { const cells = gm.hops[0].filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]); if (cells.length) ents.push({ type: 'springCells', cells, power: launchFor(vscale, gm.hops[1]) }); }
+    if (gm.ice) {
+      const [a, na, b, nb, moreOn, moreOff] = gm.ice;
+      const cl = (o, n, more) => [...Array.from({ length: n }, (_, k) => u16(d, o + 2 * k) >> 1), ...more.map(([cx, cz]) => cz * 128 + cx)]
+        .filter(c => floorCell(c % 128, c >> 7)).map(c => [c % 128 - x0, (c >> 7) - z0]);
+      ents.push({ type: 'ice', on: cl(a, na, moreOn), off: cl(b, nb, moreOff) });
+    }
+    if (gm.iceSpikes) {
+      const cells = Array.from({ length: gm.iceSpikes[1] }, (_, k) => u16(d, gm.iceSpikes[0] + 12 * k + 10) >> 1)
+        .filter(c => floorCell(c % 128, c >> 7)).map(c => [c % 128 - x0, (c >> 7) - z0]);
+      if (cells.length) ents.push({ type: 'iceSpikes', cells });
+    }
+    if (gm.roofs) for (let o = gm.roofs; s16(d, o) >= 0; o += 6) {
+      const cells = [u16(d, o) >> 1, u16(d, o + 2) >> 1].filter(c => floorCell(c % 128, c >> 7)).map(c => [c % 128 - x0, (c >> 7) - z0]);
+      if (cells.length) ents.push({ type: 'lowRoof', cells, top: r3((u16(d, o + 4) + 8) / CELL * vscale) });
+    }
     if (gm.tris) ents.push({ type: 'triBumpers', list: gm.tris.map(([band, b, sd, flip, vx, vz, along]) => ({ band,
       b: r3(b / CELL - (band === 'x' ? x0 : z0)), s: r3(sd / CELL - (band === 'x' ? z0 : x0)), flip: !!flip, v: [r3(vx * mps), r3(vz * mps)], along: !!along })) });
     if (gm.spears) {
@@ -3700,7 +3798,8 @@ const S3D = (() => {
       cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */,
       bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */,
       bossSlam: [0x5F], bossCap: [0x9E] /* RR3's routine */,
-      bumper: [0xB7], balloon: [0x77], spikesUp: [0x52], spear: [0x8C] /* Spring Stadium's routines */ },
+      bumper: [0xB7], balloon: [0x77], spikesUp: [0x52], spear: [0x8C] /* Spring Stadium's routines */,
+      iceBreak: [0x59] /* Diamond Dust's ice spikes */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {
@@ -4948,6 +5047,7 @@ const Art = (() => {
       bumper: () => { tone('square', 500, 900, 0.12, 0.2); tone('square', 750, 1300, 0.12, 0.12); },
       balloon: () => { noise(0.15, 0.9, 3000); tone('sine', 300, 700, 0.15, 0.2); },
       spikesUp: () => tone('sawtooth', 180, 420, 0.25, 0.15),
+      iceBreak: () => { noise(0.35, 0.8, 5000); tone('triangle', 1800, 600, 0.25, 0.2); },
       spear: () => tone('square', 900, 400, 0.1, 0.1),
       bossCap: () => { noise(0.3, 0.6, 600); tone('square', 120, 90, 0.2, 0.2); },
       padOut: () => { tone('triangle', 180, 1400, 0.32, 0.4); noise(0.2, 0.3, 2000); },
@@ -5332,7 +5432,7 @@ const Art = (() => {
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
-  let mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
+  let iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
   let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
   // spiked ball on a chain, and a burst of fireballs when beaten
@@ -5636,6 +5736,21 @@ const Art = (() => {
       const tip = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.4, 6), mat); tip.position.y = -0.2; g.add(tip);
       g.visible = false; levelGroup.add(g); spearObj = g;
     }
+    // Diamond Dust's ice spikes: the original's object art (type 0E8, palette line 0) on each cell, or pale cones of our own;
+    // gone when a roll breaks them
+    const iceConeGeo = new THREE.ConeGeometry(0.1, 0.55, 6), iceConeMat = new THREE.MeshLambertMaterial({ color: 0xc8dcff, emissive: 0x203050 });
+    iceSpikeObjs = [...world.iceSpikes.keys()].map(t => {
+      const cx = t % L.width, cz = (t - cx) / L.width, x = cx + 0.5, z = cz + 0.5;
+      let o;
+      if (rom) { o = new THREE.Sprite(romBossMat(0xE8, 0, 64, 48, 0)); o.center.set(0.5, 1 - 48 / 64); o.scale.set(64 * 0.025, 64 * 0.025, 1); }
+      else {
+        o = new THREE.Group();
+        for (const [ox, oz, h] of [[-0.22, -0.2, 0.8], [0.2, -0.22, 1], [0, 0.02, 1.25], [-0.2, 0.22, 0.9], [0.22, 0.2, 0.75]]) {
+          const c = new THREE.Mesh(iceConeGeo, iceConeMat); c.scale.y = h; c.position.set(ox, 0.275 * h, oz); o.add(c);
+        }
+      }
+      o.position.set(x, Sim.floorAt(L, x, z), z); o.userData.cell = t; levelGroup.add(o); return o;
+    });
     // Rusty Ruin's spiked crawlers: the original's eight turning frames (object art by type), centred on the sim's height
     crawlerSprites = world.crawlers.map(c => {
       const sp = new THREE.Sprite(rom ? romBossMat(0xAC, 0, 64, 40) : mineMat);
@@ -5827,9 +5942,11 @@ const Art = (() => {
     anim.position.fromArray(f.pos); anim.rotation.set(turn(f.rot[2]), turn(f.rot[1]), turn(f.rot[0]), 'ZYX');
     nodes.forEach((n, k) => { const r = f.rots[k]; n.rotation.set(turn(r[2]), turn(r[1]), turn(r[0]), 'ZYX'); });
   }
+  // top running speed: the original's on converted levels (Sim.P.orig), ours otherwise
+  const runRef = () => (L && L.phys && L.phys.orig ? Sim.P.orig.run : Sim.P.run);
   // each frame: pick the move from the sim state, like the sprite hero does
   function updateHero3d(p, rp, dt, t) {
-    const h = hero3d, sp = Math.hypot(p.vx, p.vz), run = Sim.P.run;
+    const h = hero3d, sp = Math.hypot(p.vx, p.vz), run = runRef();
     h.root.position.copy(rp); h.root.rotation.y = p.facing + Math.PI / 2;   // the model faces its -x
     h.root.visible = !(p.invuln > 0 && Math.floor(t * 16) % 2);
     const balled = p.charge > 0 || p.ball || p.rolling;
@@ -5867,7 +5984,7 @@ const Art = (() => {
     if (pose === 'ball' || pose === 'spring') { const q = S3D.HERO.ball(); return [q[Math.floor(look3.ballCycle * 2) % q.length], side]; }
     if (pose === 'run' || pose === 'air') {
       look3.romCycle += dt * (6 + sp * 2.2);
-      const q = sp > Sim.P.run * 0.75 ? S3D.HERO.run(v) : S3D.HERO.walk(v);
+      const q = sp > runRef() * 0.75 ? S3D.HERO.run(v) : S3D.HERO.walk(v);
       return [q[pose === 'air' ? 2 : Math.floor(look3.romCycle) % q.length], flip];
     }
     if (look3.idleFor > 5 && look3.oct === 0) return [235 + Math.floor(t * 6) % 7, false];
@@ -6036,9 +6153,9 @@ const Art = (() => {
     orbit.yaw = orbit.pitch = 0;
     // at speed, ease round behind the direction of travel
     const sp = Math.hypot(p.vx, p.vz);
-    if (!looking && sp > Sim.P.run * 1.1) {
+    if (!looking && sp > runRef() * 1.1) {
       let d = Math.atan2(-p.vx, -p.vz) - yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
-      yaw += d * Math.min(1, dt * 1.6 * Math.min(1, (sp - Sim.P.run) / 8));
+      yaw += d * Math.min(1, dt * 1.6 * Math.min(1, (sp - runRef()) / 8));
     }
     // a boss: swing round behind the player so it stays in front (gently, and not when it is right overhead)
     const bo = world.boss && world.boss.dead < 0 ? world.boss : null;
@@ -6590,6 +6707,7 @@ const Art = (() => {
       spearObj.visible = !!sp && sp.tip > sp.y - 0.05;
       if (spearObj.visible) spearObj.position.set(sp.x, sp.tip, sp.z);
     }
+    for (const o of iceSpikeObjs) o.visible = !!world.iceSpikes.get(o.userData.cell);
     for (let q = 0; q < crawlerSprites.length; q++) {
       const s = crawlerSprites[q], c = world.crawlers[q];
       s.position.set(c.x, c.y, c.z);

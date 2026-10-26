@@ -28,7 +28,7 @@ def physics_for(vscale):
     r4 = lambda v: jround(v * vscale, 4)
     g, h = 900 / CELL, 60 / CELL
     jump = (g / 60 + math.sqrt((g / 60) ** 2 + 8 * g * h)) / 2   # peaks at h under Blast Grid's 60 Hz stepping
-    return {"gravity": r4(g), "jumpV": r4(jump), "jumpCut": r4(jump * 0.4), "maxFall": r4(420 / CELL), "stepUp": r4(12 / CELL), "snapDown": r4(12 / CELL)}
+    return {"gravity": r4(g), "jumpV": r4(jump), "jumpCut": r4(jump * 0.4), "maxFall": r4(420 / CELL), "stepUp": r4(12 / CELL), "snapDown": r4(12 / CELL), "orig": 1}
 
 
 def launch_for(vscale, rise):
@@ -68,7 +68,12 @@ GIMMICKS = {
         'chutes': [(39, 40, 52, 70, [0, 1], 0.25, 1280)], 'dashes': [(54, 65, 704, (7.5, 0), 24, 14, 6)],
         'sleds': [(78, 79, 66, 66, (2528, 672, 2128), [0, 1], 0.0625, 300)],
         'currents': [(110, 113, 55, 89, [0, 1], 0.375, 2, 2.5), (50, 53, 83, 99, [0, 1], 0.375, 3, 4)],
-        'hops': ([(94, 39), (90, 39), (80, 39)], 40), 'flames': (0x10976, 7), 'freeze': 1},
+        'hops': ([(94, 39), (90, 39), (80, 39)], 40), 'flames': (0x10976, 7), 'freeze': 1,
+        'spikes': 0xFF, 'ice': (0x10B24, 21, 0x10B4E, 25, [(89, 50)], [(86, 74)]), 'iceSpikes': (0x10B80, 27), 'roofs': 0x10AF2, 'bumpers': (0x55, 0, 0)},
+    10: {'pads': [(0, 1, 1), (2, 3, 2)], 'rides': [(78, 95, 0, 0x803E, None, None, None, None, (400, None))],
+         'dashes': [(50, 45, 608, (7.5, 0), 10, 0, 0)], 'currents': [(96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5)],
+         'hops': ([(109, 80), (103, 82), (111, 72)], 40), 'flames': (0xFD5E, 7), 'freeze': 1,
+         'spikes': 0xFF, 'ice': (0xFE30, 39, 0xFE7E, 40, [(75, 100)], [(70, 105)]), 'iceSpikes': (0xFECE, 17), 'roofs': 0xFE04, 'bumpers': (0x55, 0, 0)},
     16: {'floorSprings': 0x55, 'bumpers': (0xFF, 0x94EA, 30),
          'rides': [(73, 105, 0, 4, None, None, None, None, (70, None)), (85, 76, 0, 0x8004, None, None, None, None, (84, None)),
                    (87, 74, 0, 0x8044, None, None, None, None, (84, None))],
@@ -294,6 +299,20 @@ def convert(rom, level_id, vscale=1.0):
     if 'hops' in gm:
         cells = [[cx - x0, cz - z0] for cx, cz in gm['hops'][0] if floor_cell(cx, cz)]
         if cells: ents.append({"type": "springCells", "cells": cells, "power": launch_for(vscale, gm['hops'][1])})
+    if 'ice' in gm:   # ice on/off cell lists (see s3d.js)
+        a, na, b, nb, more_on, more_off = gm['ice']
+        cl = lambda o, n, more: [[c % 128 - x0, c // 128 - z0] for c in [struct.unpack('>H', rom[o + 2 * k:o + 2 * k + 2])[0] >> 1 for k in range(n)] + [cz * 128 + cx for cx, cz in more] if floor_cell(c % 128, c // 128)]
+        ents.append({"type": "ice", "on": cl(a, na, more_on), "off": cl(b, nb, more_off)})
+    if 'iceSpikes' in gm:
+        o, n = gm['iceSpikes']
+        cells = [[c % 128 - x0, c // 128 - z0] for c in [struct.unpack('>H', rom[o + 12 * k + 10:o + 12 * k + 12])[0] >> 1 for k in range(n)] if floor_cell(c % 128, c // 128)]
+        if cells: ents.append({"type": "iceSpikes", "cells": cells})
+    if 'roofs' in gm:
+        o = gm['roofs']
+        while struct.unpack('>h', rom[o:o + 2])[0] >= 0:
+            c1, c2, ymax = struct.unpack('>3H', rom[o:o + 6]); o += 6
+            cells = [[c % 128 - x0, c // 128 - z0] for c in (c1 >> 1, c2 >> 1) if floor_cell(c % 128, c // 128)]
+            if cells: ents.append({"type": "lowRoof", "cells": cells, "top": jround((ymax + 8) / CELL * vscale, 3)})
     if 'tris' in gm:   # triangle bumpers (see s3d.js)
         ents.append({"type": "triBumpers", "list": [{"band": band, "b": r3(b / CELL - (x0 if band == 'x' else z0)), "s": r3(sd / CELL - (z0 if band == 'x' else x0)),
                                                        "flip": bool(flip), "v": [r3(vx * mps), r3(vz * mps)], "along": bool(along)} for band, b, sd, flip, vx, vz, along in gm['tris']]})

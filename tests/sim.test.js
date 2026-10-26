@@ -736,6 +736,52 @@ test('Diamond Dust: a chute slides and steers, a current pushes, a dash cell run
   assert.ok(froze >= 0 && w.p.frozen > 0 && w.ringCount === 5, 'frozen, no rings lost');
   const x0 = w.p.x; run(w, 20, { mx: 1 }); near(w.p.x, x0, 1e-9, 'cannot move while frozen');
 });
+// the original's movement tables, against Green Grove 2 in the emulator (units a frame: x 60 / 32 for m/s)
+const UF = v => v * 60 / 32;
+const ORIGM = (ents = []) => world(grid(W12('c' + row('4', 40) + 'c'), Object.assign({ entities: [{ type: 'start', x: 1.5, z: 2.5, facing: 90 }].concat(ents) },
+  { physics: Object.assign({}, ORIG.physics, { orig: 1 }) })));
+test('original movement: run up 0.132 units a frame per frame, top near 5, stop at 0.149', () => {
+  const w = ORIGM(); place(w, 2.5, 2.5); w.p.facing = Math.PI / 2;
+  run(w, 30, { mx: 1 }); near(w.p.vx, UF(3.97), UF(0.02), 'speed after 30 frames');
+  run(w, 30, { mx: 1 }); assert.ok(w.p.vx > UF(4.6) && w.p.vx < UF(5.05), `top ${w.p.vx / UF(1)}`);
+  const v0 = w.p.vx; run(w, 10, {}); near(v0 - w.p.vx, UF(1.49), UF(0.02), 'ten frames of stopping');
+});
+test('original movement: a 90 degree turn at top speed takes 8 frames to face and keeps sliding sideways', () => {
+  const w = ORIGM(); place(w, 2.5, 2.5); w.p.facing = Math.PI / 2;
+  run(w, 45, { mx: 1 }); run(w, 8, { mz: 1 });
+  near(w.p.facing, 0, 1e-6, 'facing south after 8 frames');
+  assert.ok(w.p.vx > UF(3.9) && w.p.vx < UF(4.4) && w.p.vz > UF(1.5) && w.p.vz < UF(1.95), `v ${w.p.vx / UF(1)}, ${w.p.vz / UF(1)}`);
+  run(w, 10, { mz: 1 }); near(w.p.vx, UF(4.21 - 10 * 0.219), UF(0.15), 'side part lost at 0x380');
+});
+test('original movement: the spin dash launches in steps of held time, and a roll lasts', () => {
+  const sp = held => { const w = ORIGM(); place(w, 2.5, 2.5); w.p.facing = Math.PI / 2; run(w, held, { dash: true }); run(w, 1, {}); return w; };
+  near(sp(10).p.vx, 0, 1e-9, 'too short');
+  near(sp(20).p.vx, UF(3.75), UF(0.01), 'first step');
+  near(sp(35).p.vx, UF(5.625), UF(0.01), 'second');
+  near(sp(80).p.vx, UF(7.5), UF(0.01), 'full');
+  const w = sp(80); run(w, 60, {}); assert.ok(w.p.rolling && w.p.vx > UF(7.2), `still rolling at ${w.p.vx / UF(1)}`);
+});
+test('original movement: a jump without the stick loses 0.086 a frame per frame; ice is slippery', () => {
+  let w = ORIGM(); place(w, 2.5, 2.5); w.p.facing = Math.PI / 2; run(w, 45, { mx: 1 });
+  run(w, 1, { mx: 1, jump: true }); const v0 = w.p.vx; run(w, 10, { jump: true });
+  near(v0 - w.p.vx, UF(0.86), UF(0.03), 'air drag in the ball');
+  w = ORIGM([{ type: 'ice', on: [[3, 2]], off: [] }]); place(w, 3.5, 2.5); w.p.facing = Math.PI / 2;
+  run(w, 2, {}); assert.ok(w.ice, 'ice on');
+  run(w, 30, { mx: 1 }); near(w.p.vx, UF(30 * (0x100 - 0x20) / 0x1000), UF(0.02), 'slow start on ice');
+  const v1 = w.p.vx; run(w, 30, {}); near(v1 - w.p.vx, UF(30 * 0x20 / 0x1000), UF(0.01), 'long slide');
+});
+test('Diamond Dust: ice spikes hurt until a roll breaks them; a low roof stops a jump', () => {
+  let w = ORIGM([{ type: 'iceSpikes', cells: [[5, 2]] }]); w.ringCount = 5; place(w, 3.5, 2.5); w.p.facing = Math.PI / 2;
+  let hit = false; run(w, 40, (f, ww) => { if (ww.events.includes('hurt')) hit = true; return { mx: 1 }; });
+  assert.ok(hit, 'walking in hurts');
+  w = ORIGM([{ type: 'iceSpikes', cells: [[5, 2]] }]); w.ringCount = 5; place(w, 2.5, 2.5); w.p.facing = Math.PI / 2;
+  run(w, 80, { dash: true }); let broke = false; hit = false;
+  run(w, 30, (f, ww) => { if (ww.events.includes('iceBreak')) broke = true; if (ww.events.includes('hurt')) hit = true; return {}; });
+  assert.ok(broke && !hit && w.ringCount === 5, 'rolled through');
+  w = ORIGM([{ type: 'lowRoof', cells: [[3, 2]], top: 1.25 }]); place(w, 3.5, 2.5);
+  let top = 0; run(w, 30, (f, ww) => { top = Math.max(top, ww.p.y); return { jump: true }; });
+  assert.ok(top < 1.1, `kept down (${top})`);
+});
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
