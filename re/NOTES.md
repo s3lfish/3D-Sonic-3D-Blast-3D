@@ -151,7 +151,10 @@ original art. The browser code carries reading rules only.
   whose edge corner (NW for +x and +z, NE for -x, SE for -z) is 9+ over the ring's height or has no floor puts it
   at the edge and turns that part back; then z the same; vy += $22 (0x2000), y -= vy; the floor (triangles, NW-SE
   split always) under it while falling: y = floor, vy = -(vy - vy/4), each horizontal part 0x1000 toward 0, and a
-  landing with both already 0 ends it; $32 counts the life down (0xF0). How Sonic catches them again is not read.
+  landing with both already 0 ends it; $32 counts the life down (0xF0).
+- Touches (0x1B846): skipped while Sonic's $94 is 9 or $3E < 0 (thrown back); objects and particles in the depth-sorted
+  list near Sonic's sort key; particles (0x1B9F0) by a box on the picture: x within -0x1C..+0xC of his, y 0..0x30 (sort
+  key and screen y); type 0 (a lost ring) is caught at once (0x1BAE0: rings + 1, sound 0x33), types 1-4 are Flickies.
 
 ## Sections, rings and holes
 

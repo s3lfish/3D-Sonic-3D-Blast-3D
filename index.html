@@ -4059,7 +4059,8 @@ const Sim = (() => {
         if (Number.isFinite(f) && r.y < f + 0.3 && r.vy < 0) { r.y = f + 0.3; r.vy = -r.vy * 0.6; r.vx *= 0.8; r.vz *= 0.8; }
       }
       const dx = r.x - p.x, dy = r.y - pcy, dz = r.z - p.z;
-      if (r.age > 0.6 && dx * dx + dy * dy + dz * dz < P.ringR * P.ringR) { w.loose.splice(i, 1); w.ringCount++; w.events.push('ring'); }
+      // (the original's lost rings: no touches at all while he is thrown back, 0x1B846; ours wait 0.6 s)
+      if ((r.o ? !(p.knockT > 0) : r.age > 0.6) && dx * dx + dy * dy + dz * dz < P.ringR * P.ringR) { w.loose.splice(i, 1); w.ringCount++; w.events.push('ring'); }
     }
 
     // rings
