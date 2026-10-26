@@ -1170,6 +1170,20 @@ const S3D = (() => {
     const pal = [12, 16, 20].map(k => { const p = u32(d, o + k), c = []; for (let j = 0; j < 16; j++) { const v = u16(d, p + 2 * j); c.push([((v >> 1) & 7) * 255 / 7 | 0, ((v >> 5) & 7) * 255 / 7 | 0, ((v >> 9) & 7) * 255 / 7 | 0]); } return c; });
     return { n, look: u16(d, o) ? 'lava' : 'river', speed: u16(d, o + 2) * 16, track, items, pal };
   }
+  // the special stage's own pre-scaled sprites: spiked ball (table 0x145026, tiles RNC 0x14F2AC to VRAM 0x8420,
+  // palette line 1 = the stage's item palette) and ring (0x144F2E, tiles 0x14F0EC at 0x9C00, line 3); a frame is a
+  // word (pieces - 1) then pieces [x, x mirrored, y word, size, tile]; the largest is 30 (spiked ball) / 15 (ring)
+  const BONUS_SPRITES = { spike: [0x145026, 0x14F2AC, 30], ring: [0x144F2E, 0x14F0EC, 15] };
+  function bonusSprite(d, kind, pal, size = 64) {
+    const [tab, art, i] = BONUS_SPRITES[kind], tiles = rncUnpack(d, art), px = new Uint8ClampedArray(size * size * 4);
+    let a = tab + u32(d, tab + 4 * i), x = size / 2, y = size / 2;
+    for (let n = s16(d, a), k = 0; k <= n; k++) {
+      const p = a + 2 + 6 * k, sb = v => (v & 0x80 ? v - 256 : v), sz = d[p + 4], t = d[p + 5];
+      x += sb(d[p]); y += s16(d, p + 2);
+      blit(px, size, tiles.subarray(t * 32), ((sz >> 2) & 3) + 1, (sz & 3) + 1, x, y, false, false, pal);
+    }
+    return px;
+  }
   function ringImage(d, k, pal, size = 16) {
     const px = new Uint8ClampedArray(size * size * 4);
     blit(px, size, d.subarray(RING_ART + k * 0x80, RING_ART + k * 0x80 + 128), 2, 2, 0, 0, false, false, pal);
@@ -1757,5 +1771,5 @@ const S3D = (() => {
   }
 
   const typeArt = (d, t) => u32(d, 0x280E8 + t);   // an object type's art block (Green Grove's boss: 48 pod, 50 ball)
-  return { LEVELS, BONUS, bonusStage, check, openRomFile, objImage, typeArt, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, levelPalettes, OCTANT, HERO };
+  return { LEVELS, BONUS, bonusStage, bonusSprite, check, openRomFile, objImage, typeArt, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, levelPalettes, OCTANT, HERO };
 })();

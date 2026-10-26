@@ -5713,6 +5713,20 @@ const S3D = (() => {
     const pal = [12, 16, 20].map(k => { const p = u32(d, o + k), c = []; for (let j = 0; j < 16; j++) { const v = u16(d, p + 2 * j); c.push([((v >> 1) & 7) * 255 / 7 | 0, ((v >> 5) & 7) * 255 / 7 | 0, ((v >> 9) & 7) * 255 / 7 | 0]); } return c; });
     return { n, look: u16(d, o) ? 'lava' : 'river', speed: u16(d, o + 2) * 16, track, items, pal };
   }
+  // the special stage's own pre-scaled sprites: spiked ball (table 0x145026, tiles RNC 0x14F2AC to VRAM 0x8420,
+  // palette line 1 = the stage's item palette) and ring (0x144F2E, tiles 0x14F0EC at 0x9C00, line 3); a frame is a
+  // word (pieces - 1) then pieces [x, x mirrored, y word, size, tile]; the largest is 30 (spiked ball) / 15 (ring)
+  const BONUS_SPRITES = { spike: [0x145026, 0x14F2AC, 30], ring: [0x144F2E, 0x14F0EC, 15] };
+  function bonusSprite(d, kind, pal, size = 64) {
+    const [tab, art, i] = BONUS_SPRITES[kind], tiles = rncUnpack(d, art), px = new Uint8ClampedArray(size * size * 4);
+    let a = tab + u32(d, tab + 4 * i), x = size / 2, y = size / 2;
+    for (let n = s16(d, a), k = 0; k <= n; k++) {
+      const p = a + 2 + 6 * k, sb = v => (v & 0x80 ? v - 256 : v), sz = d[p + 4], t = d[p + 5];
+      x += sb(d[p]); y += s16(d, p + 2);
+      blit(px, size, tiles.subarray(t * 32), ((sz >> 2) & 3) + 1, (sz & 3) + 1, x, y, false, false, pal);
+    }
+    return px;
+  }
   function ringImage(d, k, pal, size = 16) {
     const px = new Uint8ClampedArray(size * size * 4);
     blit(px, size, d.subarray(RING_ART + k * 0x80, RING_ART + k * 0x80 + 128), 2, 2, 0, 0, false, false, pal);
@@ -6300,7 +6314,7 @@ const S3D = (() => {
   }
 
   const typeArt = (d, t) => u32(d, 0x280E8 + t);   // an object type's art block (Green Grove's boss: 48 pod, 50 ball)
-  return { LEVELS, BONUS, bonusStage, check, openRomFile, objImage, typeArt, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, levelPalettes, OCTANT, HERO };
+  return { LEVELS, BONUS, bonusStage, bonusSprite, check, openRomFile, objImage, typeArt, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, levelPalettes, OCTANT, HERO };
 })();
 </script>
 
@@ -9097,11 +9111,15 @@ const Art = (() => {
     const spikeMat = new THREE.MeshLambertMaterial({ color: hex3(it[4]) }), tipMat = new THREE.MeshLambertMaterial({ color: hex3(it[7]) });
     const postMat = new THREE.MeshLambertMaterial({ color: hex3(it[12]) }), capMat = new THREE.MeshLambertMaterial({ color: hex3(it[7]), emissive: 0x222222 });
     const gemMat = new THREE.MeshLambertMaterial({ color: EM_COLORS[data.n % 7], emissive: EM_COLORS[data.n % 7], emissiveIntensity: 0.35 });
-    const pairs = new Map();
+    const pairs = new Map(), rom = romOn();
+    // ROM look: the stage's own spiked ball and ring (their largest frames: 0.533 and 1.067 units a pixel)
+    const romSpike = rom && new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.bonusSprite(romArt.d, 'spike', data.pal[2]), 64)), alphaTest: 0.5 });
+    const romRing = rom && new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.bonusSprite(romArt.d, 'ring', romArt.pal), 64)), alphaTest: 0.5 });
     data.items.forEach((r, q) => {
       const [d, x, y, k] = r;
       let o = null;
-      if (k === 1) { o = new THREE.Sprite(romOn() ? romArt.rings[0] : ringMats[0]); o.scale.set(0.55, 0.55, 1); o.position.set(bx(x), by(y - 8), bz(d)); }
+      if (k === 1) { o = new THREE.Sprite(rom ? romRing : ringMats[0]); const s = rom ? 64 * 1.067 * BU : 0.55; o.scale.set(s, s, 1); o.position.set(bx(x), by(y - 8), bz(d)); o.userData.s = s; }
+      else if (k === 0 && rom) { o = new THREE.Sprite(romSpike); o.scale.set(64 * 0.533 * BU, 64 * 0.533 * BU, 1); o.position.set(bx(x), by(y - 10), bz(d)); }
       else if (k === 0) {
         o = new THREE.Group(); o.add(new THREE.Mesh(spikeGeo.ball, spikeMat));
         for (const dir of spikeGeo.dirs) { const c = new THREE.Mesh(spikeGeo.spike, tipMat); c.position.copy(dir).multiplyScalar(0.24); c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir); o.add(c); }
@@ -9226,16 +9244,17 @@ const Art = (() => {
     B.ground.position.y = by(lerp(P.cy, b.camY) / 65536 + 360);
     const bank = B.ground.userData.bankMesh; bank.position.set(bonusCam.position.x, 0, bonusCam.position.z + 10);
     B.look.bank.offset.set(-bank.position.x / 3, bank.position.z / 3); B.look.flow.offset.set(0, t * (B.look.lava ? 0.15 : 0.4));
-    // items: rings turn (ROM frames) and pop when taken; a gate's beam goes once passed; the emerald spins
-    const rom = romOn(), rf = Math.floor(t * 15) % 16;
+    // items: rings pop when taken (the ROM's stage rings do not turn; ours wobble); a gate's beam goes once passed; the
+    // emerald spins
+    const rom = romOn();
     for (const o of B.objs) {
       const it = b.items[o.userData.q], k = o.userData.k;
       if (k === 1) {
         if (it.gone) {
           if (!B.popped.has(o)) B.popped.set(o, t);
-          const p = (t - B.popped.get(o)) / 0.2; o.visible = p < 1; if (p < 1) o.scale.setScalar(0.55 * (1 + p));
-        } else o.material = rom ? romArt.rings[rf] : ringMats[Math.floor(t * 8) % 3];
-      } else if (k === 0) o.rotation.y = t * 2;
+          const p = (t - B.popped.get(o)) / 0.2; o.visible = p < 1; if (p < 1) o.scale.setScalar(o.userData.s * (1 + p));
+        } else if (!rom) o.material = ringMats[Math.floor(t * 8) % 3];
+      } else if (k === 0 && !o.isSprite) o.rotation.y = t * 2;
       else if (k === 7) { o.visible = !it.gone; o.rotation.y = t * 1.5; }
       else if (k === 3) signDraw(o, b.remain);
       else if (k === 2 && o.userData.beam) o.userData.beam.visible = z < it.d;

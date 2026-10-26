@@ -2465,11 +2465,15 @@
     const spikeMat = new THREE.MeshLambertMaterial({ color: hex3(it[4]) }), tipMat = new THREE.MeshLambertMaterial({ color: hex3(it[7]) });
     const postMat = new THREE.MeshLambertMaterial({ color: hex3(it[12]) }), capMat = new THREE.MeshLambertMaterial({ color: hex3(it[7]), emissive: 0x222222 });
     const gemMat = new THREE.MeshLambertMaterial({ color: EM_COLORS[data.n % 7], emissive: EM_COLORS[data.n % 7], emissiveIntensity: 0.35 });
-    const pairs = new Map();
+    const pairs = new Map(), rom = romOn();
+    // ROM look: the stage's own spiked ball and ring (their largest frames: 0.533 and 1.067 units a pixel)
+    const romSpike = rom && new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.bonusSprite(romArt.d, 'spike', data.pal[2]), 64)), alphaTest: 0.5 });
+    const romRing = rom && new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.bonusSprite(romArt.d, 'ring', romArt.pal), 64)), alphaTest: 0.5 });
     data.items.forEach((r, q) => {
       const [d, x, y, k] = r;
       let o = null;
-      if (k === 1) { o = new THREE.Sprite(romOn() ? romArt.rings[0] : ringMats[0]); o.scale.set(0.55, 0.55, 1); o.position.set(bx(x), by(y - 8), bz(d)); }
+      if (k === 1) { o = new THREE.Sprite(rom ? romRing : ringMats[0]); const s = rom ? 64 * 1.067 * BU : 0.55; o.scale.set(s, s, 1); o.position.set(bx(x), by(y - 8), bz(d)); o.userData.s = s; }
+      else if (k === 0 && rom) { o = new THREE.Sprite(romSpike); o.scale.set(64 * 0.533 * BU, 64 * 0.533 * BU, 1); o.position.set(bx(x), by(y - 10), bz(d)); }
       else if (k === 0) {
         o = new THREE.Group(); o.add(new THREE.Mesh(spikeGeo.ball, spikeMat));
         for (const dir of spikeGeo.dirs) { const c = new THREE.Mesh(spikeGeo.spike, tipMat); c.position.copy(dir).multiplyScalar(0.24); c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir); o.add(c); }
@@ -2594,16 +2598,17 @@
     B.ground.position.y = by(lerp(P.cy, b.camY) / 65536 + 360);
     const bank = B.ground.userData.bankMesh; bank.position.set(bonusCam.position.x, 0, bonusCam.position.z + 10);
     B.look.bank.offset.set(-bank.position.x / 3, bank.position.z / 3); B.look.flow.offset.set(0, t * (B.look.lava ? 0.15 : 0.4));
-    // items: rings turn (ROM frames) and pop when taken; a gate's beam goes once passed; the emerald spins
-    const rom = romOn(), rf = Math.floor(t * 15) % 16;
+    // items: rings pop when taken (the ROM's stage rings do not turn; ours wobble); a gate's beam goes once passed; the
+    // emerald spins
+    const rom = romOn();
     for (const o of B.objs) {
       const it = b.items[o.userData.q], k = o.userData.k;
       if (k === 1) {
         if (it.gone) {
           if (!B.popped.has(o)) B.popped.set(o, t);
-          const p = (t - B.popped.get(o)) / 0.2; o.visible = p < 1; if (p < 1) o.scale.setScalar(0.55 * (1 + p));
-        } else o.material = rom ? romArt.rings[rf] : ringMats[Math.floor(t * 8) % 3];
-      } else if (k === 0) o.rotation.y = t * 2;
+          const p = (t - B.popped.get(o)) / 0.2; o.visible = p < 1; if (p < 1) o.scale.setScalar(o.userData.s * (1 + p));
+        } else if (!rom) o.material = ringMats[Math.floor(t * 8) % 3];
+      } else if (k === 0 && !o.isSprite) o.rotation.y = t * 2;
       else if (k === 7) { o.visible = !it.gone; o.rotation.y = t * 1.5; }
       else if (k === 3) signDraw(o, b.remain);
       else if (k === 2 && o.userData.beam) o.userData.beam.visible = z < it.d;
