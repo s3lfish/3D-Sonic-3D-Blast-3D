@@ -49,7 +49,7 @@ def spring_power(vscale):
     return launch_for(vscale, 140)   # measured: a spring throws Sonic 140 units up
 
 
-BLANK = {4: [51, 33], 8: [49, 32], 12: [55, 33]}   # frames blank while an act reloads (see s3d.js)
+BLANK = {3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 34], 14: [44, 34], 17: [46, 30]}   # frames blank while an act reloads (see s3d.js)
 GIMMICKS = {
     4: {'updrafts': 0x55, 'zapCells': 0xAA, 'roofs': 0x12254, 'pyramids': (0x11EE4, 4),   # Gene Gadget 1 (see s3d.js)
         'dashes': [(65, 101, 0x7FFF, (6, 0), 1, 0, 0), (65, 102, 0x7FFF, (6, 0), 1, 0, 0), (74, 94, 0x7FFF, (0, 6), 1, 0, 0), (75, 94, 0x7FFF, (0, 6), 1, 0, 0)],
@@ -743,9 +743,9 @@ def convert(rom, level_id, vscale=1.0):
         bx, bz = min(cells, key=lambda c: (c[0] - mx) ** 2 + (c[1] - mz) ** 2)
         start = (bx + 0.5, bz + 0.5)
     st0 = {"type": "start", "x": start[0] - x0, "z": start[1] - z0}
-    if bs:   # in a boss arena the player starts facing the boss (compass degrees)
+    if from_table: st0["facing"] = compass_of(sdir & 0x7FF)   # the table's (see s3d.js)
+    elif bs:   # in a boss arena the player starts facing the boss (compass degrees)
         st0["facing"] = (math.floor(math.atan2(bs['at'][0] / CELL - start[0], start[1] - bs['at'][2] / CELL) * 180 / math.pi + 0.5) + 360) % 360
-    elif from_table: st0["facing"] = compass_of(sdir & 0x7FF)
     ents.insert(0, st0)
     return {"version": 1, "format": "tiles", "name": f"ROM level {level_id}", "width": W, "depth": D,
             "killY": jround(min(min(t["c"]) for t in tiles if t["t"] != "W") - 3, 2), "tiles": tiles, "entities": ents,

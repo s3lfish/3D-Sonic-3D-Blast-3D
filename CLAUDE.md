@@ -401,9 +401,11 @@ serves index.html from main.
   VV2 too (its balls' angle at the trace start fitted: 0x348). A hit shows from the next frame (`p.pre` {anim, facing}:
   the original's player ran before it); the knock-back's eighth is taken from the whole facing; 2 s safe is 120
   frames (the timer snaps to 0). SS1 and SS2 too: the jump word $46 (`p.jb`, 0x2E0E: pressed in the air and held,
-  he jumps as he lands), floor springs' exact speed, the scroll after springs. GnG1 and RR3 (positions) too: a
-  reload's blank and pad wait per level (`rom.blank` [frames, frames]; measured GnG1 [51, 33], RR3 [49, 32], VV2 [55,
-  33], else VV1's [52, 33]). Still off: GnG1 after its reload (51 blank frames, VV1 52: not modelled), the 13
+  he jumps as he lands), floor springs' exact speed, the scroll after springs. GnG1, RR3 and SS3 (positions) too: a
+  reload's blank and pad wait per level (`rom.blank` [frames blank counting the death's last frame, frames after
+  until the pad acts]; measured GG3 [44, 30], GnG1 [51, 34], RR3 [49, 33], VV2 [55, 34], VV3 [44, 34], SS3 [46, 30],
+  else VV1's [52, 34]); SS spike fields count on the original's 4-frame count ($0AF8, `gZero(w, 4)`); the start
+  faces the start table's way, bosses too (SS3's is not toward the boss). Still off: GnG1 after its reload (51 blank frames, VV1 52: not modelled), the 13
   frames after a reload when the original shows frame 0 (its player not yet run), RR3's boss scroll targets
   ($084A/$084C), a fall onto a no-floor cell (the original lands at map
   height 0; the act never lets him there), bosses. 140 sim tests.

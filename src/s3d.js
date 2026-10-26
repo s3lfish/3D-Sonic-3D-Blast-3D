@@ -458,8 +458,8 @@ const S3D = (() => {
     return { gravity: r4(g), jumpV: r4(jump), jumpCut: r4(jump * 0.4), maxFall: r4(420 / CELL), stepUp: r4(8 / CELL), snapDown: r4(2 / CELL), orig: 1 };
   }
   // [frames the screen stays blank while an act reloads after a death (the level's unpacking time), frames after that
-  // before the pad is read]: measured in the emulator; [52, 33] elsewhere as watched in Volcano Valley 1: `rom.blank`
-  const BLANK = { 4: [51, 33], 8: [49, 32], 12: [55, 33] };
+  // before the pad acts]: measured in the emulator; [52, 34] elsewhere as watched in Volcano Valley 1: `rom.blank`
+  const BLANK = { 3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 34], 14: [44, 34], 17: [46, 30] };
   const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };
   const springPower = vscale => launchFor(vscale, 140);   // measured: a spring throws Sonic 140 units up
   function convert(d, id, vscale = 1) {
@@ -1023,9 +1023,10 @@ const S3D = (() => {
       }
     }
     const st0 = { type: 'start', x: start[0] - x0, z: start[1] - z0 };
-    // in a boss arena the player starts facing the boss (compass degrees)
-    if (bs) st0.facing = (Math.floor(Math.atan2(bs.at[0] / CELL - start[0], start[1] - bs.at[2] / CELL) * 180 / Math.PI + 0.5) + 360) % 360;
-    else if (fromTable) st0.facing = compassOf(s16(d, st + 4) & 0x7FF);   // (the table's facing, as every act starts)
+    // the table's facing, as every act starts (Spring Stadium 3's is not toward the boss); else in a boss arena the
+    // player starts facing the boss (compass degrees)
+    if (fromTable) st0.facing = compassOf(s16(d, st + 4) & 0x7FF);
+    else if (bs) st0.facing = (Math.floor(Math.atan2(bs.at[0] / CELL - start[0], start[1] - bs.at[2] / CELL) * 180 / Math.PI + 0.5) + 360) % 360;
     ents.unshift(st0);
     const name = (LEVELS.find(l => l[0] === id) || [id, 'Level ' + id])[1];
     return {

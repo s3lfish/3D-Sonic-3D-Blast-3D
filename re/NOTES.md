@@ -380,8 +380,11 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   1..4: z = (i d5 >> 2) + 0x820, y = (i d6 >> 2) + 0x80; fist z = reach + 0x820, y = lift + 0x94; then
   z = ((4 reach - k e5) >> 2) + 0x820 for k = 1..3 with e5 = reach - link 4's offset (y the same). Link records 0BC
   carry touch bytes 24, 24: Sonic dies in expl_8 at frame 56 exactly as the object scan says.
-- Reloads: blank 49 frames in RR3 (51 GnG1, 52 VV1, 55 VV2) and the pad read 32 frames after (33 elsewhere): the
-  load time differs by act.
+- Reloads (blank frames, then frames until the pad acts): GG3 44/30, GnG1 51/34, RR3 49/33, VV1 52/34, VV2 55/-,
+  VV3 44/34, SS3 46/30: the load time differs by act.
+- $0AF8 counts 3, 2, 1, 0 each frame in step with the 8/16/32 counts (= the 8-count & 3); SS1's (0x9D44) and SS3's
+  (0x8940) spike count moves only when it is 0. SS3 (0x88F6): grounded on a 0xFF cell, +0x200, and with the count at
+  0xA00 (before this frame's step) and $3E clear, $3E = -1: he is hit that frame. Off one: -0x200; >= 0xC00 -> 0xA00.
 - Not used: cells 0x4172/0x4174 with z <= 0x830 and y <= 0x70 set Sonic's $3E to -1 (no hits there).
 
 ## Rusty Ruin crawler 0AC (objtrack.py, crawltest.py)
