@@ -41,12 +41,12 @@ for e in ents:
     if e['type'] == 'gate' and not e.get('shut'):   # (cells that shut behind the player: open ahead)
         for c in e['cells']: gates[(c[0], c[1])] = (e['top'], e['opens'], e.get('pass'), e.get('key'))
 hover = {(c[0], c[1]) for e in ents if e['type'] == 'updraft' for c in e['cells']}
-state = {'section': 0, 'pass': False, 'keys': set()}   # keys: taken as held once a ride that gives one has been reached
+state = {'section': 0, 'pass': False, 'sled': False, 'keys': set()}   # keys: taken as held once a ride that gives one has been reached
 carriers = [e for e in ents if e['type'] == 'carrier']   # Panic Puppet's belts: either way (the levers are reachable)
 capsules = [e for e in ents if e['type'] == 'capsule']   # landing on one throws 5 units a frame up (50 units over it)
 def h(x, z):
     g = gates.get((x, z))
-    if g and not (0 < g[1] <= state['section']) and not (g[2] and state['pass']) and not (g[3] and g[3] in state['keys']): return g[0]
+    if g and not (0 < g[1] <= state['section']) and not (g[2] and (state['sled'] if g[2] == 2 else state['pass'])) and not (g[3] and g[3] in state['keys']): return g[0]
     if (x, z) in up: return up[(x, z)]
     return top(x, z)
 def reach1(seeds, section, seen=None):
@@ -91,6 +91,7 @@ def reach1(seeds, section, seen=None):
                     if hy is not None: nxt.append((ex + dx_ * k, ez + dz_ * k)); nxt += run_on(ex + dx_ * k, ez + dz_ * k, dx_, dz_, 8); break
         for e in sleds:   # a sled: pulled to its start, then run along its way
             if e['box'][0] <= x < e['box'][1] and e['box'][2] <= z < e['box'][3]:
+                if gates and not state.get('sled'): state['sled'] = True; q.extend(seen)   # its run opens the sled's gates (pass 2)
                 sx, sz = int(e['at'][0]), int(e['at'][2]); nxt.append((sx, sz)); nxt += run_on(sx, sz, e['dir'][0], e['dir'][1], 30)
         for b in boosters:   # a supercharger: dashed off along its way
             if (int(b['x']), int(b['z'])) == (x, z):

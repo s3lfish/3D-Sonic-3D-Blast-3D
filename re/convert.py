@@ -92,7 +92,9 @@ GIMMICKS = {
         'sleds': [(78, 79, 66, 66, (2528, 672, 2128), [0, 1], 0.0625, 300)],
         'currents': [(110, 113, 55, 89, [0, 1], 0.375, 2, 2.5), (50, 53, 83, 99, [0, 1], 0.375, 3, 4)],
         'hops': ([(94, 39), (90, 39), (80, 39)], 40), 'flames': (0x10976, 7), 'freeze': 1,
-        'spikes': 0xFF, 'ice': (0x10B24, 21, 0x10B4E, 25, [(89, 50)], [(86, 74)]), 'iceSpikes': (0x10B80, 27), 'roofs': 0x10AF2, 'bumpers': (0x55, 0, 0)},
+        'spikes': 0xFF, 'ice': (0x10B24, 21, 0x10B4E, 25, [(89, 50)], [(86, 74)]), 'iceSpikes': (0x10B80, 27), 'roofs': 0x10AF2, 'bumpers': (0x55, 0, 0),
+        'gates': [([(88, 54), (89, 54)], 0x6D, 0, 1), ([(90, 47), (91, 47)], 0x6D, 0, 1), ([(86, 75), (87, 75)], 0x59, 0, 2), ([(78, 67), (79, 67)], 0x65, 0, 2)],
+        'passOff': [(91, 46), (86, 74, 2)], 'shuts': [([(38, 76)], [(37, 75), (38, 75)], 0x7D)]},   # Diamond Dust 1 (see s3d.js)
     12: {'pads': [(0, 1, 1)], 'lava': 0x55, 'rocks': (0xB484, 27), 'roofs': 0xB386, 'vents': (0xB394, 8), 'spouts': (0xB286, 16), 'fireRuns': (0xB194, 5),
          'cracks': [([(55, 61)], 744, [0, -1]), ([(94, 114)], 424, [-1, 0])], 'balls': (0xE80, 56, 8)},
     13: {'pads': [(0, 1, 1), (2, 3, 2)], 'lava': 0x55, 'rocks': (0xAB42, 42), 'roofs': 0xAA4A, 'vents': (0xA8F6, 6), 'spouts': (0xA9AA, 10), 'fireRuns': (0xAA5E, 5),
@@ -116,7 +118,8 @@ GIMMICKS = {
     10: {'pads': [(0, 1, 1), (2, 3, 2)], 'rides': [(78, 95, 0, 0x803E, None, None, None, None, (400, None))],
          'dashes': [(50, 45, 608, (7.5, 0), 10, 0, 0)], 'currents': [(96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5)],
          'hops': ([(109, 80), (103, 82), (111, 72)], 40), 'flames': (0xFD5E, 7), 'freeze': 1,
-         'spikes': 0xFF, 'ice': (0xFE30, 39, 0xFE7E, 40, [(75, 100)], [(70, 105)]), 'iceSpikes': (0xFECE, 17), 'roofs': 0xFE04, 'bumpers': (0x55, 0, 0)},
+         'spikes': 0xFF, 'ice': (0xFE30, 39, 0xFE7E, 40, [(75, 100)], [(70, 105)]), 'iceSpikes': (0xFECE, 17), 'roofs': 0xFE04, 'bumpers': (0x55, 0, 0),
+         'gates': [([(77, 95), (78, 95)], 0x41, 0, 1), ([(91, 106), (92, 106)], 0x39, 0, 1)], 'passOff': [(91, 107)]},   # Diamond Dust 2 (see s3d.js)
     16: {'floorSprings': 0x55, 'bumpers': (0xFF, 0x94EA, 30),   # Spring Stadium 2 (see s3d.js)
          'gates': [([(64, 104), (64, 105)], 0x3F, 0, 1), ([(76, 102), (76, 103)], 0x39, 0, 1), ([(84, 78), (85, 78)], 0x69, 0, 1),
                    ([(86, 71), (87, 71)], 0x69, 0, 1), ([(61, 110), (62, 110)], 0x41, 1, 0), ([(123, 51), (124, 51)], 0x65, 2, 0)],
@@ -518,14 +521,17 @@ def convert(rom, level_id, vscale=1.0):
         wc = [[cx - x0, cz - z0] for cx, cz in wall if floor_cell(cx, cz)]; zc = [[cx - x0, cz - z0] for cx, cz in zap if floor_cell(cx, cz)]
         if wc: ents.append({"type": "gate", "cells": wc, "top": gate_top(hb), "opens": ring})
         if zc: ents.append({"type": "barrier", "cells": zc, "half": half, "away": list(away), "opens": ring})
-    if gm.get('passOff'):   # cells that end a supercharger's run: its gates shut again (see s3d.js)
-        pc = [[cx - x0, cz - z0] for cx, cz in gm['passOff'] if floor_cell(cx, cz)]
-        if pc: ents.append({"type": "passOff", "cells": pc})
+    for flag in (1, 2):   # cells that end a supercharger's run (flag 1) or a sled's (2): its gates shut again (see s3d.js)
+        pc = [[q[0] - x0, q[1] - z0] for q in gm.get('passOff', []) if (q[2] if len(q) > 2 else 1) == flag and floor_cell(q[0], q[1])]
+        if pc:
+            e = {"type": "passOff", "cells": pc}
+            if flag > 1: e["flag"] = flag
+            ents.append(e)
     for cells, hb, ring, pss, *ky in gm.get('gates', []):
         gc = [[cx - x0, cz - z0] for cx, cz in cells if floor_cell(cx, cz)]
         if gc:
             g = {"type": "gate", "cells": gc, "top": gate_top(hb), "opens": ring}
-            if pss: g["pass"] = 1
+            if pss: g["pass"] = pss
             if ky and ky[0]: g["key"] = ky[0]
             ents.append(g)
     for cx, cz, key, *regs in gm.get('keyOff', []):

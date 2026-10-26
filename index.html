@@ -1402,13 +1402,14 @@ const Sim = (() => {
           // a gate's "key": open while a ride that gives it has been taken and its "keyOff" cell not yet stepped on
           // "shut" [[x, z], ...]: open until the player steps into one of those cells, then shut for good ("ev": its sound)
           const shut = e.type === 'gate' && Array.isArray(e.shut) && e.shut.length && e.shut.every(c => Array.isArray(c) && inBounds(c[0], c[1])) ? e.shut.map(c => Math.floor(c[1]) * L.width + Math.floor(c[0])) : null;
-          L.entities.push({ type: e.type, cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]), top: e.top, opens, pass: !!e.pass, key: e.key ?? null, half: e.half, away: e.away, shut, ev: typeof e.ev === 'string' ? e.ev : null });
+          L.entities.push({ type: e.type, cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]), top: e.top, opens, pass: e.pass ? (Number(e.pass) > 1 ? Number(e.pass) : 1) : 0, key: e.key ?? null, half: e.half, away: e.away, shut, ev: typeof e.ev === 'string' ? e.ev : null });
           break;
         }
-        // cells where a supercharger's run ends: gates with "pass" shut again (the routine clears its flag)
+        // cells where a supercharger's run (flag 1) or a sled's (flag 2) ends: gates with that "pass" shut again (the
+        // routine clears its flag)
         case 'passOff': {
           if (!Array.isArray(e.cells) || !e.cells.every(c => Array.isArray(c) && inBounds(c[0], c[1]))) { errs.push('A passOff needs "cells" inside the map.'); break; }
-          L.entities.push({ type: 'passOff', cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]) });
+          L.entities.push({ type: 'passOff', cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]), flag: e.flag > 1 ? Math.floor(e.flag) : 1 });
           break;
         }
         case 'keyOff': {
@@ -1772,6 +1773,30 @@ const Sim = (() => {
     return _n;
   }
 
+  // A sled (Diamond Dust 1's icy loop, watched frame by frame): Sonic is a point going one of four ways. Where the next
+  // place has no floor or is too high, he stops at the edge of his cell on that way and, if his cell is a corner piece,
+  // turns a right angle off its diagonal, keeping his speed (corner pieces are crossed as floor); else he stops. (The
+  // original's turns land within a unit or two of these; the loop reaches its jump at (86, 81) as there.)
+  function sledMove(L, p, dt) {
+    const d = p.sled.dir || p.sled.bx.dir, sp = Math.hypot(p.vx, p.vz), W = L.width, E = 1 / 64;
+    p.vx = d[0] * sp; p.vz = d[1] * sp;
+    const nx = p.x + p.vx * dt, nz = p.z + p.vz * dt, lim = p.y + L.phys.stepUp;
+    const i = Math.floor(nx), j = Math.floor(nz), t = j * W + i;
+    const wall = i < 0 || j < 0 || i >= W || j >= L.depth || L.coll[t] === 'W' || L.coll[t] === 'P' || (L.up && L.up.has(t) && L.up.get(t) > lim)
+      || !(floorAt(L, nx, nz) <= lim);
+    if (!wall) { p.x = nx; p.z = nz; return null; }
+    const ci = Math.floor(p.x), cj = Math.floor(p.z), dg = L.diag && L.diag.get(cj * W + ci);
+    if (d[0] > 0) p.x = ci + 1 - E; else if (d[0] < 0) p.x = ci + E;
+    if (d[1] > 0) p.z = cj + 1 - E; else if (d[1] < 0) p.z = cj + E;
+    const S = Math.SQRT1_2, [ux, uz] = !dg ? [0, 0] : dg.k === 0 ? [S, S] : dg.k === 1 ? [-S, S] : dg.k === 2 ? [-S, -S] : [S, -S], dd = d[0] * ux + d[1] * uz;
+    if (dd < -1e-6) {
+      const rx = d[0] - 2 * dd * ux, rz = d[1] - 2 * dd * uz;
+      p.sled.dir = Math.abs(rx) > Math.abs(rz) ? [Math.sign(rx), 0] : [0, Math.sign(rz)];
+      p.vx = p.sled.dir[0] * sp; p.vz = p.sled.dir[1] * sp; p.facing = Math.atan2(p.vx, p.vz);
+    } else { p.vx = p.vz = 0; }
+    return null;
+  }
+
   // ---- world ----
   function createWorld(L) {
     const w = {
@@ -1847,7 +1872,7 @@ const Sim = (() => {
     // gates stand (raised for the sim only) until their section or a supercharged run opens them
     w.gates = L.entities.filter(e => e.type === 'gate').map(e => ({ ...e, open: !!e.shut, closed: false }));
     for (const g of w.gates) if (!g.shut) for (const [cx, cz] of g.cells) L.up.set(cz * L.width + cx, g.top);
-    w.passOn = false; w.passOff = new Set(L.entities.filter(e => e.type === 'passOff').flatMap(e => e.cells.map(([cx, cz]) => cz * L.width + cx)));
+    w.passOn = new Set(); w.passOff = new Map(L.entities.filter(e => e.type === 'passOff').flatMap(e => e.cells.map(([cx, cz]) => [cz * L.width + cx, e.flag || 1])));
     w.keys = new Set(); w.keyOff = new Map(L.entities.filter(e => e.type === 'keyOff').map(e => [e.z * L.width + e.x, e]));
     w.zaps = []; w.zapLast = -1;
     w.sprinklers = L.entities.filter(e => e.type === 'sprinkler').map(e => ({ ...e, a: e.phase, on: false }));
@@ -2731,7 +2756,7 @@ const Sim = (() => {
     if (s.auto) w.p.auto = autoWalk(w);
     if (w.boss) initBoss(w);
     for (const g of w.gates || []) if (g.shut) g.closed = false;   // (the cells that shut behind the player open again)
-    w.passOn = false;
+    w.passOn.clear();
     // starting again on a pad (a ring stands over one) does not set it off until the player steps off it
     w.padOff = (w.holes || []).find(h => h.pad && Math.abs(h.x - s.x) < h.size && Math.abs(h.z - s.z) < h.size) || null;
   }
@@ -2798,11 +2823,11 @@ const Sim = (() => {
     // gates (Gene Gadget's and Spring Stadium's InitLevel raise them): open from their section on, or while a
     // supercharger's run lasts (the routine lists them as open from the firing until the run reaches a passOff cell)
     const gcell = Math.floor(p.z) * L.width + Math.floor(p.x);
-    if (w.passOn && w.passOff.has(gcell)) w.passOn = false;
+    if (w.passOn.size && w.passOff.has(gcell)) w.passOn.delete(w.passOff.get(gcell));
     for (const g of w.gates) {
       // (Panic Puppet 2: cells raised behind the player once they step into a trigger cell)
       if (g.shut && !g.closed && g.shut.includes(gcell)) { g.closed = true; if (g.ev) w.events.push(g.ev); }
-      const open = g.shut ? !g.closed : (g.opens > 0 && w.section >= g.opens) || (g.pass && (w.passOn || !!(p.force && p.force.pass))) || (g.key !== null && w.keys.has(g.key));
+      const open = g.shut ? !g.closed : (g.opens > 0 && w.section >= g.opens) || (g.pass && (w.passOn.has(g.pass) || (g.pass === 1 && !!(p.force && p.force.pass)))) || (g.key !== null && w.keys.has(g.key));
       if (open !== g.open) { g.open = open; for (const [cx, cz] of g.cells) { const t = cz * L.width + cx; if (open) L.up.delete(t); else L.up.set(t, g.top); } }
     }
     // a pad: held on its middle, sinking, then out of the other pad (or into the ring's pocket) and thrown up
@@ -2912,7 +2937,7 @@ const Sim = (() => {
         // it dashes them off along its way rolling, the pad let go for 30 frames
         p.vx = b.pad.dir[0] * P.boostSpeed; p.vz = b.pad.dir[1] * P.boostSpeed; p.vy = 0;
         p.rolling = true; p.facing = Math.atan2(p.vx, p.vz); p.boost = null; b.pad.firedAt = w.time; w.events.push('boost');
-        p.force = { t: 30 / 60, dir: null, top: 0, pass: true }; w.passOn = true;
+        p.force = { t: 30 / 60, dir: null, top: 0, pass: true }; w.passOn.add(1);
       }
       return w;
     }
@@ -3094,8 +3119,7 @@ const Sim = (() => {
     const n = Math.max(1, Math.ceil(Math.max(speed, Math.abs(p.vy)) * dt / (P.r * 0.5)));
     const sdt = dt / n;
     for (let s = 0; s < n; s++) {
-      p.x += p.vx * sdt; p.z += p.vz * sdt;
-      const nrm = resolveWalls(L, p);
+      const nrm = p.sled && p.grounded ? sledMove(L, p, sdt) : (p.x += p.vx * sdt, p.z += p.vz * sdt, resolveWalls(L, p));
       if (nrm) {
         // a whirl bounces off; so does a roll in the original's movement (watched: Green Grove 1's first wall, Gene
         // Gadget 1's corridor), turning to its new way
@@ -3240,12 +3264,14 @@ const Sim = (() => {
         }
       } else if (bx.type === 'sled') {
         if (inside && p.grounded && !p.ride && !p.sled) {
-          p.sled = { bx, t: bx.t }; p.x = bx.at[0]; p.z = bx.at[2]; const f = floorAt(L, p.x, p.z); if (Number.isFinite(f)) p.y = f;
+          p.sled = { bx, t: bx.t }; w.passOn.add(2); p.x = bx.at[0]; p.z = bx.at[2]; const f = floorAt(L, p.x, p.z); if (Number.isFinite(f)) p.y = f;   // (flag 2: Diamond Dust 1's sled goes through its gates)
           p.vx = p.vz = 0; p.rolling = false; p.charge = 0; w.events.push('sled');
         }
+        // (the routine pushes along Sonic's facing, four ways, and holds the pad again each frame until the ride that ends
+        // it: Diamond Dust 1's icy loop to (86, 81); corner pieces turn it; 20 s at most here, in case it sticks)
         if (p.sled && p.sled.bx === bx) {
-          p.sled.t -= dt;
-          if (p.ride || p.sled.t <= 0) p.sled = null; else { p.vx += bx.dir[0] * bx.accel * dt; p.vz += bx.dir[1] * bx.accel * dt; }
+          p.sled.el = (p.sled.el || 0) + dt;
+          if (p.ride || p.sled.el > 20) p.sled = null; else { const d = p.sled.dir || bx.dir; p.vx += d[0] * bx.accel * dt; p.vz += d[1] * bx.accel * dt; }
         }
       } else if (inside) {   // a current
         const along = p.vx * bx.dir[0] + p.vz * bx.dir[1];
@@ -3629,7 +3655,7 @@ const Sim = (() => {
       }
       if (h.ride) {
         const R = h.ride;
-        p.ride = { ride: R, i: 0, wait: R.wait }; p.auto = null; p.force = null; p.rolling = p.whirl = false; p.whirlHold = 0; p.charge = 0;
+        p.ride = { ride: R, i: 0, wait: R.wait }; p.auto = null; p.force = null; p.sled = null; p.rolling = p.whirl = false; p.whirlHold = 0; p.charge = 0;   // (a ride ends a sled's push: Diamond Dust 1's jump at (86, 81))
         if (R.start) { p.x = R.start[0]; p.z = R.start[2]; if (Number.isFinite(R.start[1])) p.y = R.start[1]; w.events.push('warp'); }   // (no height: kept)
         if (R.facing !== null) p.facing = R.facing;
         if (h.key !== null) w.keys.add(h.key);
@@ -4361,7 +4387,12 @@ const S3D = (() => {
       sleds: [[78, 79, 66, 66, [2528, 672, 2128], [0, 1], 0.0625, 300]],
       currents: [[110, 113, 55, 89, [0, 1], 0.375, 2, 2.5], [50, 53, 83, 99, [0, 1], 0.375, 3, 4]],
       hops: [[[94, 39], [90, 39], [80, 39]], 40], flames: [0x10976, 7], freeze: 1,
-      spikes: 0xFF, ice: [0x10B24, 21, 0x10B4E, 25, [[89, 50]], [[86, 74]]], iceSpikes: [0x10B80, 27], roofs: 0x10AF2, bumpers: [0x55, 0, 0] },
+      spikes: 0xFF, ice: [0x10B24, 21, 0x10B4E, 25, [[89, 50]], [[86, 74]]], iceSpikes: [0x10B80, 27], roofs: 0x10AF2, bumpers: [0x55, 0, 0],
+      // InitLevel 0xFF9A raises gates (88..89, 54), (90..91, 47): open while the supercharger's flag is up (record at
+      // state 0xF; cleared at (91, 46)); and (86..87, 75), (78..79, 67): open from the sled's start to (86, 74); stepping
+      // on (38, 76) raises (37..38, 75) to 0x7D00 for good
+      gates: [[[[88, 54], [89, 54]], 0x6D, 0, 1], [[[90, 47], [91, 47]], 0x6D, 0, 1], [[[86, 75], [87, 75]], 0x59, 0, 2], [[[78, 67], [79, 67]], 0x65, 0, 2]],
+      passOff: [[91, 46], [86, 74, 2]], shuts: [[[[38, 76]], [[37, 75], [38, 75]], 0x7D]] },
     // Diamond Dust 2 (RunLevel_DDz2 0xFA06): pads as in act 1 (tables 0xFC82..); the supercharger (record 9) opens gate cells
     // into a ride (state 0x803E at (78, 95), pad let go 400 frames); a dash east at (50, 45) under 608 (7.5 units a frame,
     // pad held 10 frames); a current east over x 96-117, z 88-95 (0.375 a frame per frame up to 3.5, 3.5 on jumping off)
@@ -4388,7 +4419,9 @@ const S3D = (() => {
     10: { pads: [[0, 1, 1], [2, 3, 2]], rides: [[78, 95, 0, 0x803E, null, null, null, undefined, [400, null]]],
       dashes: [[50, 45, 608, [7.5, 0], 10, 0, 0]], currents: [[96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5]],
       hops: [[[109, 80], [103, 82], [111, 72]], 40], flames: [0xFD5E, 7], freeze: 1,
-      spikes: 0xFF, ice: [0xFE30, 39, 0xFE7E, 40, [[75, 100]], [[70, 105]]], iceSpikes: [0xFECE, 17], roofs: 0xFE04, bumpers: [0x55, 0, 0] },
+      spikes: 0xFF, ice: [0xFE30, 39, 0xFE7E, 40, [[75, 100]], [[70, 105]]], iceSpikes: [0xFECE, 17], roofs: 0xFE04, bumpers: [0x55, 0, 0],
+      // InitLevel 0xF946 raises gates (77..78, 95) and (91..92, 106): open while the supercharger's flag is up, to (91, 107)
+      gates: [[[[77, 95], [78, 95]], 0x41, 0, 1], [[[91, 106], [92, 106]], 0x39, 0, 1]], passOff: [[91, 107]] },
     // Spring Stadium 2 (InitLevel 0x8DEA, RunLevel_SSz2 0x8EC2): gates (64, 104..105), (76, 102..103), (84..85, 78),
     // (86..87, 71) open while the flag is set (four superchargers), until (77, 103), (87, 70) or (85, 79); (61..62, 110)
     // stands until ring 1, (123..124, 51) until ring 2
@@ -5051,13 +5084,14 @@ const S3D = (() => {
       if (wc.length) ents.push({ type: 'gate', cells: wc, top: gateTop(hb), opens: ring });
       if (zc.length) ents.push({ type: 'barrier', cells: zc, half, away, opens: ring });
     }
-    if (gm.passOff) {   // cells that end a supercharger's run: its gates shut again (the routine clears its flag there)
-      const pc = gm.passOff.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
-      if (pc.length) ents.push({ type: 'passOff', cells: pc });
+    // cells that end a supercharger's run (flag 1) or a sled's (2): its gates shut again (the routine clears its flag there)
+    for (const flag of [1, 2]) {
+      const pc = (gm.passOff || []).filter(q => (q[2] || 1) === flag && floorCell(q[0], q[1])).map(([cx, cz]) => [cx - x0, cz - z0]);
+      if (pc.length) { const e = { type: 'passOff', cells: pc }; if (flag > 1) e.flag = flag; ents.push(e); }
     }
     for (const [cells, hb, ring, pass, key] of gm.gates || []) {
       const gc = cells.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
-      if (gc.length) { const g = { type: 'gate', cells: gc, top: gateTop(hb), opens: ring }; if (pass) g.pass = 1; if (key) g.key = key; ents.push(g); }
+      if (gc.length) { const g = { type: 'gate', cells: gc, top: gateTop(hb), opens: ring }; if (pass) g.pass = pass; if (key) g.key = key; ents.push(g); }
     }
     for (const [cx, cz, key, regs] of gm.keyOff || []) if (floorCell(cx, cz)) { const e = { type: 'keyOff', x: cx - x0, z: cz - z0, key }; if (regs) e.regs = regs; ents.push(e); }
     // switch cells (Panic Puppet 1's routine): standing on one sets a named value; carriers read them

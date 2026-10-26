@@ -901,7 +901,7 @@ test('gates stand until their ring or a supercharged run (until a passOff cell);
   run(w, 150, {}); assert.ok(w.p.x > 7, `the run went through: ${w.p.x.toFixed(2)}`);
   // (a passOff cell ends the run's pass: the gates stand again, walking back is blocked)
   w = GNG([{ type: 'gate', cells: [[6, 1], [6, 2], [6, 3]], top: 3, pass: true }, { type: 'booster', x: 3.5, z: 2.5, dir: [1, 0] }, { type: 'passOff', cells: [[9, 2]] }]); place(w, 3.5, 2.5);
-  run(w, 150, {}); assert.ok(w.p.x > 9 && !w.passOn, `through, and the flag cleared at ${w.p.x.toFixed(2)}`);
+  run(w, 150, {}); assert.ok(w.p.x > 9 && !w.passOn.has(1), `through, and the flag cleared at ${w.p.x.toFixed(2)}`);
   place(w, 7.5, 2.5); run(w, 90, { mx: -1 }); assert.ok(w.p.x > 7, `held behind the gate at ${w.p.x.toFixed(2)}`);
   w = GNG([{ type: 'barrier', cells: [[6, 2]], half: 'n', away: [0, 1], opens: 1 }]); w.ringCount = 5; place(w, 6.5, 2.8);
   run(w, 30, { mz: -1 }); assert.ok(w.ringCount === 0, 'zapped in its north half');
@@ -1042,6 +1042,20 @@ test('the Panic Puppet boss: an arm follows the player, punches down to the floo
     if (w.events.includes('goal')) end = f;
   }
   assert.strictEqual(downs, 2, 'both arms broken'); assert.ok(b.arms.every(a => a.hits === 0) && end > 0 && w.cleared, `the act ended (${end})`);
+});
+test('a sled runs Sonic along its way and turns a right angle where a corner piece meets no floor (Diamond Dust 1)', () => {
+  const tiles = [];
+  for (let z = 0; z < 8; z++) for (let x = 0; x < 5; x++) {
+    const floor = (x === 2 && z <= 5) || (z === 5 && x <= 2);
+    tiles.push(!floor ? { c: [0, 0, 0, 0], t: 'W' } : x === 2 && z === 5 ? { c: [1, 1, 1.5, 1], t: 'F' } : { c: [1, 1, 1, 1], t: 'F' });
+  }
+  const w = world({ version: 1, format: 'tiles', width: 5, depth: 8, tiles, rom: { level: 9, origin: [0, 0], vscale: 1 }, physics: Object.assign({}, ORIG.physics, { orig: 1 }),
+    entities: [{ type: 'start', x: 2.5, z: 0.5 }, { type: 'sled', box: [2, 3, 0, 1], dir: [0, 1], accel: 7, at: [2.5, 1, 0.5], t: 5 }] });
+  w.ice = true; w.iceCell = 2;
+  let turned = null;
+  run(w, 240, (f, ww) => { ww.ice = true; if (!turned && ww.p.vx < -0.5) turned = { x: ww.p.x, z: ww.p.z }; return {}; });
+  assert.ok(turned && turned.z > 5.9 && turned.z < 6, `turned west at the edge of the corner piece (${turned && turned.z.toFixed(3)})`);
+  assert.ok(w.p.x < 1.05 && w.p.z > 5.9, `then ran west along the row to its end (${w.p.x.toFixed(2)}, ${w.p.z.toFixed(2)})`);
 });
 // Final Fight: a flat floor at the act's height (25.25 m) over the act's 34 x 22 cells; the doors as the converter makes them
 const FF = () => {

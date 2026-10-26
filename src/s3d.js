@@ -79,7 +79,12 @@ const S3D = (() => {
       sleds: [[78, 79, 66, 66, [2528, 672, 2128], [0, 1], 0.0625, 300]],
       currents: [[110, 113, 55, 89, [0, 1], 0.375, 2, 2.5], [50, 53, 83, 99, [0, 1], 0.375, 3, 4]],
       hops: [[[94, 39], [90, 39], [80, 39]], 40], flames: [0x10976, 7], freeze: 1,
-      spikes: 0xFF, ice: [0x10B24, 21, 0x10B4E, 25, [[89, 50]], [[86, 74]]], iceSpikes: [0x10B80, 27], roofs: 0x10AF2, bumpers: [0x55, 0, 0] },
+      spikes: 0xFF, ice: [0x10B24, 21, 0x10B4E, 25, [[89, 50]], [[86, 74]]], iceSpikes: [0x10B80, 27], roofs: 0x10AF2, bumpers: [0x55, 0, 0],
+      // InitLevel 0xFF9A raises gates (88..89, 54), (90..91, 47): open while the supercharger's flag is up (record at
+      // state 0xF; cleared at (91, 46)); and (86..87, 75), (78..79, 67): open from the sled's start to (86, 74); stepping
+      // on (38, 76) raises (37..38, 75) to 0x7D00 for good
+      gates: [[[[88, 54], [89, 54]], 0x6D, 0, 1], [[[90, 47], [91, 47]], 0x6D, 0, 1], [[[86, 75], [87, 75]], 0x59, 0, 2], [[[78, 67], [79, 67]], 0x65, 0, 2]],
+      passOff: [[91, 46], [86, 74, 2]], shuts: [[[[38, 76]], [[37, 75], [38, 75]], 0x7D]] },
     // Diamond Dust 2 (RunLevel_DDz2 0xFA06): pads as in act 1 (tables 0xFC82..); the supercharger (record 9) opens gate cells
     // into a ride (state 0x803E at (78, 95), pad let go 400 frames); a dash east at (50, 45) under 608 (7.5 units a frame,
     // pad held 10 frames); a current east over x 96-117, z 88-95 (0.375 a frame per frame up to 3.5, 3.5 on jumping off)
@@ -106,7 +111,9 @@ const S3D = (() => {
     10: { pads: [[0, 1, 1], [2, 3, 2]], rides: [[78, 95, 0, 0x803E, null, null, null, undefined, [400, null]]],
       dashes: [[50, 45, 608, [7.5, 0], 10, 0, 0]], currents: [[96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5]],
       hops: [[[109, 80], [103, 82], [111, 72]], 40], flames: [0xFD5E, 7], freeze: 1,
-      spikes: 0xFF, ice: [0xFE30, 39, 0xFE7E, 40, [[75, 100]], [[70, 105]]], iceSpikes: [0xFECE, 17], roofs: 0xFE04, bumpers: [0x55, 0, 0] },
+      spikes: 0xFF, ice: [0xFE30, 39, 0xFE7E, 40, [[75, 100]], [[70, 105]]], iceSpikes: [0xFECE, 17], roofs: 0xFE04, bumpers: [0x55, 0, 0],
+      // InitLevel 0xF946 raises gates (77..78, 95) and (91..92, 106): open while the supercharger's flag is up, to (91, 107)
+      gates: [[[[77, 95], [78, 95]], 0x41, 0, 1], [[[91, 106], [92, 106]], 0x39, 0, 1]], passOff: [[91, 107]] },
     // Spring Stadium 2 (InitLevel 0x8DEA, RunLevel_SSz2 0x8EC2): gates (64, 104..105), (76, 102..103), (84..85, 78),
     // (86..87, 71) open while the flag is set (four superchargers), until (77, 103), (87, 70) or (85, 79); (61..62, 110)
     // stands until ring 1, (123..124, 51) until ring 2
@@ -769,13 +776,14 @@ const S3D = (() => {
       if (wc.length) ents.push({ type: 'gate', cells: wc, top: gateTop(hb), opens: ring });
       if (zc.length) ents.push({ type: 'barrier', cells: zc, half, away, opens: ring });
     }
-    if (gm.passOff) {   // cells that end a supercharger's run: its gates shut again (the routine clears its flag there)
-      const pc = gm.passOff.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
-      if (pc.length) ents.push({ type: 'passOff', cells: pc });
+    // cells that end a supercharger's run (flag 1) or a sled's (2): its gates shut again (the routine clears its flag there)
+    for (const flag of [1, 2]) {
+      const pc = (gm.passOff || []).filter(q => (q[2] || 1) === flag && floorCell(q[0], q[1])).map(([cx, cz]) => [cx - x0, cz - z0]);
+      if (pc.length) { const e = { type: 'passOff', cells: pc }; if (flag > 1) e.flag = flag; ents.push(e); }
     }
     for (const [cells, hb, ring, pass, key] of gm.gates || []) {
       const gc = cells.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
-      if (gc.length) { const g = { type: 'gate', cells: gc, top: gateTop(hb), opens: ring }; if (pass) g.pass = 1; if (key) g.key = key; ents.push(g); }
+      if (gc.length) { const g = { type: 'gate', cells: gc, top: gateTop(hb), opens: ring }; if (pass) g.pass = pass; if (key) g.key = key; ents.push(g); }
     }
     for (const [cx, cz, key, regs] of gm.keyOff || []) if (floorCell(cx, cz)) { const e = { type: 'keyOff', x: cx - x0, z: cz - z0, key }; if (regs) e.regs = regs; ents.push(e); }
     // switch cells (Panic Puppet 1's routine): standing on one sets a named value; carriers read them

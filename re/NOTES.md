@@ -354,7 +354,20 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   z 83-99 (up to 3), +0.375 a frame per frame south; snowdrift springs at (94, 39), (90, 39), (80, 39) (rise 40).
 - Snowblowers: table 0x10976 (7), fired like flamethrowers; a blast freezes Sonic (time not measured: 1.5 s used).
 - Airborne, Sonic is lifted onto a ledge whose top is within 12 units above his feet (the current to ring 2's ledge).
-- Not modelled: warp holes (57, 50) <-> (59, 72), the wall cells 0x4C4C, gates.
+- DD1 gates (InitLevel 0xFF9A): (88..89, 54) and (90..91, 47) raised to 0x6D00, listed open while $4(a4) is set
+  (a supercharger record at state 0xF) until (91, 46); (86..87, 75) to 0x5900 and (78..79, 67) to 0x6500, open while
+  $18(a4) is set (the sled run) until (86, 74). Stepping on (38, 76) raises (37..38, 75) to 0x7D00. DD2 (InitLevel
+  0xF946): (77..78, 95) to 0x4100 and (91..92, 106) to 0x3900, open while $4(a4) is set (record at state 0xF) until
+  (91, 107). The routine's cell word +0x8C is the map offset (z << 8 | x << 1), the same as the gate lists.
+- The sled (watched frame by frame, DD1): pulled to (2528, 2128), then the routine holds the pad again every frame
+  and adds 1/16 a frame along Sonic's facing (four ways) until the ride at (86, 81) ends it; on ice his speed tops out
+  at 5.03 a frame. He is a point: where his next place has no floor he stops at his cell's edge and, on a corner
+  piece, turns a right angle off its diagonal (e.g. south at x 2528 to z 2751, then west; west to x 2464, then south).
+  The loop: south down x 78-79, the south-west stairs, south on x 74-75, south-east stairs, east, north-east stairs,
+  north-west stairs, north on x 86 to the jump. In the sim the turns land within a few units of these.
+- Not modelled: warp holes (57, 50) <-> (59, 72) (standing on (57, 50) two frames: hop 4.5 up, the two cells listed
+  open, below y 0x320 put at (0x770, 0x1E0, 0x910) under (59, 72) and thrown (-2, 8.5 up, -2) once the camera is
+  there; the same from (59, 72) below 0x1C0 to (0x730, 0x340, 0x650)); what (86, 74) does after the sled ($A(a4) 10).
 
 ## Movement tables (2026-10-27; speedprobe.py)
 - Routine 0x3330 picks [accel $22, side loss $2A, forward loss $26] and top $2E: walking 480/380/260, top 0x5000; the
