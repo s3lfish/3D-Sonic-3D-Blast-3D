@@ -2011,9 +2011,10 @@ const Sim = (() => {
     // 0x40 a frame the short way; a half turn goes up if the facing before the last turn step ($36, `p.face36`; kept
     // through bounces and the like) is above the facing now, else down
     const half = Math.abs(d - 0x400) < 1e-6;
-    const s = half ? ((p.face36 === undefined ? face : p.face36) - face > 0 ? 1 : -1) : d > 0x400 ? 1 : -1;
+    const wf = v => Math.round(v) & 0x7FF;   // (whole words there: 0x800 is 0, so a float just under it compares as 0)
+    const s = half ? (wf(p.face36 === undefined ? face : p.face36) - wf(face) > 0 ? 1 : -1) : d > 0x400 ? 1 : -1;
     const room = m > 0.3 || exact ? (s > 0 ? 0x800 - d : d) : s > 0 ? 0x100 - r : r;
-    if (!half) p.face36 = face;
+    if (!half) p.face36 = wf(face);
     face += s * Math.min(0x40, room);
     let a = -face / 0x800 * 2 * Math.PI; if (a <= -Math.PI) a += 2 * Math.PI;
     p.facing = p.turnFace = a;
@@ -2025,7 +2026,7 @@ const Sim = (() => {
     const O = P.orig, R = O.raw, S = 65536, U = 60 / 32, sin = O.sin;   // (across: the height scale does not touch it)
     // (a roll keeps its table in the air too: $56 = 2 until it ends, 0x3344)
     // (0x3406: walking this frame; ended in the air its state is 0: the walk table there, no ball, no attack)
-    if (p.rolling && (p.fwdWord === undefined ? 0x1000 : p.fwdWord) < 0x1000) { p.rolling = false; if (!p.grounded && L.rom) p.ball = false; }
+    if (p.rolling && (p.fwdWord === undefined ? 0x1000 : p.fwdWord) < 0x1000) { p.rolling = false; if (L.rom) p.ball = false; }   // ($56 = 0: no ball left, landed rolls too)
     const roll = p.rolling;
     const tab = p.frozen > 0 ? R.ice : roll ? R.roll : (p.ball || p.hover) && !p.grounded && !walkNow ? R.ball : w.ice ? R.ice : R.walk;
     if (!roll || p.topW === undefined) p.topW = p.fast > 0 ? R.shoes : R.top;
@@ -2148,7 +2149,7 @@ const Sim = (() => {
     for (const g of w.rings) g.got = false;
     w.loose.length = 0; w.ringCount = 0; w.ringOut = 0;
     w.flickies = w.flickies.filter(f => f.state === 'gone');
-    objectsBack(w);
+    objectsBack(w); w.ballA = 0;   // (Volcano Valley 2's ball angle starts again from 0, watched)
     const keep = w.spawn;
     if (at) w.spawn = { x: at.x, z: at.z, facing: at.facing };
     respawn(w);
@@ -3233,7 +3234,8 @@ const Sim = (() => {
     return w;
   }
   // The original's global counts (decremented every frame from the act's start: $0AFC.. $0B06 with periods 6, 8, 10,
-  // 16, 32 and 60); objects act when theirs is 0. `w.gcOff` shifts them (replays from a saved game set it).
+  // 16, 32 and 60; $0AF4.. 2, 3, 4, 5); objects act when theirs is 0. `w.gcOff` shifts them (replays from a saved game set
+  // it; a reload sets it again).
   const gZero = (w, n) => (w.tick + (w.gcOffN && w.gcOffN[n] !== undefined ? w.gcOffN[n] : w.gcOff || 0)) % n === n - 1;   // (gcOffN: per count, for replays)
   function stepInner(w, inp) {
     const L = w.L, p = w.p, dt = P.dt;
@@ -3242,7 +3244,13 @@ const Sim = (() => {
     // after a ring that puts the player in a pocket, the original walks them to the way out (input is the routine's)
     w.tick++;
     if (w.wait > 0) { w.wait--; return w; }
-    if (w.padWait > 0) { w.padWait--; inp = {}; }
+    // (after a reload nothing runs (the level's routine, objects, counts) but two frames 19 and 18 before the pad acts again; the
+    // counts, cleared with the reload, stand at n - 3 on the first frame back whatever the period: watched in three acts)
+    if (w.padWait > 0) {
+      const left = w.padWait--; inp = {}; if (w.padWait === 0) w.gcSync = true;
+      if (L.rom && L.phys.orig && left !== 19 && left !== 18) return w;
+    }
+    else if (w.gcSync) { w.gcSync = false; w.gcOff = ((2 - w.tick) % 480 + 480) % 480; w.gcOffN = null; }
     // dying (converted levels; watched in Volcano Valley 1): thrown 8 up, the rise slows by gravity and stops, held
     // there, then the act again 57 frames after the hit (the world waits here)
     if (p.dying > 0) {
@@ -3695,7 +3703,10 @@ const Sim = (() => {
     for (let s = 0; s < n; s++) {
       const ox = p.x, oz = p.z;
       if (O && L.rom && w.monitors.length && !holdO && !p.sled) monSides(w, L, p, ox + p.vx * sdt, oz + p.vz * sdt, ox, oz);
-      const nrm = p.sled && p.grounded ? sledMove(L, p, sdt) : holdO || bouncedO ? null : (p.x += p.vx * sdt, p.z += p.vz * sdt, O ? resolveWallsOrig(L, p, ox, oz) : resolveWalls(L, p));
+      // (crouched, revving or launched this frame he does not move, but the original still meets its diagonal pieces and
+      // walls where he stands, 0x3744 → 0x39DC: a dash from a piece's line is turned off it at once)
+      const nrm = p.sled && p.grounded ? sledMove(L, p, sdt) : bouncedO ? null : holdO ? (O && L.rom ? (resolveWallsOrig(L, p, ox, oz), null) : null)
+        : (p.x += p.vx * sdt, p.z += p.vz * sdt, O ? resolveWallsOrig(L, p, ox, oz) : resolveWalls(L, p));
       if (nrm) {
         // a whirl bounces off; so does a roll in the original's movement (watched: Green Grove 1's first wall, Gene
         // Gadget 1's corridor), turning to its new way

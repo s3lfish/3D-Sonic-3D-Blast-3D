@@ -180,7 +180,7 @@ serves index.html from main.
   1.5 units a frame for 42 frames; measured) share `w.fireballs`; the fire shield spares. VV2 (`GIMMICKS[12]`, 0xAE20):
   the same helpers, `movePlat` (128: box swinging 63 units along x/z about +0x28, +4 a frame of 0x800 from +0x26) and
   `spikeBall` (118: swung by the routine about z 0xE80, 56 units, alternate records opposite; ROM levels: one angle
-  `w.ballA` (from 0 at load), 8 a frame, only with Sonic at or past `gate` (0xB90, 0xD10), z = 0xE80 +/- (sine x 112)
+  `w.ballA` (from 0 at load and at each reload), 8 a frame, only with Sonic at or past `gate` (0xB90, 0xD10), z = 0xE80 +/- (sine x 112)
   >> 16 in whole units; touched by its `touch` bytes through `origTouch`). `fireBar` (0xBA68,
   tables 0xAB26 VV1 / 0xB25C VV2: six object-120 fireballs 17 units apart along x, turning 4/8/12/12/8/4 units about the
   line, a turn per 64 frames; `w.barBalls`; ROM levels: the act's first six fire records (`w.fireSpots`, reset with
@@ -274,7 +274,8 @@ serves index.html from main.
   units of 1/32 m whatever the height scale (vscale only scales heights and vertical speeds):
   * `origTurn` (0x3134): facing in 0x800 a turn, 0x40 a frame the short way; a half turn goes up when the facing
     before the last turn step (`p.face36`, the original's $36, untouched by bounces) is above the facing now, else
-    down; stick let go, a turn finishes to the next eighth from its target (`p.turnTgt`).
+    down (whole words: a float just under 0x800 is 0); stick let go, a turn finishes to the next eighth from its target
+    (`p.turnTgt`).
   * `origVelocity` (0x342C): 16.16 velocity turned into the facing frame at 1/0x1000 with the sine table
     (`P.orig.sin` = floor(sin x 0x7FFF)), forward gains A with any direction held, losses toward 0, over the top
     loses A, cap 0x7F00, turned back; tables `P.orig.raw` (walk, ball, ice, roll); a roll ends under forward 0x1000
@@ -282,7 +283,9 @@ serves index.html from main.
     The jump frame still uses the ground table and takes the slope's 32 g; the jump ends a roll.
   * Dash button (0x31C8): grounded with any speed, rolls; standing, held, crouches (no move, no jump), revs once the
     crouch animation shows (`p.anim` 3 played 9 frames: `p.a98`, `p.aLoad`; 14 frames on levels without `rom`), a step every 15 (jump taps hurry it; 'charge' events), let go: 8/12/14/16 x 0x7800 along the facing's
-    high byte as turned that frame (table 0x3312; 0x54DA a part on diagonals), not moving that frame. Lost rings (the
+    high byte as turned that frame (table 0x3312; 0x54DA a part on diagonals), not moving that frame (but the diagonal
+    pieces and walls are met where he stands, 0x3744: a dash from a piece's line is turned off it at once). A roll's
+    end clears the ball on the ground too ($56 = 0: running into an enemy after it hurts). Lost rings (the
     original's particles, 0x19E36) first move the frame after they appear, live 240 frames or 60 when made while $0AF4
     is not 0, and are caught by the particle touch.
   * Scroll (`origCamera`, 0x19A4 → `w.cam` {X, Y, lx, ly}): led by the facing, an eighth of the way a frame, at most 8;
@@ -323,7 +326,10 @@ serves index.html from main.
   * Dying (no rings): 8 up, rising slowed by gravity to a stop, held; the act again 57 frames after the hit, then 52
     frames of nothing (`p.dying`, `w.wait`); the page fades. The start and each section's restart take the start
     table's [x, z, facing] (`goal.spawn`).
-  * Global counts (`gZero(w, n)`): $0AFC..$0B06 count down with periods 6, 8, 10, 16, 32, 60 from the act's start;
+  * Global counts (`gZero(w, n)`, routine 0x6D14; $0AF4.. 2, 3, 4, 5 too): $0AFC..$0B06 count down with periods 6, 8,
+    10, 16, 32, 60 from the act's start; they stop while he dies and are cleared by the reload; during the pad wait after
+    a reload nothing runs (level routine, objects, counts) but the frames 19 and 18 before the pad acts, and on its
+    first frame back every count stands at n - 3 (`w.gcSync`; watched in SS3, GG3, GnG1, VV2, VV3);
     roamers, sprinklers ($0B02) and PP's 178 ($0B04) act on them. Objects run only on the original's screen round
     Sonic (`onScreen`: 176 across, 128 down in its picture), so a sprinkler's turn starts when it comes into view
     (its camera is not modelled: a frame or two off).
@@ -401,6 +407,9 @@ serves index.html from main.
 - In the emulator, freed particle slots keep their old bytes: find new shots by the life word (+0x32) going up.
 
 ## Status
+- 2026-10-27 night: a fourth private pad script (ex4: spin dashes off corner pieces, dashes into enemies, deaths and
+  reloads, long idles) in all 22 acts; fixed so far: reload freeze and counts, roll end clears the ball, dash-frame
+  corner pieces, half-turn rounding, VV2 ball angle reset. Still off in ex4: acts 5, 7, 8, 15, 16, 18, 21, 22.
 - 2026-10-27: lives (game.js `lives`, HUD `#livesHud`: 3, a 1-up monitor or a special stage won with all seven adds
   one, 9 at most; none left: "Game over", the act again with 3); a death reloads the act (Sim `death`: rings, enemies,
   monitors, mines and capsules back, Flickies not in a ring gone; `reloadAct`, also after a special stage with the player
@@ -432,7 +441,8 @@ serves index.html from main.
   until the pad acts]; measured GG3 [44, 30], GnG1 [51, 34], RR3 [49, 33], VV2 [55, 34], VV3 [44, 34], SS3 [46, 30],
   else VV1's [52, 34]); SS spike fields count on the original's 4-frame count ($0AF8, `gZero(w, 4)`); the start
   faces the start table's way, bosses too (SS3's is not toward the boss). Still off: GnG1 after its reload (51 blank frames, VV1 52: not modelled), the 13
-  frames after a reload when the original shows frame 0 (its player not yet run), RR3's boss scroll targets
+  frames after a reload when the original shows frame 0 (its player not yet run; the pad wait now holds the world as
+  the original does), RR3's boss scroll targets
   ($084A/$084C), a fall onto a no-floor cell (the original lands at map
   height 0; the act never lets him there). 144 sim tests.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
