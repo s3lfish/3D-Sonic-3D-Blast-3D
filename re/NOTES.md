@@ -167,6 +167,9 @@ original art. The browser code carries reading rules only.
 - Poking $06B2 = 6 and $0A5E = 1 with Sonic at GG1's second ring ends the act: about 200 frames later the results
   screen ("SONIC GOT THROUGH ACT 1", time taken, score, time, ring, Flicky, Knuckles and Tails bonuses, total) counts
   down, then the Act 2 title card.
+- The bonuses (routine 0x2180C, counted in hundreds into the score $06A6, one a frame each): time from $06A8 (frames):
+  100 under a minute, halved each minute after (50, 25, 12, 6, 3, 1), none from 7 minutes; rings 1 each ($0A5A);
+  Flickies $06A4 (50 for each five taken to a ring, 0xCDB6); Knuckles $06A0 and Tails $069E, 1 a ring given.
 - Big font (title, sprites): RNC block 0x15DEBA, 134 tiles: A to Z as 2 x 2 column-major glyphs from tile 0, act
   digits 1 to 3 as 2 x 4 from tiles 104, 112 and 120. Small font (plane A at 0xC000): RNC block 0x15E3E6, 76 tiles:
   A to Z, 0 to 9 and a colon, each a top tile and the one below it.

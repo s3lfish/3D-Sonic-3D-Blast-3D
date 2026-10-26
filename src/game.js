@@ -2281,10 +2281,11 @@
   // act clear: show the result, then move on to the next act in the original's order (ROM levels)
   // act results: in the ROM look the original's own results screen (fonts and layout from the ROM, bonuses counted
   // into the score), otherwise a plain card; then the next act in the original's order (ROM levels)
-  // Bonus rules are mine (the original's tables are not decoded): time 10000 under a minute, less after; 100 a ring
-  // and 100 a Flicky saved; the Knuckles and Tails bonuses are left at 0 (their rule is not decoded).
+  // Bonus rules (the results routine 0x2180C, in hundreds): time 100 under a minute, halved each minute after (50, 25,
+  // 12, 6, 3, 1), none from 7 minutes; 1 a ring; 50 for each five Flickies taken to a ring (0xCDB6); 1 a ring given
+  // to Knuckles and to Tails
   let tally = null;
-  function timeBonus(secs) { return secs < 60 ? 10000 : secs < 120 ? 5000 : secs < 180 ? 3000 : secs < 240 ? 2000 : secs < 300 ? 1000 : secs < 600 ? 500 : 0; }
+  function timeBonus(secs) { const m = Math.floor(secs / 60); return m < 7 ? [100, 50, 25, 12, 6, 3, 1][m] * 100 : 0; }
   function drawTally(now) {
     const k = Math.max(0, Math.min(1, (now - tally.t0 - 1.5) / 2.5)), left = tally.bonus.map(b => Math.round(b * (1 - k)));
     const total = tally.bonus.reduce((a, b) => a + b, 0), shown = Math.round(total * k);
@@ -2306,7 +2307,7 @@
     let wait = 5000;
     if (romOn() && L.rom) {
       const act = Number((here.match(/(\d)$/) || [0, 1])[1]);
-      tally = { t0: performance.now() / 1000, act, time, bonus: [timeBonus(secs), world.ringCount * 100, world.saved * 100, 0, 0], key: null };
+      tally = { t0: performance.now() / 1000, act, time, bonus: [timeBonus(secs), world.ringCount * 100, Math.floor(world.saved / 5) * 5000, world.friendRings.knuckles * 100, world.friendRings.tails * 100], key: null };
       $('tally').hidden = false; drawTally(tally.t0); wait = 7000;
     } else {
       $('clearTitle').textContent = `${here} clear`;
