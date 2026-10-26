@@ -287,10 +287,17 @@ serves index.html from main.
 - Tests that run too many frames overshoot the level edges; size frame counts to the geometry.
 - First chase cam version sat on top of border walls or outside the map when the player ran toward it;
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
+- The chase cam's tilt toward a boss looked at the sky when Final Fight's machine hovered 17 m up; capped at 4 m.
+- In the emulator, freed particle slots keep their old bytes: find new shots by the life word (+0x32) going up.
 
 ## Status
+- 2026-10-27: Final Fight (`ffStep`: positions in original units, `org` origin cells; ten doors raised through L.up;
+  fights 0/2/4/6/8 lasers, serpent, fists, bombs, pod cannon; walks with a 600-frame limit; ten hits). Shared
+  `serpentStep` (routine 0xA3F2) for PP3 and FF. Hopping shots (`hop`), per-shot radius `r`. Machine drawn with our
+  own model (`buildFfParts`): its body tiles are unpacked and streamed by the act, not raw. 117 sim tests. Every
+  zone's routine is now in; open items in re/NOTES.md (Final Fight's last section).
 - 2026-10-27: Panic Puppet 3 boss (three arenas, punching and swaying arms, the serpent, the spray, the lifts between);
-  114 sim tests. Next: Final Fight (22: Init 0x14170, Run 0x142C0).
+  114 sim tests.
 - 2026-10-27: Panic Puppet 2 (the lift that ends it, belts both ways, cells that shut behind, beam posts, wanderers,
   lifts); 113 sim tests; flow.py: the lift is reached.
 - 2026-10-27: Panic Puppet 1 (belts and levers, the hidden run, doors, capsules, shooting robots, hidden tubes, the

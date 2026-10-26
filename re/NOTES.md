@@ -590,3 +590,58 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   cells A (50, 51) / (58, 59), B (52, 49) / (60, 57)): the arm hit waits 0x294 and the other 0x168 (alone 0x168);
   timer 0: 0x258 (0x12C alone). Arena 3 beaten: pod target 0xC0, $3E = 0x168: explosions (random, sound 0x59), then
   $0A1C = 1 (act over), score + 10.
+
+## Final Fight (2026-10-27; ff_full dump, gngseq.py, ffobj.py, ffpart.py, emulator; level vars a4 = 0xFFFF0B6C)
+- InitLevel 0x14170: machine (x.l $8, y $C, z.l $10) = (0x940, 0x190, 0x800); laser cannons' z offsets $14 -0x30,
+  $16 0x30, x offset $18 0x10; state $20 0; hits left $3C 10; six doors shut (map words to 0x8500): 0x3C9C/E,
+  0x4094/0x4194, 0x3198/0x3298, 0x3180/0x3280, 0x3772/4, 0x407C/0x417C; the first 370 map bytes cleared.
+- RunLevel 0x142C0. $3E (final) counts down 360 frames with explosions every 8 (random offsets, routine 0x14D86), then
+  $0A1C = 1. $26 (time up): a grounded Sonic loses his rings and dies (watched: about 611 frames after a fight ends).
+  States: even = fights (0 0x15760, 2 0x1531C, 4 0x14DBE, 6 0x149B8, 8 0x14772), odd = walks: past a line (1: z <
+  0x6E0, 3: x < 0x920, 5: x < 0x7A0, 7: z >= 0x7A0, 9: x >= 0x960) the two doors just opened shut again (sound 0xB8)
+  and the next fight starts; else $24 counts 600 frames (sound 0xAD every 64, every 16 in the last 128; at 0 sound
+  0x78 and $26).
+- Common check 0x15AD4 (each fight, after its script): skipped while $38 or Sonic knocked back; within 31 units in x/z
+  (squared 0x3C1), Sonic's y <= machine + 0x40: from + 0x20 and in a jump ($56 = 1) a hit (vx, vz negated, vy 5 up,
+  sound 0x59, $3C - 1: left: $38 = 100, $22 = 200; none left: $38 = 8000, $3E = 360); lower, hurt ($38 = 60).
+  $22: the fight's script stops; from 100 left the machine rises 4 a frame (sound 0x60 at 100) and drifts back; at
+  0 the next walk: two doors open (0x6500), $24 = 600, and the next fight's start is set.
+- Fight 0 (lasers, south-east room; machine in the door cell (74, 64)): rise 1 a frame to 0x320 (sound 0xC6 from
+  0x220); wait 60; cannon x offset + 1 to 0x2C; [sound 0x9D; for up to 180 frames each cannon's z offset steps a unit
+  toward Sonic's z (A -0x50..-0x10, B 0x10..0x50) until one matches; fire 192 frames: count & 63 <= 16 cannon A, 32..48
+  B, a laser every 4th (template 0xDA6C: box 0x18, 3.5 a frame along +x, 112 frames) from the cannon + (0x19, 2, dz),
+  dz +0xF / +3 / -9 for counts >= 0x80 / >= 0x40 / less] twice; then forward 1 a frame to 0x980 (cannons drawn back),
+  wait 90, back to 0x938, loop. The room's west edge is x 0x960: only the forward move brings it in reach (watched:
+  a laser 15 units off Sonic's z hurt him).
+- Fight 2 (serpent, north-east room): sides A (0x978, 0x660) and B (0xA20, 0x5B8); down from 0x500 on the sine to
+  0x300 (128 frames, sound 0xD0), let the serpent go (a4+0x3C: 300 frames, chasing Sonic for the last 200, routine
+  0xA3F2, nine links $CF0E..; from A (0x9A0, 0x328, 0x658) heading +x toward + 0x100, from B (0xA18, 0x328, 0x5E0)
+  heading +z), wait 60, up the sine (sound 0x73) and change sides; twice, then on the third: down, serpent, wait, up
+  to 0x320, in (A: x to 0x9C0; B: z to 0x600; sound 0xBE), back, down to 0x300, up and change sides; loop from there.
+- Fight 4 (fists, north corridor): machine at (0x8A0, z 0x5F8) up the sine from 0x150 to 0x350, holds, lets the fists
+  go at count 0x300 (sound 0xB6) and rises to 0x550; fists (records $CE72, $CEA6, at machine - 0x40 / + 0x30 x, + 0x10
+  y while held) to z 0x640; three times: 240 frames the fist on Sonic's side (B when x >= 0x8A0; A x <= 0x890, B >=
+  0x8B0) follows him a unit a frame (sound 0x53 at 120 left), slams 4 a frame to 0x320 (sound 0x5F), waits 50, rises
+  1 a frame to 0x360, waits 30 (sound 0x9D); then both to (0x910, z 0x630) and (0x830, 0x650), down 2 a frame, wait
+  40, slide apart 6 a frame until B's x >= 0xA60 (sound 0xB6); the machine comes down 8 a frame to 0x320 (sound 0x5F),
+  waits 60, comes into the corridor (z to 0x640: the chance), back, sinks to 0x120; loop.
+- Fight 6 (bombs, north-west room): machine (0x678, z 0x660) down the sine 0x4E0 to 0x2E0, five bombs at counts 0x320
+  .. 0x4A0 (table 0x14D5E: [count, dx, dz], records $D0E2..; sound 0x4E): each rises 8 a frame to 0x480, then 260
+  frames: at 95 left it is put over Sonic's cell (sound 0x51, a shadow), falls 8 a frame for the last 44 and blows up
+  on the floor (sound 0x59; watched: a bomb on Sonic's cell hurt him 16 units off its middle). Then up the sine
+  (sound 0x4E), down 8 a frame to 0x320 (sound 0x5F), wait 60, in 1 a frame to 0x6A0 (the chance) and back (sound
+  0x73), down to 0x2E0; loop from the bombs.
+- Fight 8 (pod, south-west room; it stands in a 2 x 2 hole, (56..57, 63..64), out of reach): drops 8 a frame from
+  0xA00 to 0x320 (sound 0xC9); twice: cannon (record $D2B6, type 1C0, handler 0x15BA6) sweep one way (state 6), 150
+  frames, back (0x16), 150; then the hatch ($CEDA state 0x12) opens 20 frames, the pod leans in 1 a frame to x 0x760
+  (the chance) and back, the hatch shuts (0x22), wait 60. Shots (watched, ffpart.py): five a sweep 11 frames apart
+  on the cannon's own frame clock, directions by frame from table 0x15C2E ([dx, dz, vx, vz] x 16 / 65536: (2, 2),
+  (2.5, 1.75), (3, 0.5), (3, -0.5), (2.5, -1.75)), 0..4 one way and 4..0 back, from the cannon + (dx, -9, dz); vy 1
+  up, gravity 1/8 (template 0xDA7E), bounce 2 up off the floor, off walls, 160 frames.
+- Objects: 1AC floor pads (lit where Sonic steps: 6 while walking, 2 in a fight), 1B0 the machine's two parts, 1B4
+  cannons (frame 0) and fists (1..4), 1B8 the hatch, 1BC bombs, 1C0 the pod's cannon, 138 serpent links, 02C debris.
+  The machine's tiles are RNC packed (0xEFAFE to VRAM 0x520, 0x15D2BA to 0xF20) and streamed each frame (0x15A4BA,
+  0xE87FE), so the page draws its own model.
+- Estimated, not measured: the fists' touch box (20 units across, 32 up), the serpent links' (14), the bombs' (16
+  falling, 24 on the floor).
+- Not done: the floor pads' frames, the hatch's frames and the original's camera.

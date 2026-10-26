@@ -1359,6 +1359,15 @@ const Sim = (() => {
             if (!ok) { errs.push('A Panic Puppet boss needs "stages" with a pod, hitY and two arms (rest, shoulder, cell).'); break; }
             b.stages = e.stages;
           }
+          // Final Fight: the map origin [x, z] (cells: positions are the original's units), ten doors of two cells [x, z]
+          // each and the raised doors' height (see Sim's ffStep)
+          if (e.kind === 'ff') {
+            const v2 = v => Array.isArray(v) && v.length === 2 && v.every(Number.isFinite);
+            if (!v2(e.org) || !Array.isArray(e.doors) || e.doors.length !== 10 || !e.doors.every(d => Array.isArray(d) && d.every(c => v2(c) && inBounds(c[0], c[1]))) || !Number.isFinite(e.doorTop)) {
+              errs.push('A Final Fight boss needs the map "org", ten "doors" and "doorTop".'); break;
+            }
+            Object.assign(b, { org: e.org, doors: e.doors, doorTop: e.doorTop });
+          }
           L.entities.push(b);
           break;
         }
@@ -1631,7 +1640,7 @@ const Sim = (() => {
     }
     return out;
   }
-  const BOSS_KINDS = new Set(['gg', 'rr', 'ss', 'dd', 'vv', 'gng', 'pp']);
+  const BOSS_KINDS = new Set(['gg', 'rr', 'ss', 'dd', 'vv', 'gng', 'pp', 'ff']);
   function importLevel(raw) {
     const errs = [];
     if (!raw || typeof raw !== 'object') throw new LevelError(['The level data is not a JSON object.']);
@@ -1861,6 +1870,7 @@ const Sim = (() => {
       objs: b.loads.map(z => ({ x: 0, z, on: false })), bombs: [] });
     if (w.boss && b.kind === 'pp') Object.assign(w.boss, { ball: null, si: 0, pod: 0, podX: b.stages[0].pod[0], podZ: b.stages[0].pod[1], target: b.cruise,
       delay: 0x190, arms: ppArms(b, 0), serp: null, lift: 0, end: -1, seed: 5 });
+    if (w.boss && b.kind === 'ff') ffInit(w);
     if (w.boss && b.kind === 'rr') Object.assign(w.boss, { armX: b.arms, arms: [[32, 0], [32, 0]], cur: 0, si: 0, act: 2, par: false, boxes: [null, null], ball: null });
     w.plats = [];
   }
@@ -2154,6 +2164,25 @@ const Sim = (() => {
     out.push([a.x, a.y, a.z]);
     return out;
   }
+  // a serpent (routine 0xA3F2, Panic Puppet 3's and Final Fight's; Volcano Valley 3 has its own copy): a frame less to
+  // live, then its head turns toward the aim (Sonic once under 0xC8 frames are left) by octant (table 0xDBEE), a random
+  // 16..79 of 0x800 a frame, and goes 2 units a frame; up or down a unit a frame toward the aim's height + 16 (Sonic's
+  // feet, or the height it was let go at). Its links sit every fourth place along its path. False once it is gone.
+  function serpentStep(sp, p, rnd, links, V) {
+    const U = 1 / 32, T = Math.PI / 1024, hd = sp.hd;
+    if (--sp.life <= 0) return false;
+    const chase = sp.life < 0xC8, [ax, az] = chase ? [p.x, p.z] : sp.aim, dx = ax - hd.x, dz = az - hd.z, adx = Math.abs(dx), adz = Math.abs(dz);
+    const diag = adz >= adx ? adz / 2 < adx : adz > adx / 2, along = adz >= adx ? 0 : 0x200, sx = dx < 0 ? -1 : 1, sz = dz < 0 ? -1 : 1;
+    const want = diag ? (sx > 0 ? (sz > 0 ? 0x100 : 0x300) : (sz > 0 ? 0x700 : 0x500)) : along ? (sx > 0 ? 0x200 : 0x600) : (sz > 0 ? 0 : 0x400);
+    const turn = 16 + (rnd() & 63), dd = (hd.h - want) & 0x7FE;
+    if (dd) hd.h = (hd.h + (dd <= 0x400 ? -turn : turn)) & 0x7FE;
+    hd.x += Math.sin(hd.h * T) * 2 * U; hd.z += Math.cos(hd.h * T) * 2 * U;
+    const ty = (chase ? p.y : sp.aimY) + 16 * V;
+    hd.y += Math.abs(ty - hd.y) <= V ? ty - hd.y : Math.sign(ty - hd.y) * V;
+    sp.path.push([hd.x, hd.y, hd.z]); if (sp.path.length > 4 * links - 3) sp.path.shift();
+    sp.segs = []; for (let k = 0; k < links; k++) { const q = sp.path[sp.path.length - 1 - 4 * k]; if (q) sp.segs.push(q); }
+    return true;
+  }
   function ppStep(w) {
     const b = w.boss, p = w.p, U = 1 / 32, V = b.vs / 32, T = Math.PI / 1024;
     const rnd = () => { b.seed = (b.seed * 16807) % 2147483647; return b.seed & 0xFFFF; };
@@ -2226,7 +2255,7 @@ const Sim = (() => {
         if (d === 0) { a.t = o.hits > 0 ? 0x258 : 0x12C; return; }
         if (b.si === 1 && d === 0x78) {
           const x = a.x + 0xB * U, z = a.z + 0xA * U;
-          b.serp = { life: 0xD2, hd: { x, y: a.y, z, h: 0 }, aim: [x + 0x100 * U, z + 0x100 * U], path: [], segs: [] };
+          b.serp = { life: 0xD2, hd: { x, y: a.y, z, h: 0 }, aim: [x + 0x100 * U, z + 0x100 * U], aimY: a.y, path: [], segs: [] };
           w.events.push('serpent'); return;
         }
         if (b.si === 2) {   // a shot every frame, 2.5 to 3.5 units a frame south-east, falling (1/8)
@@ -2256,23 +2285,8 @@ const Sim = (() => {
         }
       }
     }
-    // the serpent (Volcano Valley 3's routine 0xA3F2): heads for Sonic (first south-east), 2 units a frame
-    if (b.serp) {
-      const sp = b.serp, hd = sp.hd;
-      if (--sp.life <= 0) b.serp = null;
-      else {
-        const [ax, az] = sp.life < 0xC8 ? [p.x, p.z] : sp.aim, dx = ax - hd.x, dz = az - hd.z, adx = Math.abs(dx), adz = Math.abs(dz);
-        const diag = adz >= adx ? adz / 2 < adx : adz > adx / 2, along = adz >= adx ? 0 : 0x200, sx = dx < 0 ? -1 : 1, sz = dz < 0 ? -1 : 1;
-        const want = diag ? (sx > 0 ? (sz > 0 ? 0x100 : 0x300) : (sz > 0 ? 0x700 : 0x500)) : along ? (sx > 0 ? 0x200 : 0x600) : (sz > 0 ? 0 : 0x400);
-        const turn = 16 + (rnd() & 63), dd = (hd.h - want) & 0x7FE;
-        if (dd) hd.h = (hd.h + (dd <= 0x400 ? -turn : turn)) & 0x7FE;
-        hd.x += Math.sin(hd.h * T) * 2 * U; hd.z += Math.cos(hd.h * T) * 2 * U;
-        const ty = (sp.life < 0xC8 ? p.y : hd.y) + 16 * V;
-        hd.y += Math.abs(ty - hd.y) <= V ? ty - hd.y : Math.sign(ty - hd.y) * V;
-        sp.path.push([hd.x, hd.y, hd.z]); if (sp.path.length > 17) sp.path.shift();
-        sp.segs = []; for (let k = 0; k < 5; k++) { const q = sp.path[sp.path.length - 1 - 4 * k]; if (q) sp.segs.push(q); }
-      }
-    }
+    // the serpent (routine 0xA3F2, see serpentStep): first south-east, then after Sonic
+    if (b.serp && !serpentStep(b.serp, p, rnd, 5, V)) b.serp = null;
     // what hurts: the claws and the links of the arms, the serpent (a hit on a shoulder just now spares the player)
     if (!(p.inv > 0 || p.invuln > 0)) {
       const pts = b.arms.flatMap(a => ppLinks(a)).concat(b.serp ? b.serp.segs : []);
@@ -2345,8 +2359,286 @@ const Sim = (() => {
     }
     return false;
   }
+  // Final Fight (InitLevel 0x14170, RunLevel_FFz 0x142C0; watched): Robotnik's machine fights in four rooms joined by
+  // corridors and one corridor between, ten hits in all, one a fight: fights 0 (lasers, south-east room), 2 (a serpent,
+  // north-east), 4 (fists, the north corridor), 6 (bombs, north-west), 8 (a cannon on the pod, south-west), then round
+  // again. Doors (cells raised to 0x85) shut each fight in; a hit (routine 0x15AD4: within 31 units across, Sonic's feet
+  // 32..64 over the machine's height and in a jump ball; lower down he is hurt) makes it wait 100 frames, rise 4 a frame
+  // for 100 and go: two doors open and Sonic has 600 frames (beeps) to reach the next room or he is killed; there the
+  // doors behind him shut and the next fight starts. Positions in the original's units; s3d.js has the details.
+  const FF_SIN = i => Math.trunc(Math.sin(i * Math.PI / 512) * 32767);   // (table 0x276E8, by word)
+  const FF_DOORS_AT_START = [1, 3, 5, 6, 8, 9];
+  // a fight beaten opens [doors], then Sonic walking past `past` shuts [doors] and starts the next
+  const FF_WALK = { 1: { open: [0, 1], past: (x, z) => z < 0x6E0 }, 3: { open: [2, 3], past: x => x < 0x920 }, 5: { open: [4, 5], past: x => x < 0x7A0 },
+    7: { open: [6, 7], past: (x, z) => z >= 0x7A0 }, 9: { open: [8, 9], past: x => x >= 0x960 } };
+  // where each fight starts the machine (the beaten fight before sets it)
+  const FF_START = { 0: [0x940, 0x190, 0x800], 2: [0x978, 0, 0x660], 4: [0x8A0, 0x150, 0x5F8], 6: [0x678, 0x2E0, 0x660], 8: [0x720, 0xA00, 0x800] };
+  // fight 8's cannon: shots by its frame [dx, dz, vx, vz] (table 0x15C2E, velocities / 4096)
+  const FF_CANNON = [[36, 36, 2, 2], [41, 28, 2.5, 1.75], [49, 12, 3, 0.5], [49, -12, 3, -0.5], [44, -31, 2.5, -1.75]];
+  // fight 6's bombs: [counter, dx, dz] (table 0x14D5E)
+  const FF_BOMBS = [[0x320, -0x20, -0x12], [0x380, -0x20, 0x1C], [0x3E0, -0x20, -0x12], [0x440, -0x20, 0x1C], [0x4A0, -0x20, -0x12]];
+  function ffDoors(w, list, up) {
+    const b = w.boss, L = w.L;
+    for (const k of list) {
+      b.doorUp[k] = up;
+      for (const [cx, cz] of b.doors[k]) { const t = cz * L.width + cx; if (up) L.up.set(t, b.doorTop); else L.up.delete(t); }
+    }
+  }
+  function ffInit(w) {
+    const b = w.boss;
+    Object.assign(b, { ball: null, st: 0, si: 0, c: 0, def: 0, tm: 0, up: false, cool: 0, left: b.hp, end: -1, seed: 9,
+      ux: 0x940, uy: 0x190, uz: 0x800, oA: -0x30, oB: 0x30, oX: 0x10, loose: false, pick: 0, fists: [[0, 0, 0], [0, 0, 0]],
+      serp: null, tk: 0, hitAt: -9, dead: -1, bombs: FF_BOMBS.map(() => ({ on: false, x: 0, y: 0, z: 0, t: 0 })), cannon: 0, cannonT: 0, cannonK: 0, hatch: false, doorUp: b.doors.map(() => false) });
+    ffDoors(w, b.doors.map((_, k) => k), false); ffDoors(w, FF_DOORS_AT_START, true);
+  }
+  function ffStep(w) {
+    const b = w.boss, p = w.p, L = w.L, vs = b.vs, [ox, oz] = b.org, V = vs / 32;
+    const X = u => u / 32 - ox, Z = u => u / 32 - oz, Y = u => (u + 8) / 32 * vs;
+    const px = Math.floor((p.x + ox) * 32), pz = Math.floor((p.z + oz) * 32), py = p.y / vs * 32 - 8;
+    const safe = p.inv > 0 || p.invuln > 0, ev = s => w.events.push(s);
+    const rnd = () => { b.seed = (b.seed * 16807) % 2147483647; return b.seed & 0xFFFF; };
+    const kill = () => { w.ringCount = 0; p.inv = 0; p.shield = null; hurt(w, 0, 0); return w.events.includes('respawn'); };
+    const sync = () => {   // (metres for the rest of the game)
+      b.x = X(b.ux); b.y = Y(b.uy); b.z = Z(b.uz);
+      b.fistsM = b.fists.map(([x, y, z]) => [X(x), Y(y), Z(z)]);
+      b.cannonsM = b.st === 0 ? [b.oA, b.oB].map(o => [X(b.ux + b.oX), Y(b.uy), Z(b.uz + o)]) : null;
+      b.bombsM = b.bombs.map(q => q.on ? [X(q.x), Y(q.y), Z(q.z), q.t > 0 && q.t <= 0x5F] : null);
+      b.hidden = !!FF_WALK[b.st];   // (between fights it is gone: under the floor or high up)
+    };
+    if (b.end >= 0) {   // beaten: explosions for 360 frames, Sonic held, then the act is over ($0A1C)
+      p.lock = Math.max(p.lock, 2 / 60); p.invuln = Math.max(p.invuln, 0.1);
+      if (b.end % 8 === 0) ev('blast');
+      if (++b.end >= 360 && !w.cleared) { w.cleared = true; ev('goal'); }
+      b.dead = b.end / 60;
+      sync(); return false;
+    }
+    if (b.cool > 0) b.cool--;
+    // time up: once grounded Sonic loses his rings and is killed
+    if (b.up) { sync(); return p.grounded ? kill() : false; }
+    // the routine 0x15AD4: a hit, or Sonic hurt
+    const touch = () => {
+      if (b.cool > 0) return false;
+      if (b.uy + 0x40 < py) return false;
+      const dx = px - b.ux, dz = pz - b.uz;
+      if (dx * dx + dz * dz > 0x3C1) return false;
+      if (b.uy + 0x20 > py || !(p.ball && !p.grounded)) {
+        b.cool = 60;
+        if (!safe) { hurt(w, p.x - X(b.ux), p.z - Z(b.uz)); return w.events.includes('respawn'); }
+        return false;
+      }
+      p.vx = -p.vx; p.vz = -p.vz; p.vy = 5 * 60 / 32 * vs; p.grounded = false; p.jumping = false; p.lock = 30 / 60;
+      ev('bossHit'); b.hitAt = w.time;
+      if (--b.left > 0) { b.cool = 100; b.def = 200; } else { b.cool = 8000; b.end = 0; ev('bossDown'); }
+      return false;
+    };
+    // the walks between fights
+    const walk = FF_WALK[b.st];
+    if (walk) {
+      if (walk.past(px, pz)) {
+        ffDoors(w, walk.open, true); b.st = (b.st + 1) % 10; b.tk = 0; ev('ffDoor');
+      } else {
+        const d = b.tm;
+        if (!d) { b.up = true; ev('timeUp'); }
+        else { b.tm--; if ((d > 0x7F ? d & 0x3F : d & 0xF) === 0) ev('ffBeep'); }
+      }
+      sync(); return false;
+    }
+    // a fight beaten: 100 frames, then up 4 a frame; then the doors open
+    const beaten = (next, back) => {
+      if (--b.def === 0) {
+        // (the next fight's start is set now; bombs and a serpent still out stop: the original leaves them frozen)
+        b.st = next; ffDoors(w, FF_WALK[next].open, false); b.tm = 0x258; b.si = 0; b.c = 0; b.loose = false; b.serp = null; b.hatch = false; b.cannon = 0;
+        [b.ux, b.uy, b.uz] = FF_START[(next + 1) % 10]; b.bombs.forEach(q => { q.on = false; });
+        ev('ffDoor'); return;
+      }
+      if (b.def <= 100) { if (b.def === 100) ev('ffAway'); b.uy += 4; }
+      back();
+    };
+    const wait = () => { if (--b.c === 0) b.si++; };
+    const st = b.st;
+    if (st === 0) {   // lasers (routine 0x15760): from the south-east room's west door
+      const aim = () => {   // (0x15A12) each cannon follows Sonic's z a unit a frame inside its range
+        if (--b.c === 0 || pz === b.uz + b.oA) return true;
+        if (pz > b.uz + b.oA) { if (b.oA < -0x10) b.oA++; } else if (b.oA > -0x50) b.oA--;
+        if (pz === b.uz + b.oB) return true;
+        if (pz > b.uz + b.oB) { if (b.oB < 0x50) b.oB++; } else if (b.oB > 0x10) b.oB--;
+        return false;
+      };
+      const fire = () => {   // (0x15970) cannon A at counts & 63 <= 16, B at 32..48, a shot every 4th; across Sonic's z
+        const d0 = b.c & 0x3F, o = d0 <= 0x10 ? b.oA : d0 >= 0x20 && d0 <= 0x30 ? b.oB : null;
+        if (o !== null) {
+          if (d0 === 0x10 || d0 === 0x30) ev('laser');
+          if ((d0 & 3) === 0) {
+            const dz = b.c >= 0x80 ? 0xF : b.c >= 0x40 ? 3 : -9;
+            w.shots.push({ x: X(b.ux + b.oX + 0x19), y: Y(b.uy + 2), z: Z(b.uz + o + dz), vx: 3.5 * 60 / 32, vz: 0, age: 0, life: 0x70 / 60, r: 20 / 32, laser: true });
+          }
+        }
+        return --b.c < 0;
+      };
+      if (b.def) beaten(1, () => { if (b.ux !== 0x938) b.ux--; });
+      else switch (b.si) {
+        case 0: b.uy++; if (b.uy === 0x220) ev('ffHum'); if (b.uy >= 0x320) { b.c = 0x3C; b.si = 1; } break;
+        case 1: case 10: wait(); break;
+        case 2: if (++b.oX >= 0x2C) { b.si = 3; b.c = 0xB4; } break;
+        case 3: case 6: ev('ffReady'); b.si++; break;
+        case 4: case 7: if (aim()) { b.si++; b.c = 0xBF; } break;
+        case 5: if (fire()) { b.si = 6; b.c = 0xB4; } break;
+        case 8: if (fire()) { b.si = 9; b.c = 0xB4; } break;
+        case 9: {   // forward 64 units (the chance), the cannons drawn back
+          b.ux++;
+          if (b.ux >= 0x980) { b.c = 0x5A; b.si = 10; break; }
+          let moved = false;
+          if (b.oA !== -0x30) { b.oA += b.oA > -0x30 ? -1 : 1; moved = true; }
+          if (b.oB !== 0x30) { b.oB += b.oB > 0x30 ? -1 : 1; break; }
+          if (!moved && b.oX !== 0x10) b.oX -= 2;
+          break;
+        }
+        case 11: b.ux--; if (b.ux <= 0x938) b.si = 2; break;
+      }
+    } else if (st === 2) {   // the serpent (routine 0x1531C): up and down at one side of the north-east room, then the other
+      const A = b.uz === 0x660;
+      const rise = (base, sign) => {   // (0x155B0 / 0x15610) 128 frames on the sine
+        b.uy = 0x500 + (FF_SIN(sign > 0 ? 766 - b.c / 2 : 512 + b.c / 2) >> 6);
+        if (b.c === 0) ev(sign > 0 ? 'ffSink' : 'ffRise');
+        b.c += 4;
+        if (b.c >= 0x200) {
+          b.c = 0; b.si++;
+          if (sign > 0) { if (A) { b.ux = 0xA20; b.uz = 0x5B8; } else { b.ux = 0x978; b.uz = 0x660; } }
+        }
+      };
+      if (b.def) beaten(3, () => { if (A) { if (b.ux !== 0x978) b.ux--; } else if (b.uz !== 0x5B8) b.uz--; });
+      else switch (b.si) {
+        case 0: case 4: case 8: rise(0, -1); break;
+        case 1: case 5: case 9: {   // (0x15538) let the serpent go: from the machine's side, first 256 units on
+          const [x, z, h, ax, az] = A ? [0x9A0, 0x658, 0x200, 0xAA0, 0x658] : [0xA18, 0x5E0, 0, 0xA18, 0x6E0];
+          b.serp = { life: 0x12C, hd: { x: X(x), y: Y(0x328), z: Z(z), h }, aim: [X(ax), Z(az)], aimY: Y(0x328), path: [], segs: [] };
+          ev('serpent'); b.si++; b.c = 0x3C; break;
+        }
+        case 2: case 6: case 10: wait(); break;
+        case 3: case 7: case 15: rise(0, 1); break;
+        case 11: if (b.uy >= 0x320) b.si++; else b.uy++; break;
+        case 12: if (A) { if (b.ux >= 0x9C0) b.si++; else b.ux++; } else if (b.uz >= 0x600) b.si++; else b.uz++; break;   // (in: the chance)
+        case 13: if (A) { if (b.ux <= 0x978) b.si++; else b.ux--; } else if (b.uz <= 0x5B8) b.si++; else b.uz--; break;
+        case 14: if (b.uy <= 0x300) b.si++; else b.uy--; break;
+        case 16: b.si = 8; break;
+      }
+      if (b.serp && !serpentStep(b.serp, p, rnd, 9, V)) b.serp = null;
+    } else if (st === 4) {   // fists (routine 0x14DBE): the machine rises behind the north corridor and lets its fists go
+      const [fa, fb] = b.fists, f = b.pick ? fb : fa;
+      if (b.def) beaten(5, () => { if (b.uz !== 0x5F8) b.uz--; });
+      else switch (b.si) {
+        case 0: {   // (0x15196) up the sine to 0x350, hold, the fists let go at 0x300, the machine up to 0x550
+          const c = b.c; let y;
+          if (c === 0x80) ev('ffRise');
+          if (c < 0x200) y = FF_SIN(c / 2) >> 6;
+          else if (c < 0x300) y = 0x200;
+          else { if (c === 0x300) ev('ffLetGo'); y = 0x400 - (FF_SIN((c - 0x100) / 2) >> 6); b.loose = true; }
+          b.ux = 0x8A0; b.uy = y + 0x150; b.uz = 0x5F8;
+          b.c += 4; if (b.c >= 0x500) { b.c = 0; b.si = 1; }
+          break;
+        }
+        case 1: fa[2]++; fb[2]++; if (fa[2] >= 0x640) { b.si = 2; b.c = 0xF0; ev('ffReady'); } break;
+        case 2: case 7: case 12:   // (0x150E4) the fist on Sonic's side follows him
+          if (--b.c === 0) { b.si++; break; }
+          if (b.c === 0x78) ev('ffAim');
+          b.pick = px >= 0x8A0 ? 1 : 0; {
+            const g = b.fists[b.pick];
+            if (pz < g[2]) g[2]--; else if (pz > g[2]) g[2]++;
+            if (px < g[0]) g[0]--; else if (px > g[0]) g[0]++;
+            if (b.pick) { if (g[0] < 0x8B0) g[0] = 0x8B0; } else if (g[0] > 0x890) g[0] = 0x890;
+          }
+          break;
+        case 3: case 8: case 13: f[1] -= 4; if (f[1] <= 0x320) { f[1] = 0x320; ev('ffSlam'); b.si++; b.c = 0x32; } break;
+        case 4: case 9: case 14: case 19: case 22: wait(); break;
+        case 5: case 10: case 15: if (f[1] >= 0x360) { f[1] = 0x360; b.si++; b.c = 0x1E; } else f[1]++; break;
+        case 6: case 11: case 16: if (--b.c === 0) { b.si++; b.c = 0xF0; ev('ffReady'); } break;
+        case 17: {   // both fists to their places, crossed over
+          let moved = false; const to = (g, i, v) => { if (g[i] !== v) { g[i] += g[i] < v ? 1 : -1; moved = true; } };
+          to(fa, 2, 0x630); to(fb, 2, 0x650); to(fa, 0, 0x910); to(fb, 0, 0x830);
+          if (!moved) b.si++;
+          break;
+        }
+        case 18: fa[1] -= 2; fb[1] -= 2; if (fa[1] === 0x320) { b.si++; b.c = 0x28; } break;
+        case 20: if (fb[0] === 0x830) ev('ffLetGo'); fa[0] -= 6; fb[0] += 6; if (fb[0] >= 0xA60) b.si++; break;   // (they slide apart along the corridor)
+        case 21: b.uy -= 8; if (b.uy <= 0x320) { b.uy = 0x320; ev('ffSlam'); b.si++; b.c = 0x3C; } break;
+        case 23: b.uz++; if (b.uz === 0x640) b.si++; break;   // (into the corridor: the chance)
+        case 24: b.uz--; if (b.uz === 0x5F8) { b.si++; b.c = 0x3C; } break;
+        case 25: b.uy -= 8; if (b.uy <= 0x120) { b.si = 0; b.c = 0; b.loose = false; } break;
+      }
+    } else if (st === 6) {   // bombs (routine 0x149B8): up at the north-west room's west side, five bombs, then in at the floor
+      if (b.def) beaten(7, () => { if (b.ux !== 0x678) b.ux--; });
+      else switch (b.si) {
+        case 0: {
+          const c = b.c; let y;
+          if (c === 0x80) ev('ffRise');
+          if (c < 0x200) y = FF_SIN(512 + c / 2) >> 6;
+          else if (c < 0x500) {
+            const k = FF_BOMBS.findIndex(q => q[0] === c);
+            if (k >= 0) { const q = b.bombs[k]; Object.assign(q, { on: true, x: b.ux + FF_BOMBS[k][1], y: b.uy + 0xE, z: b.uz + FF_BOMBS[k][2], t: 0 }); ev('serpent'); }
+            y = -0x200;
+          } else { if (c === 0x500) ev('serpent'); y = FF_SIN(512 + (c - 0x300) / 2) >> 6; }
+          b.ux = 0x678; b.uy = y + 0x4E0; b.uz = 0x660;
+          b.c += 4; if (b.c >= 0x700) { b.c = 0x3C; b.si = 1; }
+          break;
+        }
+        case 1: case 3: wait(); break;
+        case 2: b.uy -= 8; if (b.uy <= 0x320) { b.uy = 0x320; ev('ffSlam'); b.si = 3; b.c = 0x3C; } break;
+        case 4: b.ux++; if (b.ux === 0x6A0) b.si = 5; break;   // (in: the chance)
+        case 5: b.ux--; if (b.ux === 0x678) { b.si = 6; ev('ffSink'); } break;
+        case 6: b.uy--; if (b.uy <= 0x2E0) { b.uy = 0x2E0; b.si = 0; b.c = 0x200; } break;
+      }
+    } else if (st === 8) {   // the pod (routine 0x14772): drops into the south-west room; its cannon sweeps shots
+      if (b.def) beaten(9, () => { if (b.ux !== 0x720) b.ux--; });
+      else switch (b.si) {
+        case 0: b.uy -= 8; if (b.uy <= 0x320) { b.uy = 0x320; ev('shut'); b.si = 1; b.c = 0x3C; b.tk = 0; } break;
+        case 1: case 3: case 5: case 7: case 9: case 11: wait(); break;
+        case 2: case 6: b.cannon = 1; b.cannonK = 0; b.c = 0x96; b.si++; break;
+        case 4: case 8: b.cannon = -1; b.cannonK = 0; b.c = 0x96; b.si++; break;
+        case 10: b.hatch = true; b.c = 0x14; b.si = 11; break;
+        case 12: b.ux++; if (b.ux === 0x760) b.si = 13; break;
+        case 13: b.ux--; if (b.ux === 0x720) b.si = 14; break;
+        case 14: b.hatch = false; b.c = 0x3C; b.si = 1; break;
+      }
+      // a sweep: the cannon's frame changes every 11 frames (a clock of its own); 4 frames after each of the next five, a
+      // shot by its frame (watched: 0..4 one way, 4..0 back), hopping (2 up, 1/8 down), bouncing off walls, 160 frames
+      if (++b.tk % 11 === 5 && b.cannon && b.cannonK < 5 && !b.cannonT) b.cannonT = 4;
+      if (b.cannonT && --b.cannonT === 0) {
+        const [dx, dz, vx, vz] = FF_CANNON[b.cannon > 0 ? b.cannonK : 4 - b.cannonK];
+        w.shots.push({ x: X(b.ux + 1 + dx), y: Y(b.uy + 0x10 - 9), z: Z(b.uz + 1 + dz), vx: vx * 60 / 32, vz: vz * 60 / 32, vy: 60 / 32 * vs, g: 3600 / 8 / 32 * vs,
+          hop: 2 * 60 / 32 * vs, age: 0, life: 0xA0 / 60, r: 20 / 32, ball: true });
+        ev('sprinkle'); b.cannonK++;
+      }
+    }
+    if (touch()) return true;
+    // fight 4's fists follow the machine until let go; they hurt (box estimated from the sprite: 20 units across, 32 up)
+    if (st === 4 && !b.loose) { b.fists[0] = [b.ux - 0x40, b.uy + 0x10, b.uz]; b.fists[1] = [b.ux + 0x30, b.uy + 0x10, b.uz]; }
+    // fight 6's bombs (0x14C26): up 8 a frame to 0x480, then 260 frames: at 95 left over Sonic's cell (a shadow, sound
+    // 0x51), down 8 a frame for the last 44, a blast at the floor (sound 0x59)
+    for (const q of b.bombs) {
+      if (!q.on) continue;
+      if (q.t) {
+        if (--q.t === 0) { q.on = false; ev('blast'); continue; }
+        if (q.t === 0x5F) { q.x = (px & ~31) + 16; q.z = (pz & ~31) + 16; ev('ffTarget'); }
+        if (q.t <= 0x2C) q.y -= 8;
+      } else { q.y += 8; if (q.y >= 0x480) { q.y = 0x480; q.t = 0x104; } }
+    }
+    sync();
+    if (!safe) {
+      // what else hurts: the fists, the serpent's links, a falling bomb and its blast (sizes estimated; a bomb on Sonic's cell
+      // hurt him, watched)
+      const pts = [];
+      if (st === 4) for (const [x, y, z] of b.fistsM) pts.push([x, y, z, 20, 32]);
+      if (b.serp) for (const [x, y, z] of b.serp.segs) pts.push([x, y - 8 * V, z, 14, 28]);
+      for (const q of b.bombs) if (q.on && q.t > 0 && q.t <= 0x2C) pts.push([X(q.x), Y(q.y), Z(q.z), q.t <= 2 ? 24 : 16, 24]);
+      for (const [x, y, z, r, h] of pts) {
+        if (Math.abs(p.x - x) < r / 32 && Math.abs(p.z - z) < r / 32 && p.y < y + h * V && p.y + 32 * V > y) { hurt(w, p.x - x, p.z - z); if (w.events.includes('respawn')) return true; break; }
+      }
+    }
+    return false;
+  }
   function bossStep(w, pcy) {
     if (w.boss.kind === 'pp') return ppStep(w);
+    if (w.boss.kind === 'ff') return ffStep(w);
     if (w.boss.kind === 'gng') return gngStep(w);
     if (w.boss.kind === 'vv') return vvStep(w);
     if (w.boss.kind === 'dd') return ddStep(w);
@@ -3128,12 +3420,20 @@ const Sim = (() => {
     }
     for (let i = w.shots.length - 1; i >= 0; i--) {
       const sh = w.shots[i];
-      sh.age += dt; sh.x += sh.vx * dt; sh.z += sh.vz * dt;
-      if (sh.g) { sh.vy -= sh.g * dt; sh.y += sh.vy * dt; }
+      sh.age += dt;
+      if (sh.hop) {   // a hopping ball (Final Fight's cannon): bounces off what is higher than it, and off the floor `hop` up
+        const nx = sh.x + sh.vx * dt, nz = sh.z + sh.vz * dt;
+        const ok = f => Number.isFinite(f) && f <= sh.y + 1e-6;   // (no floor is a wall too)
+        if (ok(floorAt(L, nx, sh.z))) sh.x = nx; else sh.vx = -sh.vx;
+        if (ok(floorAt(L, sh.x, nz))) sh.z = nz; else sh.vz = -sh.vz;
+        sh.vy -= sh.g * dt; sh.y += sh.vy * dt;
+        const fh = floorAt(L, sh.x, sh.z); if (sh.y <= fh) { sh.y = fh; sh.vy = sh.hop; }
+      } else { sh.x += sh.vx * dt; sh.z += sh.vz * dt; }
+      if (sh.g && !sh.hop) { sh.vy -= sh.g * dt; sh.y += sh.vy * dt; }
       const f = floorAt(L, sh.x, sh.z);
       if (sh.age > (sh.life || P.shotLife) || !Number.isFinite(f) || f > sh.y) { w.shots.splice(i, 1); continue; }
       const dx = p.x - sh.x, dz = p.z - sh.z;
-      if (dx * dx + dz * dz < 0.16 && Math.abs(pcy0 - sh.y) < 0.6) {
+      if (dx * dx + dz * dz < (sh.r || 0.4) ** 2 && Math.abs(pcy0 - sh.y) < 0.6) {
         w.shots.splice(i, 1);
         if (p.inv <= 0 && p.invuln <= 0) { hurt(w, dx, dz); if (w.events.includes('respawn')) return w; }
       }
@@ -4204,7 +4504,14 @@ const S3D = (() => {
             { rest: [0x6C8, 0x1A0, 0x668], shoulder: [0x690, 0x1A8, 0x638], cell: [52, 49], t: 0x2BC, phase: 0x400 }] },
         { pod: [0x761, 0x740, 0x140, 0xC0], hitY: 0x130,
           arms: [{ rest: [0x788, 0x140, 0x7A8], shoulder: [0x758, 0x148, 0x770], cell: [58, 59], t: 0x190 },
-            { rest: [0x7C8, 0x140, 0x768], shoulder: [0x790, 0x148, 0x738], cell: [60, 57], t: 0x2BC, phase: 0x400 }] }] } };
+            { rest: [0x7C8, 0x140, 0x768], shoulder: [0x790, 0x148, 0x738], cell: [60, 57], t: 0x2BC, phase: 0x400 }] }] },
+    // Final Fight (InitLevel 0x14170, RunLevel_FFz 0x142C0): the machine's scripts live in the Sim (ffStep, in the
+    // original's units); here the doors, map words of two cells each set to 0x8500 (shut) or 0x6500 (open): 0 and 1 the
+    // east corridor's ends, 2 and 3 the north corridor's east doors, 4 and 5 its west ones, 6 and 7 the west corridor's
+    // ends, 8 and 9 the south corridor's ends
+    22: { kind: 'ff', at: [0x940, 0x190, 0x800], cruise: 0x320, home: [0x940, 0x800], arena: [0x660, 0xA80, 0x5A0, 0x860], hp: 10,
+      doors: [[0x379C, 0x379E], [0x3C9C, 0x3C9E], [0x3192, 0x3292], [0x3198, 0x3298], [0x317A, 0x327A], [0x3180, 0x3280],
+        [0x3772, 0x3774], [0x3C72, 0x3C74], [0x407C, 0x417C], [0x4094, 0x4194]], doorTop: 0x85 } };
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
   // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
@@ -4818,6 +5125,9 @@ const S3D = (() => {
           return o;
         });
       }
+      if (bs.kind === 'ff') {   // (map word offsets to cells)
+        e.org = [x0, z0]; e.doors = bs.doors.map(d => d.map(o => [(o >> 1) % 128 - x0, ((o >> 1) >> 7) - z0])); e.doorTop = r3(bs.doorTop * 8 / CELL * vscale);
+      }
       if (bs.kind === 'gng') {
         const Y = v => r3(v / CELL * vscale), Z = v => r3(v / CELL - z0);
         e.first = Y(bs.first); e.high = Y(bs.high); e.low = Y(bs.low); e.belt = bs.belt.map(Z); e.lanes = [r3(bs.lanes[0] / CELL - x0), r3(bs.lanes[1] / CELL)];
@@ -5055,7 +5365,9 @@ const S3D = (() => {
       hover: [0xC1], pyramid: [0xAE], zapArm: [0x42], sprinkle: [0x4D], tubeNo: [0xB2], tubeYes: [0x3C] /* Gene Gadget 1's routine and objects */,
       lever: [0x76], launch: [0xAB], capsule: [0x3D], pellet: [0x9A], doorShut: [0x64], tubeIn: [0xAD] /* Panic Puppet 1's routine and objects */,
       shut: [0xC9], beam: [0x78], liftUp: [0x3C], liftGo: [0xB6], lift: [0xD2] /* Panic Puppet 2's */,
-      armGo: [0x5A], armRise: [0xC3], armSlam: [0x81], armOpen: [0x92], armDown: [0x54], blast: [0x59] /* Panic Puppet 3's routine */ },
+      armGo: [0x5A], armRise: [0xC3], armSlam: [0x81], armOpen: [0x92], armDown: [0x54], blast: [0x59] /* Panic Puppet 3's routine */,
+      ffDoor: [0xB8], ffBeep: [0xAD], timeUp: [0x78], ffAway: [0x60], ffHum: [0xC6], ffReady: [0x9D], laser: [0x5E], ffRise: [0xD0],
+      ffSink: [0x73], ffLetGo: [0xB6], ffAim: [0x53], ffSlam: [0x5F], ffTarget: [0x51] /* Final Fight's routine */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {
@@ -6334,6 +6646,19 @@ const Art = (() => {
       bossGrab: () => tone('square', 150, 600, 0.25, 0.15),
       bossDown: () => { noise(1.2, 0.9, 500); tone('sine', 90, 30, 1.2, 0.6); },
       bossSlam: () => { noise(0.5, 0.9, 300); tone('sine', 70, 35, 0.4, 0.5); },
+      ffDoor: () => tone('sawtooth', 120, 300, 0.4, 0.15),
+      ffBeep: () => tone('square', 1760, 1760, 0.06, 0.2),
+      timeUp: () => tone('square', 880, 220, 0.8, 0.25),
+      ffAway: () => tone('sawtooth', 200, 900, 1.2, 0.15),
+      ffHum: () => tone('sawtooth', 70, 90, 0.8, 0.12),
+      ffReady: () => tone('square', 400, 800, 0.2, 0.15),
+      laser: () => tone('square', 2400, 600, 0.12, 0.15),
+      ffRise: () => tone('triangle', 120, 300, 0.5, 0.2),
+      ffSink: () => tone('triangle', 300, 120, 0.5, 0.2),
+      ffLetGo: () => { noise(0.2, 0.5, 1500); tone('square', 300, 150, 0.2, 0.15); },
+      ffAim: () => tone('square', 900, 900, 0.1, 0.12),
+      ffSlam: () => { noise(0.5, 0.9, 300); tone('sine', 70, 35, 0.4, 0.5); },
+      ffTarget: () => tone('square', 1200, 1200, 0.15, 0.15),
       bumper: () => { tone('square', 500, 900, 0.12, 0.2); tone('square', 750, 1300, 0.12, 0.12); },
       balloon: () => { noise(0.15, 0.9, 3000); tone('sine', 300, 700, 0.15, 0.2); },
       spikesUp: () => tone('sawtooth', 180, 420, 0.25, 0.15),
@@ -6352,6 +6677,9 @@ const Art = (() => {
       boost: () => { noise(0.35, 0.6, 2500); tone('square', 700, 120, 0.4, 0.25); },
       enemy: () => { noise(0.22, 0.7, 1400); tone('square', 520, 90, 0.2, 0.3); },
       boom: () => { noise(0.5, 0.9, 700); tone('sine', 120, 40, 0.5, 0.6); },
+      blast: () => { noise(0.5, 0.9, 700); tone('sine', 120, 40, 0.5, 0.6); },
+      shut: () => { noise(0.3, 0.8, 400); tone('sine', 90, 40, 0.3, 0.5); },
+      sprinkle: () => tone('square', 600, 300, 0.08, 0.12),
       shot: () => tone('square', 950, 260, 0.12, 0.15),
       monitor: () => { noise(0.15, 0.6, 2000); arp([784, 988, 1175], 0.07, 'triangle', 0.35); },
       hurt: () => { tone('square', 700, 180, 0.35, 0.3); arp([1568, 1397, 1175, 988], 0.05, 'square', 0.12); },
@@ -6781,6 +7109,7 @@ const Art = (() => {
       });
       o.pp = { cols, arms, serp };
     }
+    if (b.kind === 'ff') { o.g.visible = false; o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); o.ff = buildFfParts(b, o.rom || romOn()); }
     if (b.kind === 'vv') {   // the fire serpent: the original's flame frames (object 138, line 3) or our own fireballs
       o.ball.visible = false; o.links.forEach(l => { l.visible = false; });
       const fr = o.rom ? romTypeFrames(0x138, 3) : [];
@@ -6957,6 +7286,7 @@ const Art = (() => {
   function updateBoss(t) {
     const b = world.boss, o = bossObj;
     if (!b || !o) return;
+    if (o.ff) { o.g.visible = false; o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); updateFfParts(b, o.ff, t); return; }
     o.g.position.set(b.x, b.y, b.z);
     o.g.visible = (b.dead < 0 || b.dead < 2 || Math.floor(t * 20) % 2 === 0) && !(b.cool > 0 && Math.floor(t * 16) % 2);
     if (o.rr) {   // the cap over the pod, the arms where the routine puts them
@@ -7009,6 +7339,113 @@ const Art = (() => {
     if (b.dead >= 0) for (let q = 0; q < puffSprites.length; q++) {
       const s = puffSprites[q], k = (t * 3 + q * 0.37) % 1;
       s.visible = q < 12 && b.dead < 3.5; s.position.set(b.x + Math.sin(q * 7.1) * 1.2 * k, b.y + Math.cos(q * 3.3) * 0.8 * k, b.z + Math.cos(q * 5.3) * 1.2 * k); s.scale.setScalar(0.4 + k);
+    }
+  }
+  // Final Fight's machine, our own design in both looks (the original's body is drawn from tiles the act unpacks and
+  // streams, not from raw sprites): a steel drum as wide as its hit circle (31 units) and as tall as the hit window's
+  // floor (32 units), so a jump onto its top is the hit; a canopy and fins behind, a lamp in front, turned to Sonic.
+  // With it: laser cannons (fight 0; object 1B4 frame 0 in the ROM look), fists (fight 4; 1B4 frame 1), bombs and their
+  // shadows (fight 6), the pod's cannon (fight 8; 1C0 by its shot), the doors (a force field), the shots and the floor
+  // pads lit where Sonic steps (object 1AC: six while walking, two in a fight)
+  const hazardTex = (() => {
+    const c = document.createElement('canvas'); c.width = 64; c.height = 16; const g = c.getContext('2d');
+    g.fillStyle = '#20232a'; g.fillRect(0, 0, 64, 16); g.fillStyle = '#f0c020';
+    for (let x = -16; x < 64; x += 16) { g.beginPath(); g.moveTo(x, 16); g.lineTo(x + 8, 0); g.lineTo(x + 16, 0); g.lineTo(x + 8, 16); g.fill(); }
+    const t = new THREE.CanvasTexture(c); t.wrapS = THREE.RepeatWrapping; t.repeat.set(6, 1); return t;
+  })();
+  function buildFfParts(b, rom) {
+    const V = b.vs, U = 1 / 32, add = m => { levelGroup.add(m); return m; };
+    const steel = new THREE.MeshLambertMaterial({ color: 0xa4acb6 }), dark = new THREE.MeshLambertMaterial({ color: 0x30353d }), red = new THREE.MeshBasicMaterial({ color: 0xff3020 });
+    const g = new THREE.Group(), R = 31 * U, H = V;
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(R, R * 1.06, H, 20), steel); drum.position.y = H / 2; g.add(drum);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.02, R * 1.02, H * 0.22, 20, 1, true), new THREE.MeshLambertMaterial({ map: hazardTex })); band.position.y = H * 0.62; g.add(band);
+    const top = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.96, R, 0.06, 20), dark); top.position.y = H + 0.03; g.add(top);
+    const canopy = new THREE.Group(), glass = new THREE.Mesh(new THREE.SphereGeometry(0.62, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x5a1820, emissive: 0x200408 }));
+    canopy.add(glass); canopy.position.set(-R * 0.9, H, 0); g.add(canopy);
+    for (const sz of [-1, 1]) {
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 0.08), dark); fin.position.set(-R * 1.1, H * 0.8, sz * R * 0.8); fin.rotation.x = sz * 0.35; g.add(fin);
+      const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.8, 12), steel); pod.rotation.z = Math.PI / 2; pod.position.set(-0.1, H * 0.35, sz * (R + 0.2)); g.add(pod);
+    }
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), red); lamp.position.set(R * 0.98, H * 0.4, 0); g.add(lamp);
+    add(g);
+    const sprite = (type, frame) => { const sp = new THREE.Sprite(romBossMat(type, frame, ROM_CANVAS, 80, 3)); sp.center.set(0.5, OBJ_FOOT); sp.scale.set(ROM_SIZE, ROM_SIZE, 1); sp.visible = false; return add(sp); };
+    const cannons = [0, 1].map(() => {
+      if (rom) return sprite(0x1B4, 0);
+      const c = new THREE.Group(), barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.9, 10), dark), tip = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.04, 6, 12), new THREE.MeshBasicMaterial({ color: 0x40e0ff }));
+      barrel.rotation.z = Math.PI / 2; barrel.position.set(0.45, 0.25, 0); tip.rotation.y = Math.PI / 2; tip.position.set(0.9, 0.25, 0); c.add(barrel, tip); c.visible = false; return add(c);
+    });
+    const fists = [0, 1].map(() => {
+      if (rom) return sprite(0x1B4, 1);
+      const f = new THREE.Group(), box = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.45, 0.7), steel); box.position.y = 0.22; f.add(box);
+      for (let k = 0; k < 4; k++) { const sp = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.3, 8), new THREE.MeshLambertMaterial({ color: 0xd03020 })); sp.position.set((k % 2 - 0.5) * 0.45, 0.6, (Math.floor(k / 2) - 0.5) * 0.35); f.add(sp); }
+      f.visible = false; return add(f);
+    });
+    const bombMat = new THREE.MeshLambertMaterial({ color: 0x24262c }), shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.45, depthWrite: false });
+    const bombs = b.bombs.map(() => {
+      const m = add(new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 8), bombMat)), sh = add(new THREE.Mesh(new THREE.CircleGeometry(0.3, 16), shadowMat));
+      sh.rotation.x = -Math.PI / 2; m.visible = sh.visible = false; return { m, sh };
+    });
+    const turret = rom ? sprite(0x1C0, 0) : (() => {
+      const c = new THREE.Group(), base = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.25, 12), dark), barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.7, 10), steel);
+      base.position.y = 0.12; barrel.rotation.z = Math.PI / 2; barrel.position.set(0.35, 0.18, 0); c.add(base, barrel); c.visible = false; return add(c);
+    })();
+    // the doors: a force field between two posts, 2.5 m (the cells stand far higher for the sim)
+    const field = new THREE.MeshBasicMaterial({ color: 0xff3050, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false });
+    const doorFloor = b.doorTop - 0x20 * 8 / 32 * V;
+    const doors = b.doors.map(cells => {
+      const dg = new THREE.Group(), xs = cells.map(c => c[0]), zs = cells.map(c => c[1]);
+      const x0 = Math.min(...xs), x1 = Math.max(...xs) + 1, z0 = Math.min(...zs), z1 = Math.max(...zs) + 1, alongX = x1 - x0 > z1 - z0;
+      const len = alongX ? x1 - x0 : z1 - z0, sheet = new THREE.Mesh(new THREE.PlaneGeometry(len, 2.5), field);
+      if (!alongX) sheet.rotation.y = Math.PI / 2;
+      sheet.position.y = 1.25; dg.add(sheet);
+      for (const e of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.7, 0.2), dark); post.position.set(alongX ? e * len / 2 : 0, 1.35, alongX ? 0 : e * len / 2); dg.add(post); }
+      dg.position.set((x0 + x1) / 2, doorFloor, (z0 + z1) / 2); dg.userData.h = 0; return add(dg);
+    });
+    const laserMat = new THREE.MeshBasicMaterial({ color: 0x70f0ff }), laserGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.7, 6);
+    const lasers = Array.from({ length: 30 }, () => { const m = add(new THREE.Mesh(laserGeo, laserMat)); m.rotation.z = Math.PI / 2; m.visible = false; return m; });
+    const ballGeo = new THREE.SphereGeometry(0.18, 10, 8), balls = Array.from({ length: 30 }, () => { const m = add(new THREE.Mesh(ballGeo, steel)); m.visible = false; return m; });
+    const padMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false });
+    const pads = Array.from({ length: 6 }, () => { const m = add(new THREE.Mesh(new THREE.PlaneGeometry(0.96, 0.96), padMat)); m.rotation.x = -Math.PI / 2; m.visible = false; return m; });
+    return { g, canopy, lamp, cannons, fists, bombs, turret, doors, lasers, balls, pads, cells: [], yaw: 0, rom };
+  }
+  function updateFfParts(b, f, t) {
+    const p = world.p, V = b.vs, U = 1 / 32, fight = b.st % 2 === 0;
+    // the machine (it flickers after a hit, 100 frames; the explosions at the end)
+    f.g.position.set(b.x, b.y, b.z);
+    const want = Math.atan2(-(p.z - b.z), p.x - b.x); let d = want - f.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); f.yaw += d * 0.06; f.g.rotation.y = f.yaw;
+    f.g.visible = !b.hidden && !(world.time - (b.hitAt ?? -9) < 100 / 60 && Math.floor(t * 16) % 2);
+    f.canopy.rotation.z = b.hatch ? Math.min(1, (f.canopy.rotation.z || 0) + 0.05) : Math.max(0, (f.canopy.rotation.z || 0) - 0.05);
+    f.lamp.material.color.setHex(Math.floor(t * 3) % 2 ? 0xff3020 : 0x801008);
+    f.cannons.forEach((c, k) => { const q = b.cannonsM && b.cannonsM[k]; c.visible = !!q && !b.hidden; if (q) c.position.set(q[0], q[1], q[2]); });
+    f.fists.forEach((c, k) => { const q = b.st === 4 && b.fistsM && b.fistsM[k]; c.visible = !!q && !b.hidden; if (q) c.position.set(q[0], q[1], q[2]); });
+    f.bombs.forEach((o, k) => {
+      const q = b.bombsM && b.bombsM[k]; o.m.visible = !!q; o.sh.visible = !!(q && q[3]);
+      if (q) { o.m.position.set(q[0], q[1] + 0.25, q[2]); o.sh.position.set(q[0], Sim.floorAt(L, q[0], q[2]) + 0.02, q[2]); }
+    });
+    f.turret.visible = b.st === 8 && !b.hidden;
+    if (f.turret.visible) {
+      f.turret.position.set(b.x + U, b.y + 16 * V / 32, b.z + U);
+      const k = b.cannon > 0 ? Math.min(4, b.cannonK) : b.cannon < 0 ? Math.max(0, 4 - b.cannonK) : 0, a = Math.atan2(-[36, 28, 12, -12, -31][k], [36, 41, 49, 49, 44][k]);
+      if (f.rom) f.turret.material = romBossMat(0x1C0, k, ROM_CANVAS, 80, 3); else f.turret.rotation.y = a;
+    }
+    // doors slide up and down (a metre a second)
+    f.doors.forEach((dg, k) => { const tgt = b.doorUp[k] ? 1 : 0; dg.userData.h += Math.max(-0.05, Math.min(0.05, tgt - dg.userData.h)); dg.visible = dg.userData.h > 0.01; dg.scale.y = Math.max(0.01, dg.userData.h); });
+    // the shots
+    let li = 0, bi = 0;
+    for (const sh of world.shots) {
+      if (sh.laser && li < f.lasers.length) { const m = f.lasers[li++]; m.visible = true; m.position.set(sh.x, sh.y + 0.3, sh.z); }
+      else if (sh.ball && bi < f.balls.length) { const m = f.balls[bi++]; m.visible = true; m.position.set(sh.x, sh.y + 0.18, sh.z); }
+    }
+    for (; li < f.lasers.length; li++) f.lasers[li].visible = false;
+    for (; bi < f.balls.length; bi++) f.balls[bi].visible = false;
+    // the pads lit where Sonic stands
+    if (p.grounded) { const c = [Math.floor(p.x), Math.floor(p.z)]; if (!f.cells.length || f.cells[0][0] !== c[0] || f.cells[0][1] !== c[1]) { f.cells.unshift(c); f.cells.length = Math.min(f.cells.length, 6); } }
+    const n = fight ? 2 : 6;
+    f.pads.forEach((m, k) => { const c = f.cells[k]; m.visible = !!c && k < n; if (c && k < n) m.position.set(c[0] + 0.5, Sim.floorAt(L, c[0] + 0.5, c[1] + 0.5) + 0.02, c[1] + 0.5); });
+    // beaten: bursts round the machine
+    for (let q = 0; q < puffSprites.length; q++) {
+      const s = puffSprites[q], k = (t * 3 + q * 0.37) % 1;
+      s.visible = b.end >= 0 && q < 12; if (s.visible) { s.position.set(b.x + Math.sin(q * 7.1) * 1.2 * k, b.y + 0.6 + Math.cos(q * 3.3) * 0.8 * k, b.z + Math.cos(q * 5.3) * 1.2 * k); s.scale.setScalar(0.4 + k); }
     }
   }
   // a fireball: an orange glow drawn once
@@ -7752,7 +8189,7 @@ const Art = (() => {
       yaw += d * Math.min(1, dt * 1.6 * Math.min(1, (sp - runRef()) / 8));
     }
     // a boss: swing round behind the player so it stays in front (gently, and not when it is right overhead)
-    const bo = world.boss && world.boss.dead < 0 ? world.boss : null;
+    const bo = world.boss && world.boss.dead < 0 && !world.boss.hidden ? world.boss : null;   // (Final Fight's is gone between fights)
     if (bo && !looking) {
       const bd = Math.hypot(fx - bo.x, fz - bo.z);
       let d = Math.atan2(fx - bo.x, fz - bo.z) - yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
@@ -7782,8 +8219,8 @@ const Art = (() => {
     if (Number.isFinite(floorHere) && view.pos.y < floorHere + 0.4) view.pos.y = floorHere + 0.4;
     chaseCam.position.copy(view.pos);
     view.look.set(fx, focusY - 0.15, fz);
-    if (bo) {   // and tilt up towards it, so a boss overhead is in the picture
-      view.look.x += (bo.x - fx) * 0.3; view.look.z += (bo.z - fz) * 0.3; view.look.y += Math.max(0, bo.y - focusY) * 0.45;
+    if (bo) {   // and tilt up towards it, so a boss overhead is in the picture (not one far up: Final Fight's fists fight then)
+      view.look.x += (bo.x - fx) * 0.3; view.look.z += (bo.z - fz) * 0.3; view.look.y += Math.max(0, Math.min(4, bo.y - focusY)) * 0.45;
     }
     chaseCam.lookAt(view.look);
     view.target.set(fx, focusY, fz);
@@ -8326,7 +8763,7 @@ const Art = (() => {
       s.scale.set(s.userData.size, s.userData.size * (k < 0.15 ? 0.9 : 1), 1);
     }
     for (let q = 0; q < shotSprites.length; q++) {
-      const sh = world.shots[q]; shotSprites[q].visible = !!sh;
+      const sh = world.shots[q]; shotSprites[q].visible = !!sh && !sh.laser && !sh.ball;   // (Final Fight's are drawn with its machine)
       if (sh) shotSprites[q].position.set(sh.x, sh.y, sh.z);
     }
     if (sprinklerObjs.length || pylonObjs.length || zapObjs.length || beamObjs.length) {

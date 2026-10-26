@@ -375,6 +375,19 @@
       bossGrab: () => tone('square', 150, 600, 0.25, 0.15),
       bossDown: () => { noise(1.2, 0.9, 500); tone('sine', 90, 30, 1.2, 0.6); },
       bossSlam: () => { noise(0.5, 0.9, 300); tone('sine', 70, 35, 0.4, 0.5); },
+      ffDoor: () => tone('sawtooth', 120, 300, 0.4, 0.15),
+      ffBeep: () => tone('square', 1760, 1760, 0.06, 0.2),
+      timeUp: () => tone('square', 880, 220, 0.8, 0.25),
+      ffAway: () => tone('sawtooth', 200, 900, 1.2, 0.15),
+      ffHum: () => tone('sawtooth', 70, 90, 0.8, 0.12),
+      ffReady: () => tone('square', 400, 800, 0.2, 0.15),
+      laser: () => tone('square', 2400, 600, 0.12, 0.15),
+      ffRise: () => tone('triangle', 120, 300, 0.5, 0.2),
+      ffSink: () => tone('triangle', 300, 120, 0.5, 0.2),
+      ffLetGo: () => { noise(0.2, 0.5, 1500); tone('square', 300, 150, 0.2, 0.15); },
+      ffAim: () => tone('square', 900, 900, 0.1, 0.12),
+      ffSlam: () => { noise(0.5, 0.9, 300); tone('sine', 70, 35, 0.4, 0.5); },
+      ffTarget: () => tone('square', 1200, 1200, 0.15, 0.15),
       bumper: () => { tone('square', 500, 900, 0.12, 0.2); tone('square', 750, 1300, 0.12, 0.12); },
       balloon: () => { noise(0.15, 0.9, 3000); tone('sine', 300, 700, 0.15, 0.2); },
       spikesUp: () => tone('sawtooth', 180, 420, 0.25, 0.15),
@@ -393,6 +406,9 @@
       boost: () => { noise(0.35, 0.6, 2500); tone('square', 700, 120, 0.4, 0.25); },
       enemy: () => { noise(0.22, 0.7, 1400); tone('square', 520, 90, 0.2, 0.3); },
       boom: () => { noise(0.5, 0.9, 700); tone('sine', 120, 40, 0.5, 0.6); },
+      blast: () => { noise(0.5, 0.9, 700); tone('sine', 120, 40, 0.5, 0.6); },
+      shut: () => { noise(0.3, 0.8, 400); tone('sine', 90, 40, 0.3, 0.5); },
+      sprinkle: () => tone('square', 600, 300, 0.08, 0.12),
       shot: () => tone('square', 950, 260, 0.12, 0.15),
       monitor: () => { noise(0.15, 0.6, 2000); arp([784, 988, 1175], 0.07, 'triangle', 0.35); },
       hurt: () => { tone('square', 700, 180, 0.35, 0.3); arp([1568, 1397, 1175, 988], 0.05, 'square', 0.12); },
@@ -822,6 +838,7 @@
       });
       o.pp = { cols, arms, serp };
     }
+    if (b.kind === 'ff') { o.g.visible = false; o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); o.ff = buildFfParts(b, o.rom || romOn()); }
     if (b.kind === 'vv') {   // the fire serpent: the original's flame frames (object 138, line 3) or our own fireballs
       o.ball.visible = false; o.links.forEach(l => { l.visible = false; });
       const fr = o.rom ? romTypeFrames(0x138, 3) : [];
@@ -998,6 +1015,7 @@
   function updateBoss(t) {
     const b = world.boss, o = bossObj;
     if (!b || !o) return;
+    if (o.ff) { o.g.visible = false; o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); updateFfParts(b, o.ff, t); return; }
     o.g.position.set(b.x, b.y, b.z);
     o.g.visible = (b.dead < 0 || b.dead < 2 || Math.floor(t * 20) % 2 === 0) && !(b.cool > 0 && Math.floor(t * 16) % 2);
     if (o.rr) {   // the cap over the pod, the arms where the routine puts them
@@ -1050,6 +1068,113 @@
     if (b.dead >= 0) for (let q = 0; q < puffSprites.length; q++) {
       const s = puffSprites[q], k = (t * 3 + q * 0.37) % 1;
       s.visible = q < 12 && b.dead < 3.5; s.position.set(b.x + Math.sin(q * 7.1) * 1.2 * k, b.y + Math.cos(q * 3.3) * 0.8 * k, b.z + Math.cos(q * 5.3) * 1.2 * k); s.scale.setScalar(0.4 + k);
+    }
+  }
+  // Final Fight's machine, our own design in both looks (the original's body is drawn from tiles the act unpacks and
+  // streams, not from raw sprites): a steel drum as wide as its hit circle (31 units) and as tall as the hit window's
+  // floor (32 units), so a jump onto its top is the hit; a canopy and fins behind, a lamp in front, turned to Sonic.
+  // With it: laser cannons (fight 0; object 1B4 frame 0 in the ROM look), fists (fight 4; 1B4 frame 1), bombs and their
+  // shadows (fight 6), the pod's cannon (fight 8; 1C0 by its shot), the doors (a force field), the shots and the floor
+  // pads lit where Sonic steps (object 1AC: six while walking, two in a fight)
+  const hazardTex = (() => {
+    const c = document.createElement('canvas'); c.width = 64; c.height = 16; const g = c.getContext('2d');
+    g.fillStyle = '#20232a'; g.fillRect(0, 0, 64, 16); g.fillStyle = '#f0c020';
+    for (let x = -16; x < 64; x += 16) { g.beginPath(); g.moveTo(x, 16); g.lineTo(x + 8, 0); g.lineTo(x + 16, 0); g.lineTo(x + 8, 16); g.fill(); }
+    const t = new THREE.CanvasTexture(c); t.wrapS = THREE.RepeatWrapping; t.repeat.set(6, 1); return t;
+  })();
+  function buildFfParts(b, rom) {
+    const V = b.vs, U = 1 / 32, add = m => { levelGroup.add(m); return m; };
+    const steel = new THREE.MeshLambertMaterial({ color: 0xa4acb6 }), dark = new THREE.MeshLambertMaterial({ color: 0x30353d }), red = new THREE.MeshBasicMaterial({ color: 0xff3020 });
+    const g = new THREE.Group(), R = 31 * U, H = V;
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(R, R * 1.06, H, 20), steel); drum.position.y = H / 2; g.add(drum);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.02, R * 1.02, H * 0.22, 20, 1, true), new THREE.MeshLambertMaterial({ map: hazardTex })); band.position.y = H * 0.62; g.add(band);
+    const top = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.96, R, 0.06, 20), dark); top.position.y = H + 0.03; g.add(top);
+    const canopy = new THREE.Group(), glass = new THREE.Mesh(new THREE.SphereGeometry(0.62, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x5a1820, emissive: 0x200408 }));
+    canopy.add(glass); canopy.position.set(-R * 0.9, H, 0); g.add(canopy);
+    for (const sz of [-1, 1]) {
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.7, 0.08), dark); fin.position.set(-R * 1.1, H * 0.8, sz * R * 0.8); fin.rotation.x = sz * 0.35; g.add(fin);
+      const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.8, 12), steel); pod.rotation.z = Math.PI / 2; pod.position.set(-0.1, H * 0.35, sz * (R + 0.2)); g.add(pod);
+    }
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), red); lamp.position.set(R * 0.98, H * 0.4, 0); g.add(lamp);
+    add(g);
+    const sprite = (type, frame) => { const sp = new THREE.Sprite(romBossMat(type, frame, ROM_CANVAS, 80, 3)); sp.center.set(0.5, OBJ_FOOT); sp.scale.set(ROM_SIZE, ROM_SIZE, 1); sp.visible = false; return add(sp); };
+    const cannons = [0, 1].map(() => {
+      if (rom) return sprite(0x1B4, 0);
+      const c = new THREE.Group(), barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.9, 10), dark), tip = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.04, 6, 12), new THREE.MeshBasicMaterial({ color: 0x40e0ff }));
+      barrel.rotation.z = Math.PI / 2; barrel.position.set(0.45, 0.25, 0); tip.rotation.y = Math.PI / 2; tip.position.set(0.9, 0.25, 0); c.add(barrel, tip); c.visible = false; return add(c);
+    });
+    const fists = [0, 1].map(() => {
+      if (rom) return sprite(0x1B4, 1);
+      const f = new THREE.Group(), box = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.45, 0.7), steel); box.position.y = 0.22; f.add(box);
+      for (let k = 0; k < 4; k++) { const sp = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.3, 8), new THREE.MeshLambertMaterial({ color: 0xd03020 })); sp.position.set((k % 2 - 0.5) * 0.45, 0.6, (Math.floor(k / 2) - 0.5) * 0.35); f.add(sp); }
+      f.visible = false; return add(f);
+    });
+    const bombMat = new THREE.MeshLambertMaterial({ color: 0x24262c }), shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.45, depthWrite: false });
+    const bombs = b.bombs.map(() => {
+      const m = add(new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 8), bombMat)), sh = add(new THREE.Mesh(new THREE.CircleGeometry(0.3, 16), shadowMat));
+      sh.rotation.x = -Math.PI / 2; m.visible = sh.visible = false; return { m, sh };
+    });
+    const turret = rom ? sprite(0x1C0, 0) : (() => {
+      const c = new THREE.Group(), base = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.25, 12), dark), barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.7, 10), steel);
+      base.position.y = 0.12; barrel.rotation.z = Math.PI / 2; barrel.position.set(0.35, 0.18, 0); c.add(base, barrel); c.visible = false; return add(c);
+    })();
+    // the doors: a force field between two posts, 2.5 m (the cells stand far higher for the sim)
+    const field = new THREE.MeshBasicMaterial({ color: 0xff3050, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false });
+    const doorFloor = b.doorTop - 0x20 * 8 / 32 * V;
+    const doors = b.doors.map(cells => {
+      const dg = new THREE.Group(), xs = cells.map(c => c[0]), zs = cells.map(c => c[1]);
+      const x0 = Math.min(...xs), x1 = Math.max(...xs) + 1, z0 = Math.min(...zs), z1 = Math.max(...zs) + 1, alongX = x1 - x0 > z1 - z0;
+      const len = alongX ? x1 - x0 : z1 - z0, sheet = new THREE.Mesh(new THREE.PlaneGeometry(len, 2.5), field);
+      if (!alongX) sheet.rotation.y = Math.PI / 2;
+      sheet.position.y = 1.25; dg.add(sheet);
+      for (const e of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.2, 2.7, 0.2), dark); post.position.set(alongX ? e * len / 2 : 0, 1.35, alongX ? 0 : e * len / 2); dg.add(post); }
+      dg.position.set((x0 + x1) / 2, doorFloor, (z0 + z1) / 2); dg.userData.h = 0; return add(dg);
+    });
+    const laserMat = new THREE.MeshBasicMaterial({ color: 0x70f0ff }), laserGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.7, 6);
+    const lasers = Array.from({ length: 30 }, () => { const m = add(new THREE.Mesh(laserGeo, laserMat)); m.rotation.z = Math.PI / 2; m.visible = false; return m; });
+    const ballGeo = new THREE.SphereGeometry(0.18, 10, 8), balls = Array.from({ length: 30 }, () => { const m = add(new THREE.Mesh(ballGeo, steel)); m.visible = false; return m; });
+    const padMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false });
+    const pads = Array.from({ length: 6 }, () => { const m = add(new THREE.Mesh(new THREE.PlaneGeometry(0.96, 0.96), padMat)); m.rotation.x = -Math.PI / 2; m.visible = false; return m; });
+    return { g, canopy, lamp, cannons, fists, bombs, turret, doors, lasers, balls, pads, cells: [], yaw: 0, rom };
+  }
+  function updateFfParts(b, f, t) {
+    const p = world.p, V = b.vs, U = 1 / 32, fight = b.st % 2 === 0;
+    // the machine (it flickers after a hit, 100 frames; the explosions at the end)
+    f.g.position.set(b.x, b.y, b.z);
+    const want = Math.atan2(-(p.z - b.z), p.x - b.x); let d = want - f.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); f.yaw += d * 0.06; f.g.rotation.y = f.yaw;
+    f.g.visible = !b.hidden && !(world.time - (b.hitAt ?? -9) < 100 / 60 && Math.floor(t * 16) % 2);
+    f.canopy.rotation.z = b.hatch ? Math.min(1, (f.canopy.rotation.z || 0) + 0.05) : Math.max(0, (f.canopy.rotation.z || 0) - 0.05);
+    f.lamp.material.color.setHex(Math.floor(t * 3) % 2 ? 0xff3020 : 0x801008);
+    f.cannons.forEach((c, k) => { const q = b.cannonsM && b.cannonsM[k]; c.visible = !!q && !b.hidden; if (q) c.position.set(q[0], q[1], q[2]); });
+    f.fists.forEach((c, k) => { const q = b.st === 4 && b.fistsM && b.fistsM[k]; c.visible = !!q && !b.hidden; if (q) c.position.set(q[0], q[1], q[2]); });
+    f.bombs.forEach((o, k) => {
+      const q = b.bombsM && b.bombsM[k]; o.m.visible = !!q; o.sh.visible = !!(q && q[3]);
+      if (q) { o.m.position.set(q[0], q[1] + 0.25, q[2]); o.sh.position.set(q[0], Sim.floorAt(L, q[0], q[2]) + 0.02, q[2]); }
+    });
+    f.turret.visible = b.st === 8 && !b.hidden;
+    if (f.turret.visible) {
+      f.turret.position.set(b.x + U, b.y + 16 * V / 32, b.z + U);
+      const k = b.cannon > 0 ? Math.min(4, b.cannonK) : b.cannon < 0 ? Math.max(0, 4 - b.cannonK) : 0, a = Math.atan2(-[36, 28, 12, -12, -31][k], [36, 41, 49, 49, 44][k]);
+      if (f.rom) f.turret.material = romBossMat(0x1C0, k, ROM_CANVAS, 80, 3); else f.turret.rotation.y = a;
+    }
+    // doors slide up and down (a metre a second)
+    f.doors.forEach((dg, k) => { const tgt = b.doorUp[k] ? 1 : 0; dg.userData.h += Math.max(-0.05, Math.min(0.05, tgt - dg.userData.h)); dg.visible = dg.userData.h > 0.01; dg.scale.y = Math.max(0.01, dg.userData.h); });
+    // the shots
+    let li = 0, bi = 0;
+    for (const sh of world.shots) {
+      if (sh.laser && li < f.lasers.length) { const m = f.lasers[li++]; m.visible = true; m.position.set(sh.x, sh.y + 0.3, sh.z); }
+      else if (sh.ball && bi < f.balls.length) { const m = f.balls[bi++]; m.visible = true; m.position.set(sh.x, sh.y + 0.18, sh.z); }
+    }
+    for (; li < f.lasers.length; li++) f.lasers[li].visible = false;
+    for (; bi < f.balls.length; bi++) f.balls[bi].visible = false;
+    // the pads lit where Sonic stands
+    if (p.grounded) { const c = [Math.floor(p.x), Math.floor(p.z)]; if (!f.cells.length || f.cells[0][0] !== c[0] || f.cells[0][1] !== c[1]) { f.cells.unshift(c); f.cells.length = Math.min(f.cells.length, 6); } }
+    const n = fight ? 2 : 6;
+    f.pads.forEach((m, k) => { const c = f.cells[k]; m.visible = !!c && k < n; if (c && k < n) m.position.set(c[0] + 0.5, Sim.floorAt(L, c[0] + 0.5, c[1] + 0.5) + 0.02, c[1] + 0.5); });
+    // beaten: bursts round the machine
+    for (let q = 0; q < puffSprites.length; q++) {
+      const s = puffSprites[q], k = (t * 3 + q * 0.37) % 1;
+      s.visible = b.end >= 0 && q < 12; if (s.visible) { s.position.set(b.x + Math.sin(q * 7.1) * 1.2 * k, b.y + 0.6 + Math.cos(q * 3.3) * 0.8 * k, b.z + Math.cos(q * 5.3) * 1.2 * k); s.scale.setScalar(0.4 + k); }
     }
   }
   // a fireball: an orange glow drawn once
@@ -1793,7 +1918,7 @@
       yaw += d * Math.min(1, dt * 1.6 * Math.min(1, (sp - runRef()) / 8));
     }
     // a boss: swing round behind the player so it stays in front (gently, and not when it is right overhead)
-    const bo = world.boss && world.boss.dead < 0 ? world.boss : null;
+    const bo = world.boss && world.boss.dead < 0 && !world.boss.hidden ? world.boss : null;   // (Final Fight's is gone between fights)
     if (bo && !looking) {
       const bd = Math.hypot(fx - bo.x, fz - bo.z);
       let d = Math.atan2(fx - bo.x, fz - bo.z) - yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
@@ -1823,8 +1948,8 @@
     if (Number.isFinite(floorHere) && view.pos.y < floorHere + 0.4) view.pos.y = floorHere + 0.4;
     chaseCam.position.copy(view.pos);
     view.look.set(fx, focusY - 0.15, fz);
-    if (bo) {   // and tilt up towards it, so a boss overhead is in the picture
-      view.look.x += (bo.x - fx) * 0.3; view.look.z += (bo.z - fz) * 0.3; view.look.y += Math.max(0, bo.y - focusY) * 0.45;
+    if (bo) {   // and tilt up towards it, so a boss overhead is in the picture (not one far up: Final Fight's fists fight then)
+      view.look.x += (bo.x - fx) * 0.3; view.look.z += (bo.z - fz) * 0.3; view.look.y += Math.max(0, Math.min(4, bo.y - focusY)) * 0.45;
     }
     chaseCam.lookAt(view.look);
     view.target.set(fx, focusY, fz);
@@ -2367,7 +2492,7 @@
       s.scale.set(s.userData.size, s.userData.size * (k < 0.15 ? 0.9 : 1), 1);
     }
     for (let q = 0; q < shotSprites.length; q++) {
-      const sh = world.shots[q]; shotSprites[q].visible = !!sh;
+      const sh = world.shots[q]; shotSprites[q].visible = !!sh && !sh.laser && !sh.ball;   // (Final Fight's are drawn with its machine)
       if (sh) shotSprites[q].position.set(sh.x, sh.y, sh.z);
     }
     if (sprinklerObjs.length || pylonObjs.length || zapObjs.length || beamObjs.length) {

@@ -231,7 +231,14 @@ const S3D = (() => {
             { rest: [0x6C8, 0x1A0, 0x668], shoulder: [0x690, 0x1A8, 0x638], cell: [52, 49], t: 0x2BC, phase: 0x400 }] },
         { pod: [0x761, 0x740, 0x140, 0xC0], hitY: 0x130,
           arms: [{ rest: [0x788, 0x140, 0x7A8], shoulder: [0x758, 0x148, 0x770], cell: [58, 59], t: 0x190 },
-            { rest: [0x7C8, 0x140, 0x768], shoulder: [0x790, 0x148, 0x738], cell: [60, 57], t: 0x2BC, phase: 0x400 }] }] } };
+            { rest: [0x7C8, 0x140, 0x768], shoulder: [0x790, 0x148, 0x738], cell: [60, 57], t: 0x2BC, phase: 0x400 }] }] },
+    // Final Fight (InitLevel 0x14170, RunLevel_FFz 0x142C0): the machine's scripts live in the Sim (ffStep, in the
+    // original's units); here the doors, map words of two cells each set to 0x8500 (shut) or 0x6500 (open): 0 and 1 the
+    // east corridor's ends, 2 and 3 the north corridor's east doors, 4 and 5 its west ones, 6 and 7 the west corridor's
+    // ends, 8 and 9 the south corridor's ends
+    22: { kind: 'ff', at: [0x940, 0x190, 0x800], cruise: 0x320, home: [0x940, 0x800], arena: [0x660, 0xA80, 0x5A0, 0x860], hp: 10,
+      doors: [[0x379C, 0x379E], [0x3C9C, 0x3C9E], [0x3192, 0x3292], [0x3198, 0x3298], [0x317A, 0x327A], [0x3180, 0x3280],
+        [0x3772, 0x3774], [0x3C72, 0x3C74], [0x407C, 0x417C], [0x4094, 0x4194]], doorTop: 0x85 } };
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
   // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
@@ -845,6 +852,9 @@ const S3D = (() => {
           return o;
         });
       }
+      if (bs.kind === 'ff') {   // (map word offsets to cells)
+        e.org = [x0, z0]; e.doors = bs.doors.map(d => d.map(o => [(o >> 1) % 128 - x0, ((o >> 1) >> 7) - z0])); e.doorTop = r3(bs.doorTop * 8 / CELL * vscale);
+      }
       if (bs.kind === 'gng') {
         const Y = v => r3(v / CELL * vscale), Z = v => r3(v / CELL - z0);
         e.first = Y(bs.first); e.high = Y(bs.high); e.low = Y(bs.low); e.belt = bs.belt.map(Z); e.lanes = [r3(bs.lanes[0] / CELL - x0), r3(bs.lanes[1] / CELL)];
@@ -1082,7 +1092,9 @@ const S3D = (() => {
       hover: [0xC1], pyramid: [0xAE], zapArm: [0x42], sprinkle: [0x4D], tubeNo: [0xB2], tubeYes: [0x3C] /* Gene Gadget 1's routine and objects */,
       lever: [0x76], launch: [0xAB], capsule: [0x3D], pellet: [0x9A], doorShut: [0x64], tubeIn: [0xAD] /* Panic Puppet 1's routine and objects */,
       shut: [0xC9], beam: [0x78], liftUp: [0x3C], liftGo: [0xB6], lift: [0xD2] /* Panic Puppet 2's */,
-      armGo: [0x5A], armRise: [0xC3], armSlam: [0x81], armOpen: [0x92], armDown: [0x54], blast: [0x59] /* Panic Puppet 3's routine */ },
+      armGo: [0x5A], armRise: [0xC3], armSlam: [0x81], armOpen: [0x92], armDown: [0x54], blast: [0x59] /* Panic Puppet 3's routine */,
+      ffDoor: [0xB8], ffBeep: [0xAD], timeUp: [0x78], ffAway: [0x60], ffHum: [0xC6], ffReady: [0x9D], laser: [0x5E], ffRise: [0xD0],
+      ffSink: [0x73], ffLetGo: [0xB6], ffAim: [0x53], ffSlam: [0x5F], ffTarget: [0x51] /* Final Fight's routine */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {

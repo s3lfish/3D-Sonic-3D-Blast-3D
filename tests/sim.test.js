@@ -1039,5 +1039,52 @@ test('the Panic Puppet boss: an arm follows the player, punches down to the floo
   }
   assert.strictEqual(downs, 2, 'both arms broken'); assert.ok(b.arms.every(a => a.hits === 0) && end > 0 && w.cleared, `the act ended (${end})`);
 });
+// Final Fight: a flat floor at the act's height (25.25 m) over the act's 34 x 22 cells; the doors as the converter makes them
+const FF = () => {
+  const tiles = []; for (let k = 0; k < 34 * 22; k++) tiles.push({ c: [25.25, 25.25, 25.25, 25.25], t: 'F' });
+  const doors = [[[26, 9], [27, 9]], [[26, 14], [27, 14]], [[21, 3], [21, 4]], [[24, 3], [24, 4]], [[9, 3], [9, 4]], [[12, 3], [12, 4]], [[5, 9], [6, 9]], [[5, 14], [6, 14]], [[10, 18], [10, 19]], [[22, 18], [22, 19]]];
+  const w = world({ version: 1, format: 'tiles', width: 34, depth: 22, tiles, entities: [{ type: 'start', x: 26.5, z: 18.5 },
+    { type: 'boss', kind: 'ff', x: 22, y: 12.5, z: 18, home: [22, 18], cruise: 25, arena: [-1, 32, -1, 21], hp: 10, vs: 1, org: [52, 46], doors, doorTop: 33.25 }] });
+  w.ringCount = 50; return w;
+};
+const ffTp = (w, x, y, z, ball) => Object.assign(w.p, { x: x / 32 - 52, y: (y + 8) / 32, z: z / 32 - 46, vx: 0, vy: 0, vz: 0, grounded: !ball, ball: !!ball, jumping: false });
+const ffUp = (w, cx, cz) => w.L.up.has(cz * 34 + cx);
+test('the Final Fight machine rises, aims and fires lasers across Sonic\'s row; a jump onto it when it comes forward is a hit', () => {
+  const w = FF(); let laser = null, f = 0;
+  assert.ok(ffUp(w, 22, 18) && ffUp(w, 10, 19) && !ffUp(w, 26, 9), 'six doors shut at the start');
+  for (; f < 1200 && !laser; f++) { Sim.step(w, {}); w.ringCount = 50; w.p.invuln = 0.1; laser = w.shots.find(q => q.laser); }
+  assert.ok(laser && f > 400, `a laser at frame ${f}`); assert.ok(Math.abs(laser.z - w.p.z) < 0.6, `along Sonic's row (z ${laser.z.toFixed(2)} vs ${w.p.z.toFixed(2)})`);
+  const b = w.boss; let hit = false;
+  for (f = 0; f < 3000 && !hit; f++) {
+    if (b.si === 9 && b.ux >= 0x960) ffTp(w, b.ux + 28, b.uy + 40, b.uz + 4, true);
+    Sim.step(w, {}); w.ringCount = 50; hit = w.events.includes('bossHit');
+  }
+  assert.ok(hit && b.left === 9 && b.def === 200, 'one hit of ten');
+  run(w, 200, {}); assert.strictEqual(b.st, 1, 'beaten: the walk to the next room');
+  assert.ok(!ffUp(w, 26, 9) && !ffUp(w, 27, 14), 'the east corridor\'s doors open');
+});
+test('Final Fight: 600 frames to reach the next room or Sonic is killed; walking on shuts the doors behind and the next fight starts', () => {
+  let w = FF(), b = w.boss; Object.assign(b, { def: 1 }); Sim.step(w, {});
+  assert.strictEqual(b.st, 1); const deaths = w.deaths; let up = false;
+  run(w, 610, (k, ww) => { if (ww.events.includes('timeUp')) up = true; ww.ringCount = 50; return {}; });
+  assert.ok(up && w.deaths === deaths + 1 && w.boss.st === 0 && w.boss.left === 10 && ffUp(w, 22, 18), 'time up: killed, the fight starts again');
+  w = FF(); b = w.boss; Object.assign(b, { def: 1 }); Sim.step(w, {});
+  ffTp(w, 2592, 800, 1700); Sim.step(w, {});
+  assert.ok(b.st === 2 && ffUp(w, 26, 9) && ffUp(w, 26, 14), 'in the north-east room, both doors shut');
+});
+test('Final Fight: ten hits, one a fight round the rooms, end the act', () => {
+  const w = FF(), b = w.boss, room = { 1: [2592, 1632], 3: [2200, 1600], 5: [1800, 1632], 7: [1880, 2050], 9: [2512, 2064] };
+  const chance = q => (q.st === 0 && q.si === 9 && q.ux >= 0x960) || (q.st === 2 && q.si === 12) || (q.st === 4 && q.si === 23) || (q.st === 6 && q.si === 4 && q.ux >= 0x690) || (q.st === 8 && q.si === 12);
+  const fights = []; let end = -1;
+  for (let f = 0; f < 30000 && end < 0; f++) {
+    if (b.st % 2 && room[b.st]) ffTp(w, room[b.st][0], 800, room[b.st][1]);
+    else if (!b.def && !b.cool && chance(b)) { w.p.invuln = 0; ffTp(w, b.ux + 28, b.uy + 40, b.uz + 4, true); }
+    Sim.step(w, {}); w.ringCount = 50;
+    if (w.events.includes('bossHit')) fights.push(b.st);
+    if (w.events.includes('goal')) end = f;
+  }
+  assert.deepStrictEqual(fights, [0, 2, 4, 6, 8, 0, 2, 4, 6, 8], 'one hit in each fight, twice round');
+  assert.ok(end > 0 && w.cleared, `the act ended (${end})`);
+});
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

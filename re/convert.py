@@ -146,7 +146,10 @@ BOSSES = {3: {'kind': 'gg', 'at': (1152, 350, 1152), 'home': (1088, 1088), 'crui
                              {'rest': (0x6C8, 0x1A0, 0x668), 'shoulder': (0x690, 0x1A8, 0x638), 'cell': (52, 49), 't': 0x2BC, 'phase': 0x400}]},
                    {'pod': (0x761, 0x740, 0x140, 0xC0), 'hitY': 0x130,
                     'arms': [{'rest': (0x788, 0x140, 0x7A8), 'shoulder': (0x758, 0x148, 0x770), 'cell': (58, 59), 't': 0x190},
-                             {'rest': (0x7C8, 0x140, 0x768), 'shoulder': (0x790, 0x148, 0x738), 'cell': (60, 57), 't': 0x2BC, 'phase': 0x400}]}]}}
+                             {'rest': (0x7C8, 0x140, 0x768), 'shoulder': (0x790, 0x148, 0x738), 'cell': (60, 57), 't': 0x2BC, 'phase': 0x400}]}]},
+          22: {'kind': 'ff', 'at': (0x940, 0x190, 0x800), 'cruise': 0x320, 'home': (0x940, 0x800), 'arena': (0x660, 0xA80, 0x5A0, 0x860), 'hp': 10,   # Final Fight (see s3d.js)
+               'doors': ((0x379C, 0x379E), (0x3C9C, 0x3C9E), (0x3192, 0x3292), (0x3198, 0x3298), (0x317A, 0x327A), (0x3180, 0x3280),
+                         (0x3772, 0x3774), (0x3C72, 0x3C74), (0x407C, 0x417C), (0x4094, 0x4194)), 'doorTop': 0x85}}
 SCRIPTS = 0x25DF2
 
 
@@ -590,6 +593,8 @@ def convert(rom, level_id, vscale=1.0):
             e["hitBox"] = [jround(bs['hitBox'][0] / CELL - x0, 3), jround(bs['hitBox'][1] / CELL - x0, 3), jround(bs['hitBox'][2] / CELL - z0, 3), jround(bs['hitBox'][3] / CELL - z0, 3)]
             e["rise"] = [jround(bs['rise'][0] / CELL - x0, 3), Y(bs['rise'][1]), jround(bs['rise'][2] / CELL - z0, 3)]
             e["spikes"] = [[cx - x0, cz - z0] for cx, cz in bs['spikes'] if floor_cell(cx, cz)]
+        if bs['kind'] == 'ff':   # (see s3d.js)
+            e["org"] = [x0, z0]; e["doors"] = [[[(o >> 1) % 128 - x0, ((o >> 1) >> 7) - z0] for o in d] for d in bs['doors']]; e["doorTop"] = jround(bs['doorTop'] * 8 / CELL * vscale, 3)
         if bs['kind'] == 'pp':   # (see s3d.js)
             X = lambda v: r3(v / CELL - x0); Y = lambda v: r3((v + 8) / CELL * vscale); Z = lambda v: r3(v / CELL - z0); P3 = lambda q: [X(q[0]), Y(q[1]), Z(q[2])]
             e["y"] = Y(bs['at'][1]); e["cruise"] = Y(bs['cruise']); stages = []

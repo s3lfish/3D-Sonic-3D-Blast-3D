@@ -74,6 +74,11 @@ untested.
   outrun the fire serpent; in Gene Gadget, keep off the end of the belt, dodge its loads and the bombs, and jump on the
   pod when it comes down; in Panic Puppet, three arenas of arms that punch, sway, set a serpent on you and spray
   shots: jump at an arm's shoulder while it rests, then ride the lift to the next arena.
+- The Final Fight: Robotnik's machine fights you in four rooms and a corridor, twice round, ten hits: lasers along
+  your row, a fire serpent, two spiked fists that slam and then slide apart, bombs that fall on where you stand, and
+  a pod whose cannon sprays bouncing balls. Each time it comes close, jump on it. Doors shut you in; once it is hit,
+  you have ten seconds to reach the next room. (The machine is our own model: the original draws it from tiles the
+  game unpacks as it plays.)
 - Mines, Turrets, chasing enemies, Hunters with their circling spike balls, and superchargers (stand on one and press jump).
 - The original's act results screen, then the next act.
 - With your own Sonic Jam (Saturn) disc image (.chd, .iso, .bin, .img, .mdf, .nrg, .ecm, or zipped): a 3D Sonic using the Saturn game's own model, textures and moves
@@ -82,7 +87,7 @@ untested.
 - With your ROM: the original music and sound effects, played by an emulated Mega Drive sound chip running the
   game's own sound program from your ROM. Without a ROM: simple sound effects made in the browser. M turns sound off.
 
-Not done yet: Spring Stadium's gates, Tails and Knuckles, Panic Puppet and Final Fight. See `re/NOTES.md` for what is known and what is not.
+Not done yet: Spring Stadium's gates, Tails and Knuckles, and the bonus stage. See `re/NOTES.md` for what is known and what is not.
 
 ## Working on it
 
