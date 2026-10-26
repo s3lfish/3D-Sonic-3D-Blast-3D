@@ -71,6 +71,12 @@ serves index.html from main.
   (`blastgrid.mute`); the help card pauses the audio context. Rebuild the wasm with `sh sound/build.sh`, then build.py.
 - Scar: a compiled WebAssembly.Module posted to the AudioWorklet never arrived (no error); post the bytes instead.
   Requests sent before the worklet's async start were wiped by boot(): boot no longer clears the queue.
+- 3D hero: `src/jam.js` (tag `#jam`) reads the player's Sonic Jam disc image (.iso or Track 1 .bin; ISO 9660 via
+  File.slice, only MUSEUM.MUS and SPRDATA.MUS kept, IndexedDB key 'jam'). `buildHero3d` makes a group per part
+  (Lambert, vertex colours + texture atlas, DoubleSide) and the jump ball; `updateHero3d` picks idle/walk/run/sprint/
+  spring/fall at 30 frames a second (assumed) scaled by speed; angles z,y,x → Euler 'ZYX'; model faces -x so
+  rotation.y = facing + pi/2. Hero select `#heroSel` ('3d' default when a disc is loaded; `blastgrid.hero`).
+- Scar: `sun` is already the scene's light at the top of game.js; the scene's hemisphere and sun light the hero.
 - Big ring in ROM look: object art 0x3D068 frame 0, floating 56 units up, squeezed in x to turn.
 - ROM files: `S3D.openRomFile` takes a plain ROM, an .smd dump (de-interleaved) or either inside a .zip (stored or
   deflate via DecompressionStream).
@@ -100,7 +106,7 @@ serves index.html from main.
 
 ## Status
 - 2026-10-26: ROM results screen, Saturn screen option, ROM music and effects by emulation (GG1 music checked against
-  the reference emulator: same notes at the same tempo, top-note agreement 0.53 vs 0.14 chance). Sonic Jam model waits for Bill's disc rip.
+  the reference emulator: same notes at the same tempo, top-note agreement 0.53 vs 0.14 chance). 3D Sonic from Bill's Sonic Jam USA disc (formats from Sonic Retro SCHG).
 - 2026-10-26: Springs measured (140 units), monitors with ROM icons and effects, mines, turrets, superchargers, Scouters
   chase, Hunters stand, Flickies coloured in turn, act end moves to the next act, sound effects, spin dash on hold. 64 sim tests.
   Bill asked about music: offered own audio files, VGM rips, or full emulation; awaiting his choice.

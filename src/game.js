@@ -732,6 +732,87 @@
   const sil = new THREE.Sprite(silMat);
   sil.center.copy(hero.center); sil.scale.copy(hero.scale); sil.renderOrder = 10;
   scene.add(sil);
+  // ---- 3D Sonic from the player's own Sonic Jam disc (Saturn): parts, textures and moves read by Jam (src/jam.js) ----
+  const HERO_KEY = 'blastgrid.hero';
+  let hero3d = null, heroMode = store.get(HERO_KEY) === 'sprite' ? 'sprite' : '3d';
+  const turn = v => v * Math.PI * 2 / 65536;
+  function buildHero3d(data) {
+    const S = Jam.sonic(data.museum, data.sprdata);
+    // the model's textures in one canvas (shelves), with a white corner for the plain-coloured quads
+    const W = 256, place = new Map();
+    let x = 4, y = 0, rowH = 4;
+    for (const [id, t] of S.textures) { if (x + t.w > W) { x = 0; y += rowH; rowH = 0; } place.set(id, [x, y]); x += t.w; rowH = Math.max(rowH, t.h); }
+    let H = 4; while (H < y + rowH) H *= 2;
+    const cnv = document.createElement('canvas'); cnv.width = W; cnv.height = H;
+    const g = cnv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 4, 4);
+    for (const [id, t] of S.textures) { const [px, py] = place.get(id); g.putImageData(new ImageData(t.px, t.w, t.h), px, py); }
+    const map = new THREE.CanvasTexture(cnv);
+    map.magFilter = THREE.NearestFilter; map.minFilter = THREE.NearestFilter; map.generateMipmaps = false; map.flipY = false;
+    const mat = new THREE.MeshLambertMaterial({ map, vertexColors: true, side: THREE.DoubleSide });
+    // each quad as two triangles; textured quads stretch their texture corner to corner, as the Saturn's VDP1 does
+    const meshOf = part => {
+      const pos = [], nrm = [], uv = [], col = [], white = [[1 / W, 1 / H], [3 / W, 1 / H], [3 / W, 3 / H], [1 / W, 3 / H]];
+      for (const q of part.quads) {
+        let uvs = white, c = [1, 1, 1];
+        if (q.tex && place.has(q.tex)) {
+          const t = S.textures.get(q.tex), [px, py] = place.get(q.tex);
+          let u0 = px / W, v0 = py / H, u1 = (px + t.w) / W, v1 = (py + t.h) / H;
+          if (q.ctrl & 0x10) [u0, u1] = [u1, u0];
+          if (q.ctrl & 0x20) [v0, v1] = [v1, v0];
+          uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
+        } else { const v = q.colour; c = [(v & 31) / 31, ((v >> 5) & 31) / 31, ((v >> 10) & 31) / 31]; }
+        for (const k of [0, 1, 2, 0, 2, 3]) { pos.push(...part.verts[q.idx[k]]); nrm.push(...part.normals[q.idx[k]]); uv.push(...uvs[k]); col.push(...c); }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      return new THREE.Mesh(geo, mat);
+    };
+    // root (place, facing) > lift (feet on the floor) > anim (each frame's global move) > body > limbs
+    const root = new THREE.Group(), lift = new THREE.Group(), anim = new THREE.Group();
+    root.add(lift); lift.add(anim);
+    const nodes = S.parts.map((pt, k) => { const n = new THREE.Group(); n.position.fromArray(S.offsets[k]); n.add(meshOf(pt)); return n; });
+    nodes.forEach((n, k) => (S.parent[k] < 0 ? anim : nodes[S.parent[k]]).add(n));
+    const ball = new THREE.Group(); ball.add(meshOf(S.ball)); lift.add(ball); ball.visible = false;
+    const h = { root, lift, anim, nodes, ball, S, scale: 1, clip: '', t: 0 };
+    // size: the idle pose stands about 1.05 m tall with its lowest point on the floor
+    poseHero3d(h, 'idle', 0);
+    root.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(anim);
+    h.scale = 1.05 / Math.max(1e-3, box.max.y - box.min.y);
+    lift.position.y = -box.min.y;
+    // the ball spins about its own middle and rests on the floor
+    const bb = new THREE.Box3().setFromObject(ball.children[0]), c = new THREE.Vector3(); bb.getCenter(c);
+    ball.children[0].position.sub(c); ball.scale.setScalar(0.8); ball.position.y = (bb.max.y - bb.min.y) / 2 * 0.8 + box.min.y;
+    root.scale.setScalar(h.scale);
+    scene.add(root);
+    return h;
+  }
+  function poseHero3d(h, clip, frame) {
+    const frames = h.S.anims[clip], f = frames[((Math.floor(frame) % frames.length) + frames.length) % frames.length];
+    h.anim.position.fromArray(f.pos); h.anim.rotation.set(turn(f.rot[2]), turn(f.rot[1]), turn(f.rot[0]), 'ZYX');
+    h.nodes.forEach((n, k) => { const r = f.rots[k]; n.rotation.set(turn(r[2]), turn(r[1]), turn(r[0]), 'ZYX'); });
+  }
+  // each frame: pick the move from the sim state, like the sprite hero does
+  function updateHero3d(p, rp, dt, t) {
+    const h = hero3d, sp = Math.hypot(p.vx, p.vz), run = Sim.P.run;
+    h.root.position.copy(rp); h.root.rotation.y = p.facing + Math.PI / 2;   // the model faces its -x
+    h.root.visible = !(p.invuln > 0 && Math.floor(t * 16) % 2);
+    const balled = p.charge > 0 || p.ball || p.rolling;
+    h.ball.visible = balled; h.anim.visible = !balled;
+    if (balled) { h.ball.rotation.z -= dt * Math.max(sp, p.charge > 0 ? 14 : 8) * 1.6; return; }
+    let clip, rate = 30;
+    if (!p.grounded) clip = p.sprung ? 'spring' : 'fall';
+    else if (sp < 0.3) clip = 'idle', rate = 15;
+    else if (sp < run * 0.55) clip = 'walk', rate = 30 * Math.max(0.4, sp / (run * 0.4));
+    else if (sp < run * 1.1) clip = 'run', rate = 30 * Math.max(0.7, sp / run);
+    else clip = 'sprint', rate = 30 * Math.min(1.6, sp / run);
+    if (clip !== h.clip) { h.clip = clip; h.t = 0; }
+    h.t += dt * rate;
+    if (clip === 'spring' || clip === 'fall') h.t = Math.min(h.t, h.S.anims[clip].length - 1);
+    poseHero3d(h, clip, h.t);
+  }
+
   const shieldSprite = new THREE.Sprite(shieldMats.shield); shieldSprite.scale.set(1.25, 1.25, 1); shieldSprite.visible = false; shieldSprite.renderOrder = 5; scene.add(shieldSprite);
   const stars = Array.from({ length: 4 }, () => { const s = new THREE.Sprite(starMat); s.scale.set(0.3, 0.3, 1); s.visible = false; scene.add(s); return s; });
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.34, 20), new THREE.MeshBasicMaterial({ color: 0x1a1430, transparent: true, opacity: 0.35, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
@@ -1141,9 +1222,9 @@
         tx.oncomplete = () => { db.close(); ok(rq.result); }; tx.onerror = () => { db.close(); fail(tx.error); };
       });
     },
-    get() { return this.run('readonly', s => s.get('rom')).catch(() => null); },
-    put(bytes) { return this.run('readwrite', s => s.put(bytes, 'rom')).then(() => true, () => false); },
-    del() { return this.run('readwrite', s => s.delete('rom')).catch(() => null); },
+    get(key = 'rom') { return this.run('readonly', s => s.get(key)).catch(() => null); },
+    put(bytes, key = 'rom') { return this.run('readwrite', s => s.put(bytes, key)).then(() => true, () => false); },
+    del(key = 'rom') { return this.run('readwrite', s => s.delete(key)).catch(() => null); },
   };
   function useRom(bytes) {
     romBytes = bytes;
@@ -1174,6 +1255,34 @@
     };
     reader.onerror = () => setLoadMsg(['The ROM file could not be read. Try choosing it again.'], 'romMsg');
     reader.readAsArrayBuffer(file);
+  });
+  // the Sonic Jam disc: only its two Sonic World files are kept (in this browser), never the whole image
+  function useJam(data) {
+    try {
+      if (hero3d) { scene.remove(hero3d.root); hero3d = null; }
+      hero3d = buildHero3d(data);
+      if (satReady) satScene();
+      $('jamPick').hidden = false; $('heroSel').value = heroMode;
+      return true;
+    } catch (e) { setLoadMsg(['Sonic could not be read from this disc: ' + e.message + '.'], 'jamMsg'); return false; }
+  }
+  romStore.get('jam').then(v => { if (v && v.museum && !hero3d) useJam({ museum: new Uint8Array(v.museum), sprdata: new Uint8Array(v.sprdata) }); });
+  $('jamFile').addEventListener('change', async e => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    setLoadMsg(['Reading the disc…'], 'jamMsg');
+    try {
+      const data = await Jam.openDisc(file);
+      if (!useJam(data)) return;
+      setLoadMsg([], 'jamMsg');
+      romStore.put({ museum: data.museum, sprdata: data.sprdata }, 'jam').then(kept => { if (!kept) setLoadMsg(['Using the disc for this visit only: the browser would not keep a copy.'], 'jamMsg'); });
+    } catch (err) { setLoadMsg([err.message + '.'], 'jamMsg'); }
+  });
+  $('heroSel').addEventListener('change', () => { heroMode = $('heroSel').value === 'sprite' ? 'sprite' : '3d'; store.set(HERO_KEY, heroMode); });
+  $('jamForget').addEventListener('click', () => {
+    romStore.del('jam'); if (hero3d) { scene.remove(hero3d.root); hero3d = null; }
+    $('jamPick').hidden = true; setLoadMsg(['Forgotten: this browser no longer keeps the Sonic Jam files.'], 'jamMsg');
   });
   $('romGo').addEventListener('click', () => {
     if (!romBytes) return;
@@ -1334,6 +1443,9 @@
     if (heroMat.map !== map) { heroMat.map = map; silMat.map = map; }
     hero.position.copy(rp); sil.position.copy(rp);
     hero.visible = !(p.invuln > 0 && Math.floor(t * 16) % 2);
+    const use3d = !!hero3d && heroMode === '3d';
+    if (hero3d) hero3d.root.visible = use3d;
+    if (use3d) { hero.visible = false; sil.visible = false; updateHero3d(p, rp, dt, t); } else sil.visible = true;
     shieldSprite.visible = !!p.shield;
     if (p.shield) { shieldSprite.material = shieldMats[p.shield] || shieldMats.shield; shieldSprite.position.set(rp.x, rp.y + 0.55, rp.z); }
     for (let k = 0; k < stars.length; k++) {
@@ -1471,7 +1583,7 @@
   }
   satReady = true; setSaturn(saturn);
   $('screenSel').addEventListener('change', () => setSaturn($('screenSel').value === 'saturn'));
-  window.__game = { MdSound, Sim, view, setMode, start, get world() { return world; }, get level() { return L; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
+  window.__game = { MdSound, Sim, get hero3d() { return hero3d; }, view, setMode, start, get world() { return world; }, get level() { return L; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
   setMode(view.mode);
   requestAnimationFrame(frame);
 })();

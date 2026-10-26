@@ -9,6 +9,7 @@ def fill(tag_open, body):
     assert pat.search(html), tag_open
     html = pat.sub(lambda m: m.group(1) + body.rstrip('\n') + '\n</script>', html, count=1)
 fill('<script id="s3d">', (root / 'src/s3d.js').read_text())
+fill('<script id="jam">', (root / 'src/jam.js').read_text())
 fill('<script id="art">', (root / 'src/art.js').read_text())
 fill('<script id="game">', (root / 'src/game.js').read_text())
 import base64

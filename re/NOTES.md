@@ -164,6 +164,22 @@ original art. The browser code carries reading rules only.
   Monitors also queue on $0AC6: blue shield 3A, gold shield 3F (others in code at 0xC190 to 0xC210: 33, 19, 3E, 1B).
 - Emulated in the page (sound/md_sound.c) and checked against the reference emulator: Green Grove's music matches.
 
+## Sonic Jam (Saturn): the 3D Sonic
+
+The formats come from the Sonic Retro SCHG pages for Sonic Jam (Models, Animations, Textures); `re/jam/jam.py` reads
+them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS and SPRDATA.MUS in `re/jam/files/`.
+
+- The disc is ISO 9660 (data track Mode 1, 2352-byte sectors with the data at +16). Sonic World's models, animations
+  and texture definitions are in MUSEUM.MUS (loaded at 0x06040000; pointers minus that give file offsets); texture
+  pixels and colour tables are in SPRDATA.MUS at (VDP1 address - 0xD040).
+- Sonic: 15 parts with footers listed at 0x42620, then (straight after the 15 pointers, no terminator) each part's
+  offset from its parent. Parents (my reading, confirmed by the poses): body; head, thighs, biceps and tail on the
+  body; calf on thigh, foot on calf; wrist on bicep, hand on wrist. Jump ball: one part, footer list at 0x49D48.
+- Animation angles are stored z, y, x and applied as Rz Ry Rx (the only order that gives a natural run, walk and
+  somersault). The model faces its -x. Textured quads use 4-bit colour tables with transparent-pixel disable set, so
+  colour 0 is drawn; CMDCTRL bits 0x10 and 0x20 flip the texture.
+- Checked on the USA disc. Whether the European disc keeps the same offsets is not known.
+
 ## Open questions
 
 - Section gimmicks per zone; objects that write the map.

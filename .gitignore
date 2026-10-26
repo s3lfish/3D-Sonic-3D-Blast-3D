@@ -19,3 +19,4 @@ node_modules/
 package-lock.json
 test-out/
 re/out/player_frames.json
+re/jam/files/
