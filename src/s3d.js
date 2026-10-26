@@ -596,6 +596,15 @@ const S3D = (() => {
         const art = typeArt(d, t);
         if (art > 0 && art + 8 <= d.length) e.win = [u16(d, art), u16(d, art + 2), s16(d, art + 4), s16(d, art + 6), s16(ob, o + 0xA)];
       }
+      // its touch bytes (+4, +5; routine 0x1B8FE): touched when x - z is within 0x2C - b4 of Sonic's, (x + z) / 2 within
+      // 0x20 - b4, and y within b5
+      if (kind === 'enemy' && ob[o + 4]) e.touch = [ob[o + 4], ob[o + 5]];
+      // 0C8 (handler 0x16B46): steps through its animation table (0x16C7E, a word a frame from offset +0x1E; -1 jumps
+      // back), which moves it round a square and fires where the frame says (Sim origC8)
+      if (t === 0xC8) {
+        const tab = []; for (let a = 0x16C7E; tab.length < 1024; a += 2) { const v = s16(d, a); tab.push(v); if (v < 0) { tab.push(s16(d, a + 2)); break; } }
+        e.c8 = { i: u16(ob, o + 0x1E), r: [ob[o + 0x20], ob[o + 0x21]], t: tab };   // (r: its rate and count, +0x20 / +0x21)
+      }
       if (kind === 'pylon') {   // the barrier whose zap cells are nearest turns it off
         e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
         let best = 4;
@@ -1191,7 +1200,7 @@ const S3D = (() => {
     driver: [[0xD1D18, 0x0000, 0x11BF], [0xD2ED7, 0x1300, 0x7BD]], mailbox: 0x1C0A,
     musicFor: (d, level) => u16(d, 0x24F78 + 2 * level),
     sfx: { jump: [0x62], charge: [0xAB], dash: [0xB6], ring: [0x33], spring: [0x68], enemy: [0x3D, 0x38], monitor: [0x3D],
-      hurt: [0xB9], shot: [0x4D], boom: [0x9A], goal: [0x6A], boostIn: [0xAB], boost: [0xB6], goldDash: [0xB6],
+      hurt: [0xB9], shot: [0x4D], boom: [0x9A], spark: [0x9A] /* a shot landing or touching, 0xD5EE, 0x1BAD4 */, goal: [0x6A], boostIn: [0xAB], boost: [0xB6], goldDash: [0xB6],
       shieldLost: [0x35], dying: [0x35] /* 0x1B6F0, 0x1B744 */, section: [0xAC] /* near the big ring routine */,
       cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, burst: [0x59] /* 058 */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */,
       bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */,

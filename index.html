@@ -1268,7 +1268,10 @@ const Sim = (() => {
             wander: Array.isArray(e.wander) && e.wander.length === 3 && e.wander.every(Number.isFinite) ? e.wander : null,
             // converted levels: "roam" {box [x, z] in the original's units, a} and "aim" {a} (see origRoam, origAim)
             roam: e.roam && Array.isArray(e.roam.box) && e.roam.box.length === 2 && e.roam.box.every(Number.isFinite) && Number.isFinite(e.roam.a) ? { box: e.roam.box, a: e.roam.a & 0x7FE } : null,
-            aim: e.aim && Number.isFinite(e.aim.a) ? { a: e.aim.a & 0x7FE } : null, burst: e.burst ? 1 : 0, win: winOf(e) });
+            aim: e.aim && Number.isFinite(e.aim.a) ? { a: e.aim.a & 0x7FE } : null, burst: e.burst ? 1 : 0, win: winOf(e),
+            touch: Array.isArray(e.touch) && e.touch.length === 2 && e.touch.every(v => Number.isInteger(v) && v > 0 && v < 0x20) ? e.touch.slice() : null,
+            // converted levels: "c8" {i, t}: the original's 0C8 table walk (see origC8)
+            c8: e.c8 && Number.isInteger(e.c8.i) && Array.isArray(e.c8.t) && e.c8.t.length > 2 && e.c8.t.every(Number.isInteger) ? { i: e.c8.i, r: Array.isArray(e.c8.r) ? [e.c8.r[0] | 0, e.c8.r[1] | 0] : [0, 0], t: e.c8.t.slice() } : null });
           break;
         }
         // a spiked crawler (Rusty Ruin): rolls along "axis" ('x' or 'z') between the two values of "range" at height "y"
@@ -2112,11 +2115,13 @@ const Sim = (() => {
       orbit: e.orbit || 0, orbitY: e.orbitY || 0, phase: i * 1.7, ball: e.orbit ? { x: e.x, y: e.y, z: e.z } : null, flicky: e.flicky ?? -1, shoot: e.shoot ?? -1, line: e.line ?? 3,
       wander: e.wander || null, wt: 0, wd: [0, 0],
       roam: e.roam ? { box: e.roam.box, A: e.roam.a, T: e.roam.a, chase: false } : null, aim: e.aim ? { A: e.aim.a, cnt: 30 } : null,
-      burst: e.burst ? 0 : -1, win: e.win || null }));
+      burst: e.burst ? 0 : -1, win: e.win || null, touch: e.touch || null, y0: e.y, c8: e.c8 ? { i: e.c8.i, rate: e.c8.r[0], n: e.c8.r[1], t: e.c8.t } : null }));
     w.capsules = L.entities.filter(e => e.type === 'capsule').map(e => ({ ...e, alive: true, diedAt: -9 }));
     w.monitors = L.entities.filter(e => e.type === 'monitor').map(e => ({ x: e.x, z: e.z, y: e.y, broken: false, skin: e.skin, kind: e.kind || 'rings' }));
     w.mines = L.entities.filter(e => e.type === 'mine').map(e => ({ x: e.x, z: e.z, y: e.y, alive: true, diedAt: -9, skin: e.skin }));
     w.heads = L.entities.filter(e => e.type === 'head').map(e => ({ ...e, got: false }));
+    // (converted levels: the reload puts the sprinklers back as they were and clears the shots)
+    if (L.rom && L.phys.orig) { w.sprinklers = L.entities.filter(e => e.type === 'sprinkler').map(e => ({ ...e, a: e.phase, on: false })); if (w.shots) w.shots.length = 0; }
   }
   // a death: the original reloads the act (its main loop, 0x59C): rings, enemies, monitors and the rest are back, and
   // freed Flickies not yet taken to a ring go with their holders (who hold them again); the section, the Flickies in
@@ -3100,7 +3105,9 @@ const Sim = (() => {
     // there, then the act again 57 frames after the hit (the world waits here)
     if (p.dying > 0) {
       if (--p.dying <= 0) { death(w); return w; }
+      const rising = p.vy > 0;
       p.vy = Math.max(0, p.vy - L.phys.gravity * dt); p.y += p.vy * dt;
+      if (rising && L.rom && L.phys.orig) origCamera(w, p);   // (the scroll still follows him up; at the top all stops)
       return w;
     }
     // an act that ends without a ring (Panic Puppet 2's lift)
@@ -3672,8 +3679,8 @@ const Sim = (() => {
         if (s.on && L.rom && gZero(w, 16)) {   // (handler 0x174B4 on $0B02: from 16 out (+1 in x), 17 up, 2 a frame, its words)
           const S = 65536, o = L.rom.origin, i = s.a >> 1, sn = P.orig.sin[i], cs = P.orig.sin[i + 0x100];
           const X = Math.round((s.x + o[0]) * 32) + Math.floor(sn * 32 / S) + 1, Z = Math.round((s.z + o[1]) * 32) + Math.floor(cs * 32 / S);
-          w.shots.push({ x: X / 32 - o[0], y: s.y + P.sprinkleUp * U * vs, z: Z / 32 - o[1], vx: sn * 4 / S * 60 / 32, vz: cs * 4 / S * 60 / 32,
-            vy: P.sprinkleRise * 60 * U * vs, g: P.sprinkleG * 3600 * U * vs, age: 0, life: 60 });
+          // (0x17554: template 0xD9CA, type 5, 17 up, (sin, cos) x 4 a frame, rising 0.25 with gravity 1/32, no end)
+          shotPart(w, X, (s.win ? s.win[4] : Math.round(s.y * 32 / vs) - 8) + 0x11, Z, sn * 4, -0x4000, cs * 4, 0x800);
           w.events.push('sprinkle');
         } else if (s.on && !L.rom && w.tick % P.sprinkleEvery === 0) {
           const t = s.a * Math.PI / 1024, sx = Math.sin(t), sz = Math.cos(t);
@@ -3937,6 +3944,14 @@ const Sim = (() => {
     for (let i = w.shots.length - 1; i >= 0; i--) {
       const sh = w.shots[i];
       sh.age += dt;
+      if (sh.o) {   // (converted levels: the original's shot particles and their touch, origRing / partTouch)
+        if (!origRing(L, sh, w)) { w.shots.splice(i, 1); continue; }
+        if (!(p.knockT > 0) && partTouch(L, p, sh)) {
+          w.shots.splice(i, 1); w.events.push('spark');
+          if (p.inv <= 0 && p.invuln <= 0) { hurt(w, p.x - sh.x, p.z - sh.z); if (w.events.includes('respawn')) return w; }
+        }
+        continue;
+      }
       if (sh.hop) {   // a hopping ball (Final Fight's cannon): bounces off what is higher than it, and off the floor `hop` up
         const nx = sh.x + sh.vx * dt, nz = sh.z + sh.vz * dt;
         const ok = f => Number.isFinite(f) && f <= sh.y + 1e-6;   // (no floor is a wall too)
@@ -3965,6 +3980,12 @@ const Sim = (() => {
       else if (en.burst >= 0) {   // 058 (handler 0x183FE)
         nx = en.x; nz = en.z;
         if (origBurst(w, en)) continue;
+      }
+      else if (en.c8 && L.rom) {
+        const o = L.rom.origin, S = 65536;
+        if (en.X === undefined) { en.X = Math.round((en.x + o[0]) * 32 * S); en.Z = Math.round((en.z + o[1]) * 32 * S); }
+        origC8(w, en);
+        nx = en.X / S / 32 - o[0]; nz = en.Z / S / 32 - o[1];
       }
       else if (en.roam || en.aim) {
         const o = L.rom.origin, S = 65536, SX = Math.floor((p.x + o[0]) * 32 + 1e-6), SZ = Math.floor((p.z + o[1]) * 32 + 1e-6);
@@ -4013,12 +4034,24 @@ const Sim = (() => {
         }
       }
       const dx = p.x - en.x, dz = p.z - en.z;
-      if (dx * dx + dz * dz < er2 && Math.abs(pcy - (en.y + 0.4)) < 0.8) {
+      if (en.touch && en.win && L.rom && L.phys.orig ? origTouch(L, p, en) : dx * dx + dz * dz < er2 && Math.abs(pcy - (en.y + 0.4)) < 0.8) {
         if (attacking || p.inv > 0) {
           en.alive = false; en.diedAt = w.time; w.events.push('enemy');
           if (en.flicky !== 0) freeFlicky(w, en.x, en.y + (L.rom && L.phys.orig ? 0 : 0.3), en.z, en.flicky);
-          if (!p.grounded) { p.vy = Math.max(p.vy, 6); p.jumping = false; }
+          // (converted levels, 0x1B96C: in the air he is thrown exactly 5 units a frame up)
+          if (!p.grounded) { p.vy = L.rom && L.phys.orig ? 5 * 60 / 32 * L.rom.vscale : Math.max(p.vy, 6); p.jumping = false; }
         } else if (p.invuln <= 0) { hurt(w, dx, dz); if (w.events.includes('respawn')) return w; }
+      }
+    }
+    // (shots the enemies just made: the original moves particles after its objects, so they move this frame too)
+    for (let i = w.shots.length - 1; i >= 0; i--) {
+      const sh = w.shots[i];
+      if (!sh.fresh) continue;
+      sh.fresh = false;
+      if (!origRing(L, sh, w)) { w.shots.splice(i, 1); continue; }
+      if (!(p.knockT > 0) && partTouch(L, p, sh)) {
+        w.shots.splice(i, 1); w.events.push('spark');
+        if (p.inv <= 0 && p.invuln <= 0) { hurt(w, p.x - sh.x, p.z - sh.z); if (w.events.includes('respawn')) return w; }
       }
     }
     // Panic Puppet's Flicky capsules: landing on one breaks it, throws the player up and frees its Flicky; the sides are walls
@@ -4441,13 +4474,14 @@ const Sim = (() => {
         if (r.type !== 2) { r.vz = -r.vz; if (r.type) r.d = (12 - r.d) & 15; }
       }
     }
-    r.vy += 0x2000; r.Y -= r.vy;
+    r.vy += r.g ?? 0x2000; r.Y -= r.vy;   // (its gravity: the template's, or as its maker set it)
     const i3 = Math.floor(r.X / S / 32), j3 = Math.floor(r.Z / S / 32), t3 = j3 * W + i3;
     if (i3 >= 0 && j3 >= 0 && i3 < W && j3 < L.depth && L.coll[t3] !== 'W' && L.coll[t3] !== 'P') {
       const T = origTri(L, i3, j3, r.X / S / 32, r.Z / S / 32, true);
       const h = Math.round(T[0] * 32 / vs - 8) + Math.floor((T[1] * T[3] + T[2] * T[4]) / 4);
       if (r.vy >= 0 && h >= Math.floor(r.Y / S)) {
         r.Y = h * S + (r.Y & 0xFFFF);
+        if (r.type === 5) { w.events.push('spark'); return false; }   // (a shot: a spark where it lands, 0xD5BE)
         if (r.type) {
           if (r.type === 1 || r.type === 4) {
             const p = w.p, oct = octantTo(Math.floor(p.x * 32) - Math.floor(r.X / S), Math.floor(p.z * 32) - Math.floor(r.Z / S)) >> 8;
@@ -4488,6 +4522,58 @@ const Sim = (() => {
     }
     const ex = p.x - x, ez = p.z - z; return Math.abs((ex - ez) * 32) <= 176 && Math.abs(((ex + ez) / 2 - (p.y - y) / L.rom.vscale) * 32) <= 128;
   };
+  // A particle's touch (0x1B9F0, watched): picture x (x - z) within 20 of Sonic's, depth ((x + z) / 2) within 8 (its
+  // touch byte 24), and its y from 16 under his to 32 over, in whole units
+  function partTouch(L, p, r) {
+    const o = L.rom.origin, vs = L.rom.vscale, S = 65536;
+    const X = Math.round((p.x + o[0]) * 32 * S), Z = Math.round((p.z + o[1]) * 32 * S), Y = Math.floor(p.y * 32 / vs - 8 + 1e-6);
+    const PX = r.X + o[0] * 32 * S, PZ = r.Z + o[1] * 32 * S, dy = Math.floor(r.Y / S) - Y;
+    return Math.abs(Math.floor((X - Z) / S) - Math.floor((PX - PZ) / S)) <= 20 && Math.abs(Math.floor((X + Z) / 2 / S) - Math.floor((PX + PZ) / 2 / S)) <= 8 && dy >= -16 && dy <= 32;
+  }
+  // 0C8 (handler 0x16B46), each frame it runs (the dispatcher's count, +0x21 from its rate +0x20, lets the table step
+  // only when it runs out: every other frame): the table offset +2; the word there (-1: back by the next word) is its
+  // frame, 0x190 or more mirrored (less 0x190); unmirrored it counts as 0x80 less it; a frame of 4 mod 16 fires a shot
+  // (template 0xD9CA, type 5) along byte angle frame x 16 + 0x100: from 16 out, 20 up, 2 a frame (sin x 4), level, no end
+  // (sound 0x4D). The offset moves it: 0x30..0x6F z - 1, 0xA0..0xDF x - 1, 0x110..0x14F z + 1, 0x180..0x1BF x + 1.
+  function origC8(w, en) {
+    const C = en.c8, S = 65536, sin = P.orig.sin;
+    if (--C.n >= 0) { c8Move(en); return; }
+    C.n = C.rate;
+    C.i += 2;
+    let v = C.t[C.i >> 1];
+    if (v === undefined) { C.i = 2; v = C.t[1]; }
+    if (v < 0) { C.i -= C.t[(C.i >> 1) + 1]; v = C.t[C.i >> 1]; }
+    let mir = false;
+    if (v >= 0x190) { v -= 0x190; mir = true; }
+    if (v >= 0) {
+      const f = mir ? v : 0x80 - v;
+      if ((f & 15) === 4) {
+        const a = ((f << 4) + 0x100) & 0x7FE, sn = sin[a >> 1], cs = sin[(a >> 1) + 0x100];
+        const xi = Math.floor(en.X / S), zi = Math.floor(en.Z / S);
+        shotPart(w, xi + Math.floor(sn * 32 / S), en.win[4] + 0x14, zi + Math.floor(cs * 32 / S), sn * 4, 0, cs * 4, 0, 0, true);
+        w.events.push('shot');
+      }
+    }
+    c8Move(en);
+  }
+  function c8Move(en) {
+    const i = en.c8.i, S = 65536;
+    if (i >= 0x30 && i < 0x70) en.Z -= S; else if (i >= 0xA0 && i < 0xE0) en.X -= S;
+    else if (i >= 0x110 && i < 0x150) en.Z += S; else if (i >= 0x180 && i < 0x1C0) en.X += S;
+  }
+  // a shot particle (type 5) at whole units x, y, z of the original's (x, z from the level's origin)
+  function shotPart(w, x, y, z, vx, vy, vz, g, life, fresh) {
+    const S = 65536, o = w.L.rom.origin, r = { o: 1, fresh: !!fresh, type: 5, d: 0, t: life || Infinity, X: (x - o[0] * 32) * S, Y: y * S, Z: (z - o[1] * 32) * S, vx, vy, vz, g, age: 0, x: 0, y: 0, z: 0 };
+    ringPos(w.L, r); w.shots.push(r); return r;
+  }
+  // An enemy's touch as the original's (0x1B846 / 0x1B8FE, measured on a Green Grove enemy): picture x (x - z) within
+  // 0x2C - b4, depth ((x + z) / 2) within 0x20 - b4 and y within b5 of its record's (moved with it), in whole units
+  function origTouch(L, p, en) {
+    const o = L.rom.origin, vs = L.rom.vscale, S = 65536, [b4, b5] = en.touch;
+    const X = Math.floor(Math.round((p.x + o[0]) * 32 * S) / S), Z = Math.floor(Math.round((p.z + o[1]) * 32 * S) / S), Y = Math.floor(p.y * 32 / vs - 8 + 1e-6);
+    const EX = Math.round((en.x + o[0]) * 32), EZ = Math.round((en.z + o[1]) * 32), EY = en.win[4] + Math.round((en.y - en.y0) * 32 / vs);
+    return Math.abs((X - Z) - (EX - EZ)) <= 0x2C - b4 && Math.abs(((X + Z) >> 1) - ((EX + EZ) >> 1)) <= 0x20 - b4 && Math.abs(Y - EY) <= b5;
+  }
   // The original's scroll (0x19A4, each frame after Sonic moves): a lead ($0866, $0868) from his facing ((sin, cos)
   // high bytes of -(facing + 0x100): x / 2 - 160 stepping 2 a frame, y / 4 - 124 stepping 1) added to his picture point
   // ($38 = x - z + 0x1000, $3A = (x + z) / 2 - y); the scroll moves an eighth of the way there (arithmetic shift), at
@@ -4544,7 +4630,8 @@ const Sim = (() => {
     A.cnt = 120;
     const L = w.L, o = L.rom.origin, vs = L.rom.vscale, i = A.A >> 1, s = sin[i], c = sin[i + 0x100], U = 60 / 32;
     const x = xi + Math.floor(s * 32 / S) + 2, z = zi + Math.floor(c * 32 / S);
-    w.shots.push({ x: x / 32 - o[0], y: en.y + 9 / 32 * vs, z: z / 32 - o[1], vx: s * 2 / S * U, vz: c * 2 / S * U, age: 0, life: 60 });
+    // (0x17C86: template 0xD9CA, type 5, 9 up from its record, (sin, cos) x 2 a frame, level, no end)
+    shotPart(w, x, (en.win ? en.win[4] : Math.round(en.y * 32 / vs) - 8) + 9, z, s * 2, 0, c * 2, 0, 0, true);
     w.events.push('shot');
   }
   // Monitors on converted levels are solid boxes (handler 0x18674 into the list at $CC02; routine 0x3788): x from 14
@@ -4594,8 +4681,10 @@ const Sim = (() => {
       if (Math.abs(dx) > 0x30 || Math.abs(dz) > 0x30) return false;
       en.burst = 40;
     }
-    const k = en.burst, [sx, sz] = k === 40 ? [0, -1] : k === 30 ? [0, 1] : k === 20 ? [-1, 0] : [1, 0];
-    w.shots.push({ x: en.x, y: en.y, z: en.z, vx: sx * U, vz: sz * U, vy: (4 - k / 16) * U * vs, g: 3600 / 8 / 32 * vs, age: 0, life: 512 / 60 });
+    const k = en.burst, [sx, sz] = k === 40 ? [0, -1] : k === 30 ? [0, 1] : k === 20 ? [-1, 0] : [1, 0], S = 65536;
+    // (0x1845C: template 0xD9B8, type 5, gravity 1/8, 512 frames; up -0x40000 + the count shifted 12 in a word: 3.5,
+    // 3.125, 3.75, 3.375)
+    shotPart(w, Math.round((en.x + o[0]) * 32), en.win ? en.win[4] : Math.round(en.y * 32 / vs) - 8, Math.round((en.z + o[1]) * 32), sx * S, -0x40000 + (((k << 8) & 0xFFFF) << 4 & 0xFFFF), sz * S, 0x2000, 512, true);
     en.burst -= 10;
     if (en.burst > 0) return false;
     en.alive = false; en.diedAt = w.time; w.events.push('burst');
@@ -5923,6 +6012,15 @@ const S3D = (() => {
         const art = typeArt(d, t);
         if (art > 0 && art + 8 <= d.length) e.win = [u16(d, art), u16(d, art + 2), s16(d, art + 4), s16(d, art + 6), s16(ob, o + 0xA)];
       }
+      // its touch bytes (+4, +5; routine 0x1B8FE): touched when x - z is within 0x2C - b4 of Sonic's, (x + z) / 2 within
+      // 0x20 - b4, and y within b5
+      if (kind === 'enemy' && ob[o + 4]) e.touch = [ob[o + 4], ob[o + 5]];
+      // 0C8 (handler 0x16B46): steps through its animation table (0x16C7E, a word a frame from offset +0x1E; -1 jumps
+      // back), which moves it round a square and fires where the frame says (Sim origC8)
+      if (t === 0xC8) {
+        const tab = []; for (let a = 0x16C7E; tab.length < 1024; a += 2) { const v = s16(d, a); tab.push(v); if (v < 0) { tab.push(s16(d, a + 2)); break; } }
+        e.c8 = { i: u16(ob, o + 0x1E), r: [ob[o + 0x20], ob[o + 0x21]], t: tab };   // (r: its rate and count, +0x20 / +0x21)
+      }
       if (kind === 'pylon') {   // the barrier whose zap cells are nearest turns it off
         e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
         let best = 4;
@@ -6518,7 +6616,7 @@ const S3D = (() => {
     driver: [[0xD1D18, 0x0000, 0x11BF], [0xD2ED7, 0x1300, 0x7BD]], mailbox: 0x1C0A,
     musicFor: (d, level) => u16(d, 0x24F78 + 2 * level),
     sfx: { jump: [0x62], charge: [0xAB], dash: [0xB6], ring: [0x33], spring: [0x68], enemy: [0x3D, 0x38], monitor: [0x3D],
-      hurt: [0xB9], shot: [0x4D], boom: [0x9A], goal: [0x6A], boostIn: [0xAB], boost: [0xB6], goldDash: [0xB6],
+      hurt: [0xB9], shot: [0x4D], boom: [0x9A], spark: [0x9A] /* a shot landing or touching, 0xD5EE, 0x1BAD4 */, goal: [0x6A], boostIn: [0xAB], boost: [0xB6], goldDash: [0xB6],
       shieldLost: [0x35], dying: [0x35] /* 0x1B6F0, 0x1B744 */, section: [0xAC] /* near the big ring routine */,
       cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, burst: [0x59] /* 058 */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */,
       bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */,
@@ -7908,7 +8006,7 @@ const Art = (() => {
       cannonIn: () => tone('square', 300, 200, 0.2, 0.12),
       cannon: () => { noise(0.4, 0.8, 600); tone('square', 160, 60, 0.5, 0.3); },
       crack: () => { noise(0.5, 0.9, 1400); noise(0.3, 0.5, 300); },
-      burst: () => { noise(0.3, 0.6, 2000); },
+      burst: () => { noise(0.3, 0.6, 2000); }, spark: () => { noise(0.08, 0.25, 3000); },
       whirl: () => tone('sawtooth', 300, 1100, 0.12, 0.12),
       padIn: () => tone('triangle', 500, 120, 0.9, 0.2),
       flame: () => noise(0.25, 0.35, 900),

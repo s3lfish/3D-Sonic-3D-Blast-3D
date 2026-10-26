@@ -940,6 +940,19 @@ test('the original\'s rings: caught in their cell, x and z there within 16, his 
   assert.strictEqual(at(3 + 2 / 32, 4 + 30 / 32, 104), 0, 'outside the band (2 and 30 in the cell)');
   assert.strictEqual(at(2.9, 4.5, 104), 0, 'the next cell');
 });
+test('the original\'s shooters: 0C8 fires where its table says, shots are particles that hurt by their own box', () => {
+  // a table of three frames then back: 20, 24, 28 (28 unmirrored is 0x64: 4 mod 16, a shot), its rate every frame
+  const c8 = { type: 'enemy', x: 4.5, z: 3.5, radius: 1, win: [352, 256, 16, 12, 24], touch: [21, 31], c8: { i: 0, r: [0, 0], t: [20, 24, 28, -1, 6] } };
+  const w = ROMLV(0, 0, [c8]); place(w, 1.5, 4.5);
+  const seen = []; run(w, 3, (f, x) => { seen.push(x.shots.length); return {}; });
+  assert.ok(w.shots.length === 1 && w.shots[0].type === 5, `one shot after the third step: ${seen} ${w.shots.length}`);
+  const sh = w.shots[0], v = Math.hypot(sh.vx, sh.vz) / 65536;
+  near(v, 2, 0.01, 'two units a frame');
+  // a shot particle on him hurts (and is gone)
+  const u = ROMLV(0, 0, []); place(u, 3.5, 4.5); u.ringCount = 5;
+  u.shots.push({ o: 1, type: 5, d: 0, t: Infinity, X: 112 * 65536, Y: 30 * 65536, Z: 144 * 65536, vx: 0, vy: 0, vz: 0, g: 0, age: 0, x: 0, y: 0, z: 0 });
+  run(u, 1, {}); assert.ok(u.shots.length === 0 && u.events.includes('hurt'), `hurt: ${u.events}`);
+});
 test('the original\'s monitors are solid boxes: walking stops at a side, a roll or the ball onto it breaks it', () => {
   const mon = [{ type: 'monitor', x: 4.5, z: 4.5, kind: 'rings' }];
   let w = ROMLV(0, 0, mon); place(w, 3.2, 4.5); w.p.facing = Math.PI / 2;

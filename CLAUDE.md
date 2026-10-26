@@ -225,8 +225,13 @@ serves index.html from main.
   re-aimed every 10), 064 `aim` (0x17BC8, `origAim`: turns 0x10 a frame to Sonic's octant (`octantTo`, table
   0xDBEE), 30 frames after facing him a level shot at a unit a frame, then every 120), 058 `burst` (0x183FE,
   `origBurst`: within 0x30 of Sonic, four shots over four frames along -z, +z, -x, +x, then an empty shell; it does not
-  chase), wanderers 094/144/10C/17C (0x17346), patrols 100/108/148/09C/05C/178. Open: 0C8 (shots timed by its
-  animation).
+  chase), wanderers 094/144/10C/17C (0x17346), patrols 100/108/148/09C/05C/178; 0C8 `c8` (0x16B46, `origC8`: its
+  table, read by the converter, stepped at its rate (+0x20/+0x21), moves it round a square and fires on frames 4 mod 16).
+  Shots of sprinklers, 064, 058 and 0C8 are the original's type-5 particles (`shotPart`, through `origRing`; enemy-made
+  ones move in their first frame) with its particle touch (`partTouch`: x - z within 20, depth within 8, y -16..32);
+  enemies with `touch` [b4, b5] (record +4/+5) use its box (`origTouch`: x - z within 0x2C - b4, depth within 0x20 - b4,
+  y within b5; measured). A defeated enemy throws an airborne Sonic exactly 5 up. Not modelled: objects and shots keep
+  running while he rises dying (the sim waits; the reload puts them back anyway).
 - Converted levels, all zones: corner pieces (one corner two steps over three level ones, both neighbours by it without
   floor; `L.diag`, findDiagonals) are diagonal walls (that half solid, rest flat), met as a point (`P.rDiag`). Walls,
   floors, slopes and bounces are the original's: see Original movement.
@@ -377,9 +382,9 @@ serves index.html from main.
   bounces, landing; the hit, lost rings, dying and reloading; bumpers, monitors as boxes; roamers, aimers, sprinklers
   on the original's counts and screen; 058 bursts; freed and following Flickies as the original's (and his bored
   turn); Sonic's sprite animation from the ROM's scripts; screen speed limit; pad after a reload; the original's
-  scroll (exact over a GG1 trace) wakes objects and drives the iso view. PP1's trace still parts at frame 308: a
-  sprinkler shot touches him there (touch boxes are not the original's: screen boxes from the depth-sorted list). Sine table entry
-  0x400 is 0 (the formula gave -1). 135 sim tests.
+  scroll (exact over a GG1 trace) wakes objects and drives the iso view; shots and touches as the original's (all
+  nine movement traces exact, PP1's sprinkler hit included); 0C8. Sine table entry 0x400 is 0 (the formula gave -1).
+  138 sim tests.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;
   the Jam Flicky body is a flat quad (edge-on from the side).

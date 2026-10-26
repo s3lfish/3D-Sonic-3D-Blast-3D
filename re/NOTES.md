@@ -190,9 +190,9 @@ original art. The browser code carries reading rules only.
   their speed and the same ice. The pad stays.
 - Dying: 0x1B6C2 (facing 0x700, 8 up, $42 = 0x22); the rise slows to 0 and stops there; the act reloads 57 frames
   after the hit (52 frames blank), Sonic back at the section's start table entry facing its dir.
-- Touches (0x1B846): skipped while Sonic's $94 is 9 or $3E < 0 (thrown back); objects and particles in the depth-sorted
-  list near Sonic's sort key; particles (0x1B9F0) by a box on the picture: x within -0x1C..+0xC of his, y 0..0x30 (sort
-  key and screen y); type 0 (a lost ring) is caught at once (0x1BAE0: rings + 1, sound 0x33), types 1-4 are Flickies.
+- Touches (0x1B846): skipped while Sonic's $94 is 9 or $3E < 0 (thrown back); the boxes are under "Touches (0x1B846
+  list scan" below; a particle of type 0 (a lost ring) is caught at once (0x1BAE0: rings + 1, sound 0x33), types 1-4
+  are Flickies.
 
 ## Sections, rings and holes
 
@@ -707,6 +707,21 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   or more over his whole-unit y blocks; no floor blocks); else the cell z alone reaches, by its corner on the near side
   toward x's way ($8C moves in z, x stops at the cell edge), else x alone by its corner toward z's way, else both stop
   at the old cell's edges.
+- Touches (0x1B846 list scan by sort key = (x + z) / 2; objects 0x1B8FE, particles 0x1B9F0; measured on a GG1 enemy
+  and a PP1 sprinkler shot): an object with touch bytes b4/b5 (record +4/+5) touches when |picture x - his| <= 0x2C -
+  b4, |key - his| <= 0x20 - b4 and |y - his| <= b5; a particle (b4 24, b5 0) when |x - z - his| <= 20, |key - his| <= 8
+  and its y - his is -16..32 (its $12 = x - z + 0x1000 - scroll + 8, $14 = (x + z) / 2 - y - scroll y). Types 5 and 8
+  hurt (the particle goes, spark sound 0x9A, even while he blinks); type 0 is a ring. An enemy hit while attacking
+  throws him (in the air) exactly 5 up.
+- Particle templates (0xD8C6: +0 touch bytes, +2 gravity (low word of $22), +4 attr, +6 art, +10 flags/type, +12
+  life, +14 anim): 0xD982 Flicky (1/8), 0xD9B8 058 shot (type 5, 1/8, 512 frames), 0xD9CA sprinkler / 064 / 0C8 / PP2
+  beam shot (type 5, none, no end; the sprinkler sets 1/32 and 0.25 up). 058's rise: -0x40000 + ((count << 8) << 4 in
+  a word): 3.5, 3.125, 3.75, 3.375 up. Particles move after the objects each frame (a new one moves at once).
+- 0C8 (0x16B40): runs the table step only on the dispatcher's count (+0x21 down from rate +0x20: every other frame):
+  $1E + 2, frame = word at 0x16C7E + $1E (-1: back by the next word), >= 0x190 mirrored (less 0x190), unmirrored
+  0x80 - it; 4 mod 16 fires (16 out, 20 up, sin x 4 a frame, sound 0x4D). Every frame it moves by $1E: 0x30..0x6F z-1,
+  0xA0..0xDF x-1, 0x110..0x14F z+1, 0x180..0x1BF x+1. Exact on a DD trace (c8trace.py, c8_parity.js).
+- While Sonic rises dying, objects, particles and the scroll go on; at the top everything stops till the reload.
 - Object dispatcher 0x1BE72: records from $CCD2 (0x34 each; +0x12/+0x14 its picture point = x - z + 0x1000 + ox and
   (x + z) / 2 - y + oy, ox/oy from its art header at +0x30 = table 0x280E8 by type: [width, height, ox, oy]); it runs
   the handler only while (point - scroll) unsigned is at most width (x) and height (y).

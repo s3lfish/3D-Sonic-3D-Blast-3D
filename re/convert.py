@@ -318,6 +318,13 @@ def convert(rom, level_id, vscale=1.0):
         if kind in ('enemy', 'sprinkler'):   # its screen window: the type's art header (table 0x280E8) and the record's y (see s3d.js)
             art = struct.unpack('>I', rom[0x280E8 + t:0x280EC + t])[0]
             if 0 < art and art + 8 <= len(rom): e["win"] = list(struct.unpack('>HHhh', rom[art:art + 8])) + [y_obj]
+        if kind == 'enemy' and r[4]: e["touch"] = [r[4], r[5]]   # touch bytes (see s3d.js)
+        if t == 0xC8:   # its animation table (see s3d.js)
+            tab = []; a = 0x16C7E
+            while len(tab) < 1024:
+                v = struct.unpack('>h', rom[a:a + 2])[0]; tab.append(v); a += 2
+                if v < 0: tab.append(struct.unpack('>h', rom[a:a + 2])[0]); break
+            e["c8"] = {"i": struct.unpack('>H', r[0x1E:0x20])[0], "r": [r[0x20], r[0x21]], "t": tab}
         if kind == 'pylon':   # the barrier whose zap cells are nearest turns it off
             e["y"] = jround((y_obj + 8) / CELL * vscale, 3); best = 4
             for _w, _h, zap, _half, ring, _a in gm.get('barriers', []):

@@ -372,7 +372,7 @@
       cannonIn: () => tone('square', 300, 200, 0.2, 0.12),
       cannon: () => { noise(0.4, 0.8, 600); tone('square', 160, 60, 0.5, 0.3); },
       crack: () => { noise(0.5, 0.9, 1400); noise(0.3, 0.5, 300); },
-      burst: () => { noise(0.3, 0.6, 2000); },
+      burst: () => { noise(0.3, 0.6, 2000); }, spark: () => { noise(0.08, 0.25, 3000); },
       whirl: () => tone('sawtooth', 300, 1100, 0.12, 0.12),
       padIn: () => tone('triangle', 500, 120, 0.9, 0.2),
       flame: () => noise(0.25, 0.35, 900),
