@@ -231,6 +231,8 @@ serves index.html from main.
 - Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
   ROM look draws springs as 3D drums coloured from the ROM sprite (`romSpringMats`).
 - Act end: the `goal` event shows `#clearCard`, flashes, and after 5 s converts the next act in `S3D.LEVELS` order.
+  Act start (ROM look): the title card `S3D.titleCardImage` (zone on two lines in the big font, ACT and its digit) in
+  `#titleCard` for 2.2 s, then slid away.
 - Act results (ROM look): `S3D.tallyImage` draws the original's results screen (fonts RNC 0x15DEBA/0x15E3E6, palettes
   26/27/3) into `#tallyCanvas`; bonus rules are the original's (0x2180C: `timeBonus`, 100 a ring, 5000 a set of five Flickies, 100 a ring given to Knuckles / Tails).
 - Saturn screen (`#screenSel`, `blastgrid.screen`): scene into a 224-line target, 15-bit colour, nearest filtering;

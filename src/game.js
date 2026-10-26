@@ -2164,7 +2164,18 @@
     L = newL; customLoaded = custom;
     world = Sim.createWorld(L);
     buildLevelObjects(); resetCamera(); restart();
-    showLevelName(); levelMusic();
+    showLevelName(); levelMusic(); titleCard();
+  }
+  // the act's title card in the ROM's fonts (ROM look, converted levels), over the level for two seconds, then away
+  // to the left as the original's goes
+  function titleCard() {
+    const c = $('titleCanvas'), box = $('titleCard');
+    if (!(romOn() && L.rom)) { box.hidden = true; return; }
+    const entry = S3D.LEVELS.find(l => l[0] === L.rom.level), name = entry ? entry[1] : L.name, m = name.match(/^(.*\D)\s*(\d)$/);
+    const img = S3D.titleCardImage(romArt.d, m ? m[1].trim() + ' Zone' : name, m ? +m[2] : 0);
+    c.getContext('2d').putImageData(new ImageData(img.px, img.width, img.height), 0, 0);
+    box.hidden = false; box.classList.remove('away'); void box.offsetWidth;
+    clearTimeout(titleCard.t); titleCard.t = setTimeout(() => { box.classList.add('away'); titleCard.t = setTimeout(() => { box.hidden = true; }, 600); }, 2200);
   }
   $('levelFile').addEventListener('change', e => {
     const file = e.target.files && e.target.files[0];

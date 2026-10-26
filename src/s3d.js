@@ -1097,23 +1097,21 @@ const S3D = (() => {
   // "SONIC GOT THROUGH ACT n" in the big font (sprites, 16 px letters; act digits 16 x 32 after the 26 letters),
   // then lines of the small 8 x 16 font (A to Z, 0 to 9, colon). Both fonts are RNC packed; palettes 26, 27 and 3.
   const TALLY_BIG = 0x15DEBA, TALLY_SMALL = 0x15E3E6, tallyFonts = new WeakMap();
-  function tallyImage(d, info) {
+  // drawing with the two fonts into RGBA pixels: big letters (16 x 16), the act digits (16 x 32), small 8 x 16 text
+  function textKit(d, W, H) {
     if (!tallyFonts.has(d)) tallyFonts.set(d, { big: rncUnpack(d, TALLY_BIG), small: rncUnpack(d, TALLY_SMALL) });
-    const F = tallyFonts.get(d), W = 320, H = 224, px = new Uint8ClampedArray(W * H * 4);
-    const after = info.kind === 'emerald' || info.kind === 'bonus';   // (0x21114 loads palettes 28, 29, 31, 32)
-    const white = paletteRGB(d, after ? 28 : 26), yellow = after ? white : paletteRGB(d, 27), digits = paletteRGB(d, 3);
-    for (let i = 0; i < W * H; i++) { px.set(white[0], i * 4); px[i * 4 + 3] = 255; }
+    const F = tallyFonts.get(d), px = new Uint8ClampedArray(W * H * 4);
     const tile = (src, t, x, y, pal) => {
       for (let py = 0; py < 8; py++) for (let qx = 0; qx < 8; qx++) {
         const b = src[t * 32 + py * 4 + (qx >> 1)], c = qx & 1 ? b & 15 : b >> 4;
         if (!c || x + qx < 0 || x + qx >= W || y + py >= H) continue;
-        const o = ((y + py) * W + x + qx) * 4; px[o] = pal[c][0]; px[o + 1] = pal[c][1]; px[o + 2] = pal[c][2];
+        const o = ((y + py) * W + x + qx) * 4; px[o] = pal[c][0]; px[o + 1] = pal[c][1]; px[o + 2] = pal[c][2]; px[o + 3] = 255;
       }
     };
-    const big = (text, x, y) => {
+    const big = (text, x, y, pal) => {
       for (const ch of text) {
         const g = ch.charCodeAt(0) - 65;
-        if (g >= 0 && g < 26) for (let k = 0; k < 4; k++) tile(F.big, g * 4 + k, x + (k >> 1) * 8, y + (k & 1) * 8, white);
+        if (g >= 0 && g < 26) for (let k = 0; k < 4; k++) tile(F.big, g * 4 + k, x + (k >> 1) * 8, y + (k & 1) * 8, pal);
         x += 16;
       }
     };
@@ -1124,6 +1122,15 @@ const S3D = (() => {
         col++;
       }
     };
+    const digit = (n, x, y, pal) => { const a = Math.min(3, Math.max(1, n | 0)) - 1; for (let k = 0; k < 8; k++) tile(F.big, 104 + a * 8 + k, x + (k >> 2) * 8, y + (k & 3) * 8, pal); };
+    return { px, tile, big, small, digit };
+  }
+  function tallyImage(d, info) {
+    const W = 320, H = 224, { px, big: big0, small, digit } = textKit(d, W, H);
+    const after = info.kind === 'emerald' || info.kind === 'bonus';   // (0x21114 loads palettes 28, 29, 31, 32)
+    const white = paletteRGB(d, after ? 28 : 26), yellow = after ? white : paletteRGB(d, 27), digits = paletteRGB(d, 3);
+    for (let i = 0; i < W * H; i++) { px.set(white[0], i * 4); px[i * 4 + 3] = 255; }
+    const big = (text, x, y) => big0(text, x, y, white);
     const right = (n, endCol, row) => { const t = String(n); small(t, endCol - t.length + 1, row, white); };
     if (after) {   // after a special stage (0x21114, screens 1 and 2)
       const lines = info.kind === 'emerald' ? ['SONIC GOT A', 'CHAOS EMERALD'] : ['SPECIAL STAGE', 'CLEAR'];
@@ -1134,13 +1141,21 @@ const S3D = (() => {
       return { px, width: W, height: H, background: white[0] };
     }
     big('SONIC GOT', 88, 16); big('THROUGH ACT', 64, 36);
-    const a = Math.min(3, Math.max(1, info.act | 0)) - 1;
-    for (let k = 0; k < 8; k++) tile(F.big, 104 + a * 8 + k, 244 + (k >> 2) * 8, 22 + (k & 3) * 8, digits);
+    digit(info.act, 244, 22, digits);
     small('TIME TAKEN', 3, 8, white); small(info.time, 14, 8, white); small('SCORE', 24, 8, white); right(info.score, 37, 8);
     const labels = ['TIME', 'RING', 'FLICKY', 'KNUCKLES', 'TAILS'];
     labels.forEach((l, i) => { small(l, 16 - l.length, 12 + i * 2, yellow); small('BONUS', 17, 12 + i * 2, yellow); right(info.bonus[i], 27, 12 + i * 2); });
     small('TOTAL', 12, 23, white); right(info.total, 27, 23);
     return { px, width: W, height: H, background: white[0] };
+  }
+  // The act's title card (seen in the emulator at an act's start, over the level): the zone's name in the big font on
+  // two lines, "ACT" in the small font and the act's digit; a transparent 320 x 224 picture (palettes 26 and 3)
+  function titleCardImage(d, zone, act) {
+    const W = 320, H = 224, { px, big, small, digit } = textKit(d, W, H), white = paletteRGB(d, 26), words = zone.toUpperCase().split(' ');
+    const lines = words.length > 1 ? [words.slice(0, -1).join(' '), words[words.length - 1]] : words;
+    lines.forEach((l, i) => big(l, 44, 76 + i * 16, white));
+    if (act) { small('ACT', 13, 13, white); digit(act, 136, 100, paletteRGB(d, 3)); }
+    return { px, width: W, height: H };
   }
   // Sound: the game's own Z80 sound program, copied into Z80 RAM by the loader at 0x24FD8 (0x11BF bytes from 0xD1D18 to
   // 0x0000, 0x7BD bytes from 0xD2ED7 to 0x1300); every sound and song is requested by writing its number to Z80 RAM
@@ -1785,5 +1800,5 @@ const S3D = (() => {
   }
 
   const typeArt = (d, t) => u32(d, 0x280E8 + t);   // an object type's art block (Green Grove's boss: 48 pod, 50 ball)
-  return { LEVELS, BONUS, bonusStage, bonusSprite, check, openRomFile, objImage, typeArt, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, levelPalettes, OCTANT, HERO };
+  return { LEVELS, BONUS, bonusStage, bonusSprite, check, openRomFile, objImage, typeArt, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, titleCardImage, levelPalettes, OCTANT, HERO };
 })();
