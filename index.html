@@ -1,0 +1,3650 @@
+<title>Blast Grid</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=Chakra+Petch:wght@500;700&display=swap">
+<style>
+/* Layout: full-bleed WebGL canvas, HUD pinned to safe-area corners, touch pads at the bottom. Single dark look by choice. */
+:root {
+  --void: #14122a;      /* scene background, the space around the island */
+  --panel: #1f1c3d;     /* HUD and card surface */
+  --ink: #f3efe6;       /* primary text */
+  --muted: #a9a3c9;     /* secondary text */
+  --gold: #ffc43d;      /* rings and the one accent */
+  --danger: #ff6b5a;    /* errors */
+  --font-display: "Bungee", "Arial Black", Impact, sans-serif;
+  --font-ui: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  background: var(--void); color: var(--ink); font-family: var(--font-ui);
+  overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none;
+  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+}
+#view { position: fixed; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; outline: none; }
+.hud { position: fixed; z-index: 5; display: flex; gap: 8px; align-items: center; }
+.hud-tl { top: calc(10px + env(safe-area-inset-top, 0px)); left: calc(12px + env(safe-area-inset-left, 0px)); }
+.hud-tr { top: calc(10px + env(safe-area-inset-top, 0px)); right: calc(12px + env(safe-area-inset-right, 0px)); }
+.chip {
+  background: color-mix(in srgb, var(--panel) 82%, transparent); border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
+  border-radius: 10px; padding: 6px 12px; font-weight: 700; letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums; display: flex; gap: 8px; align-items: baseline;
+}
+.chip .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; }
+.chip .count { color: var(--gold); font-size: 20px; }
+.chip .total { color: var(--muted); font-size: 13px; }
+.chip .dots { display: flex; gap: 4px; align-self: center; }
+.chip .dots span { width: 10px; height: 10px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--muted) 60%, transparent); }
+.chip .dots span.with { border-color: var(--gold); }
+.chip .dots span.got { background: var(--gold); border-color: var(--gold); }
+.iconbtn {
+  width: 40px; height: 40px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--muted) 30%, transparent);
+  background: color-mix(in srgb, var(--panel) 82%, transparent); color: var(--ink); font: 700 18px var(--font-ui);
+  display: grid; place-items: center; cursor: pointer; touch-action: none;
+}
+.iconbtn.mode { width: auto; padding: 0 10px; font-size: 13px; letter-spacing: 0.08em; }
+.iconbtn:focus-visible, .pad:focus-visible, .card button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.pads { position: fixed; z-index: 5; right: calc(18px + env(safe-area-inset-right, 0px)); bottom: calc(22px + env(safe-area-inset-bottom, 0px)); display: flex; gap: 14px; align-items: flex-end; }
+.pad {
+  border-radius: 50%; border: 2px solid color-mix(in srgb, var(--ink) 35%, transparent);
+  background: color-mix(in srgb, var(--panel) 60%, transparent); color: var(--ink);
+  font: 700 13px var(--font-ui); letter-spacing: 0.1em; text-transform: uppercase; touch-action: none;
+}
+.pad.held { background: color-mix(in srgb, var(--gold) 45%, var(--panel)); border-color: var(--gold); }
+#padJump { width: 92px; height: 92px; }
+#padDash { width: 66px; height: 66px; margin-bottom: 58px; }
+#stick { position: fixed; z-index: 4; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--ink) 30%, transparent); background: color-mix(in srgb, var(--panel) 35%, transparent); pointer-events: none; }
+#stickKnob { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%; background: color-mix(in srgb, var(--ink) 70%, transparent); }
+.stick-hint { position: fixed; z-index: 4; left: calc(20px + env(safe-area-inset-left, 0px)); bottom: calc(26px + env(safe-area-inset-bottom, 0px));
+  color: var(--muted); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; pointer-events: none; }
+.overlay { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 24px max(16px, env(safe-area-inset-right, 0px)) 24px max(16px, env(safe-area-inset-left, 0px));
+  background: color-mix(in srgb, var(--void) 70%, transparent); }
+.card { background: var(--panel); border: 1px solid color-mix(in srgb, var(--muted) 25%, transparent); border-radius: 16px; padding: 22px 22px 18px; max-width: 360px; width: 100%; display: grid; gap: 14px; }
+.card h1 { margin: 0; font: 400 30px/1 var(--font-display); color: var(--gold); letter-spacing: 0.02em; text-wrap: balance; }
+.card p { margin: 0; color: var(--muted); line-height: 1.45; font-size: 14px; }
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 14px; }
+.keys dt { font-weight: 700; color: var(--ink); white-space: nowrap; }
+.keys dd { margin: 0; color: var(--muted); }
+.card button { justify-self: start; font: 700 15px var(--font-ui); letter-spacing: 0.08em; text-transform: uppercase;
+  background: var(--gold); color: var(--void); border: 0; border-radius: 10px; padding: 10px 18px; cursor: pointer; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.card button.secondary { background: transparent; color: var(--ink); border: 1px solid color-mix(in srgb, var(--muted) 45%, transparent); }
+.levels { display: grid; gap: 8px; border-top: 1px solid color-mix(in srgb, var(--muted) 25%, transparent); padding-top: 12px; }
+.levels p { font-size: 13px; }
+#levelFile { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.filebtn { font: 700 13px var(--font-ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink); cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--muted) 45%, transparent); border-radius: 10px; padding: 9px 14px; }
+#levelFile:focus-visible + .filebtn, .filebtn:focus-within { outline: 2px solid var(--gold); outline-offset: 2px; }
+.romrow { display: grid; grid-template-columns: auto 1fr; gap: 8px 10px; align-items: center; font-size: 13px; }
+.romrow label { color: var(--muted); }
+.romrow select { font: 600 14px var(--font-ui); color: var(--ink); background: var(--void); border: 1px solid color-mix(in srgb, var(--muted) 45%, transparent); border-radius: 8px; padding: 7px 8px; min-width: 0; }
+.romrow button { grid-column: 1 / -1; }
+#romFile { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.card { max-height: calc(100% - 8px); overflow-y: auto; }
+.loadmsg { margin: 0; padding-left: 18px; color: var(--danger); font-size: 13px; line-height: 1.4; }
+.card.error h1 { color: var(--danger); font-size: 22px; }
+.card.error ul { margin: 0; padding-left: 18px; color: var(--ink); font-size: 14px; line-height: 1.45; }
+.toast { position: fixed; z-index: 6; left: 50%; transform: translateX(-50%); top: calc(64px + env(safe-area-inset-top, 0px));
+  background: var(--panel); border: 1px solid var(--gold); color: var(--ink); border-radius: 10px; padding: 8px 14px; font-weight: 700; letter-spacing: 0.04em; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<canvas id="view" tabindex="0" aria-label="Game view"></canvas>
+
+<div class="hud hud-tl">
+  <div class="chip" aria-live="polite"><span class="label">Rings</span><span class="count" id="ringCount">0</span><span class="total" id="ringTotal">/ 0</span></div>
+  <div class="chip" id="flickyHud" hidden aria-label="Flickies: filled are in the ring, outlined are following you"><span class="label">Flickies</span><span class="dots" id="flickyDots"></span></div>
+</div>
+<div class="hud hud-tr">
+  <button class="iconbtn mode" id="camMode" aria-label="Switch to the isometric view">ISO</button>
+  <button class="iconbtn" id="camLeft" aria-label="Rotate camera left">⟲</button>
+  <button class="iconbtn" id="camRight" aria-label="Rotate camera right">⟳</button>
+  <button class="iconbtn" id="helpBtn" aria-label="Show controls">?</button>
+</div>
+
+<div id="touchUI" hidden>
+  <div class="stick-hint" id="stickHint">Drag left side to move<br>Drag right side to look</div>
+  <div id="stick" hidden><div id="stickKnob"></div></div>
+  <div class="pads">
+    <button class="pad" id="padDash" aria-label="Spin dash">Dash</button>
+    <button class="pad" id="padJump" aria-label="Jump">Jump</button>
+  </div>
+</div>
+
+<div class="overlay" id="helpOverlay">
+  <div class="card" role="dialog" aria-labelledby="helpTitle">
+    <h1 id="helpTitle">Blast Grid</h1>
+    <p>Collect every ring. Some sit up high: try the stairs, the springs, and the blocks you can hop between.</p>
+    <dl class="keys" id="keysList"></dl>
+    <div class="actions"><button id="playBtn">Play</button><button id="restartBtn" class="secondary" hidden>Restart level</button></div>
+    <div class="levels">
+      <p id="levelName"></p>
+      <div class="actions">
+        <label class="filebtn" for="levelFile">Load level file</label>
+        <input type="file" id="levelFile" accept=".json,application/json">
+        <button id="builtInBtn" class="secondary" hidden>Built-in level</button>
+      </div>
+      <ul id="loadMsg" class="loadmsg" hidden></ul>
+    </div>
+    <div class="levels">
+      <p>Own the Mega Drive version of Sonic 3D Blast? Choose your ROM file (zipped is fine) to play its level layouts and see its sprites here. The file stays on your device: this browser keeps a copy so the sprites load next time, until you choose Forget ROM.</p>
+      <div class="actions">
+        <label class="filebtn" for="romFile">Choose ROM file</label>
+        <input type="file" id="romFile">
+      </div>
+      <div class="romrow" id="romPick" hidden>
+        <label for="romLevel">Level</label><select id="romLevel"></select>
+        <label for="romScale">Heights</label>
+        <select id="romScale"><option value="1">True shape</option><option value="0.5">Half height (flatter)</option></select>
+        <label for="lookSel">Look</label>
+        <select id="lookSel"><option value="rom">Sprites from your ROM</option><option value="scribble">Scribbled</option></select>
+        <button id="romGo">Play this level</button>
+        <button id="romForget" class="secondary">Forget ROM</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="errorOverlay" hidden>
+  <div class="card error" role="alertdialog" aria-labelledby="errTitle">
+    <h1 id="errTitle">The game could not start</h1>
+    <ul id="errList"></ul>
+    <p id="errHint">Fix the problems listed above, then reload the page.</p>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script type="application/json" id="level">
+{
+ "version": 1,
+ "format": "grid",
+ "name": "Scribble Isle",
+ "heightUnit": 0.25,
+ "killY": -1.5,
+ "heights": [
+  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "a4444444444444444444444444444444444a",
+  "a4444444444444444440004444444444444a",
+  "a4cccccccc4444444440004444aaaaaaaa4a",
+  "a4cccccccc4444444440004444aaaaaaaa4a",
+  "a4ccccccccba98765440004444aaaaaaaa4a",
+  "a4ccccccccba98765440004444aaaaaaaa4a",
+  "a4ccccccccba98765440004444aaaaaaaa4a",
+  "a4cccccccc4444444440004444aaaaaaaa4a",
+  "a4cccccccc4444444444444444aaaaaaaa4a",
+  "a4cccccccc4444444440004444aaaaaaaa4a",
+  "a4cccccccc4444444440004444444444444a",
+  "a4cccccccc4444444440004444444444444a",
+  "a444cc44444444444440004444444444444a",
+  "a444bb44444444444440004444444444444a",
+  "a444aa44444444444440004488444444444a",
+  "a4449944444444444440004488444444444a",
+  "a44488444444444444400044444cc444444a",
+  "a44477444444444444400044444cc444444a",
+  "a44466444444444444400044444444gg444a",
+  "a44455444444444444400044444444gg444a",
+  "a4444444455555444440004444444444444a",
+  "a4444444456665444440004444444444444a",
+  "a4444444456665444440004443333333444a",
+  "a4444444456665444440004442222222444a",
+  "a4444444455555444444444442222222444a",
+  "a4444444444444444444444442222222444a",
+  "a4444444444444444444444442222222444a",
+  "a4444444444444444444444442222222444a",
+  "a4444444444444444444444442222222444a",
+  "a4444444444444444444444444444444444a",
+  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+ ],
+ "ramps": [
+  "....................................",
+  "....................................",
+  "....................................",
+  "....................................",
+  "....................................",
+  "..........wwwwwwww..................",
+  "..........wwwwwwww..................",
+  "..........wwwwwwww..................",
+  "....................................",
+  "....................................",
+  "....................................",
+  "....................................",
+  "....................................",
+  "....................................",
+  "....................................",
+  "....................................",
+  "....................................",
+  "....................................",
+  "....................................",
+  "....................................",
+  "....................................",
+  "....................................",
+  "....................................",
+  ".........................nnnnnnn....",
+  ".........................nnnnnnn....",
+  "....................................",
+  "....................................",
+  "....................................",
+  "....................................",
+  "....................................",
+  "....................................",
+  "...................................."
+ ],
+ "types": [
+  "####################################",
+  "#..................................#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................===.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................xxx.............#",
+  "#..................................#",
+  "#..................................#",
+  "#..................................#",
+  "#..................................#",
+  "#..................................#",
+  "#..................................#",
+  "####################################"
+ ],
+ "entities": [
+  {
+   "type": "start",
+   "x": 4.5,
+   "z": 27.5,
+   "facing": 45
+  },
+  {
+   "type": "ringLine",
+   "from": [
+    6.5,
+    27.5
+   ],
+   "to": [
+    16.5,
+    27.5
+   ],
+   "count": 6
+  },
+  {
+   "type": "ringCircle",
+   "center": [
+    11,
+    23
+   ],
+   "radius": 1.2,
+   "count": 6
+  },
+  {
+   "type": "ringLine",
+   "from": [
+    4.5,
+    19.5
+   ],
+   "to": [
+    4.5,
+    13.5
+   ],
+   "count": 5
+  },
+  {
+   "type": "ringLine",
+   "from": [
+    3.5,
+    8.5
+   ],
+   "to": [
+    8.5,
+    8.5
+   ],
+   "count": 5
+  },
+  {
+   "type": "ringLine",
+   "from": [
+    10.5,
+    6.5
+   ],
+   "to": [
+    17.5,
+    6.5
+   ],
+   "count": 8
+  },
+  {
+   "type": "ringLine",
+   "from": [
+    18.5,
+    9.5
+   ],
+   "to": [
+    22.5,
+    9.5
+   ],
+   "count": 5
+  },
+  {
+   "type": "ringLine",
+   "from": [
+    18.2,
+    18.5
+   ],
+   "to": [
+    22.8,
+    18.5
+   ],
+   "count": 5,
+   "y": 1.2
+  },
+  {
+   "type": "spring",
+   "x": 29.5,
+   "z": 12.0,
+   "power": 12
+  },
+  {
+   "type": "ringLine",
+   "from": [
+    27.5,
+    5.5
+   ],
+   "to": [
+    32.5,
+    5.5
+   ],
+   "count": 6
+  },
+  {
+   "type": "ringLine",
+   "from": [
+    27.5,
+    8.5
+   ],
+   "to": [
+    32.5,
+    8.5
+   ],
+   "count": 6
+  },
+  {
+   "type": "ring",
+   "x": 25,
+   "z": 16
+  },
+  {
+   "type": "ring",
+   "x": 28,
+   "z": 18
+  },
+  {
+   "type": "ring",
+   "x": 31,
+   "z": 20
+  },
+  {
+   "type": "ringCircle",
+   "center": [
+    31,
+    20
+   ],
+   "radius": 0.6,
+   "count": 4,
+   "y": 1.2
+  },
+  {
+   "type": "ringCircle",
+   "center": [
+    28,
+    27
+   ],
+   "radius": 1.6,
+   "count": 8
+  },
+  {
+   "type": "enemy",
+   "x": 12.0,
+   "z": 28.5,
+   "radius": 1.5
+  },
+  {
+   "type": "enemy",
+   "x": 24.5,
+   "z": 9.5,
+   "radius": 1.2
+  },
+  {
+   "type": "enemy",
+   "x": 30.0,
+   "z": 7.0,
+   "radius": 2.0
+  },
+  {
+   "type": "enemy",
+   "x": 28.0,
+   "z": 27.0,
+   "radius": 1.0
+  },
+  {
+   "type": "enemy",
+   "x": 6.0,
+   "z": 6.5,
+   "radius": 1.5
+  },
+  {
+   "type": "enemy",
+   "x": 13.5,
+   "z": 13.5,
+   "radius": 1.8
+  },
+  {
+   "type": "monitor",
+   "x": 8.5,
+   "z": 4.0
+  },
+  {
+   "type": "monitor",
+   "x": 2.5,
+   "z": 24.5
+  },
+  {
+   "type": "monitor",
+   "x": 32.5,
+   "z": 4.0
+  },
+  {
+   "type": "monitor",
+   "x": 23.0,
+   "z": 23.5
+  },
+  {
+   "type": "goal",
+   "x": 33.0,
+   "z": 27.5
+  },
+  {
+   "type": "palm",
+   "x": 2.5,
+   "z": 29.5,
+   "variant": 0
+  },
+  {
+   "type": "palm",
+   "x": 8.5,
+   "z": 30.0,
+   "variant": 1
+  },
+  {
+   "type": "palm",
+   "x": 15.5,
+   "z": 30.0,
+   "variant": 0
+  },
+  {
+   "type": "palm",
+   "x": 2.0,
+   "z": 15.5,
+   "variant": 1
+  },
+  {
+   "type": "palm",
+   "x": 12.5,
+   "z": 2.0,
+   "variant": 0
+  },
+  {
+   "type": "palm",
+   "x": 17.0,
+   "z": 2.0,
+   "variant": 1
+  },
+  {
+   "type": "palm",
+   "x": 23.5,
+   "z": 2.0,
+   "variant": 0
+  },
+  {
+   "type": "palm",
+   "x": 34.0,
+   "z": 13.5,
+   "variant": 1
+  },
+  {
+   "type": "palm",
+   "x": 34.0,
+   "z": 22.0,
+   "variant": 0
+  },
+  {
+   "type": "palm",
+   "x": 23.0,
+   "z": 29.5,
+   "variant": 1
+  },
+  {
+   "type": "palm",
+   "x": 33.5,
+   "z": 30.0,
+   "variant": 0
+  },
+  {
+   "type": "palm",
+   "x": 7.5,
+   "z": 18.5,
+   "variant": 1
+  },
+  {
+   "type": "palm",
+   "x": 16.5,
+   "z": 12.5,
+   "variant": 0
+  },
+  {
+   "type": "bush",
+   "x": 1.8,
+   "z": 21.5,
+   "variant": 0
+  },
+  {
+   "type": "bush",
+   "x": 14.5,
+   "z": 18.0,
+   "variant": 1
+  },
+  {
+   "type": "bush",
+   "x": 17.5,
+   "z": 23.5,
+   "variant": 0
+  },
+  {
+   "type": "bush",
+   "x": 23.0,
+   "z": 13.0,
+   "variant": 1
+  },
+  {
+   "type": "bush",
+   "x": 34.0,
+   "z": 17.5,
+   "variant": 0
+  },
+  {
+   "type": "bush",
+   "x": 24.5,
+   "z": 21.0,
+   "variant": 1
+  },
+  {
+   "type": "bush",
+   "x": 6.0,
+   "z": 1.8,
+   "variant": 0
+  },
+  {
+   "type": "bush",
+   "x": 2.0,
+   "z": 2.2,
+   "variant": 1
+  },
+  {
+   "type": "flower",
+   "x": 23.07,
+   "z": 3.34,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 13.49,
+   "z": 2.92,
+   "variant": 1
+  },
+  {
+   "type": "flower",
+   "x": 2.46,
+   "z": 14.04,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 9.29,
+   "z": 17.51,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 28.98,
+   "z": 4.86,
+   "variant": 1
+  },
+  {
+   "type": "flower",
+   "x": 22.39,
+   "z": 18.46,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 34.0,
+   "z": 2.58,
+   "variant": 1
+  },
+  {
+   "type": "flower",
+   "x": 5.16,
+   "z": 10.33,
+   "variant": 1
+  },
+  {
+   "type": "flower",
+   "x": 4.66,
+   "z": 18.11,
+   "variant": 1
+  },
+  {
+   "type": "flower",
+   "x": 13.71,
+   "z": 17.41,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 17.88,
+   "z": 16.94,
+   "variant": 2
+  },
+  {
+   "type": "flower",
+   "x": 16.84,
+   "z": 28.53,
+   "variant": 2
+  },
+  {
+   "type": "flower",
+   "x": 11.27,
+   "z": 24.71,
+   "variant": 1
+  },
+  {
+   "type": "flower",
+   "x": 3.95,
+   "z": 10.09,
+   "variant": 3
+  },
+  {
+   "type": "flower",
+   "x": 30.6,
+   "z": 22.79,
+   "variant": 2
+  },
+  {
+   "type": "flower",
+   "x": 18.4,
+   "z": 6.08,
+   "variant": 2
+  },
+  {
+   "type": "flower",
+   "x": 6.31,
+   "z": 15.67,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 33.52,
+   "z": 3.5,
+   "variant": 2
+  },
+  {
+   "type": "flower",
+   "x": 12.63,
+   "z": 11.57,
+   "variant": 3
+  },
+  {
+   "type": "flower",
+   "x": 29.42,
+   "z": 29.16,
+   "variant": 3
+  },
+  {
+   "type": "flower",
+   "x": 24.62,
+   "z": 3.12,
+   "variant": 2
+  },
+  {
+   "type": "flower",
+   "x": 22.94,
+   "z": 30.6,
+   "variant": 3
+  },
+  {
+   "type": "flower",
+   "x": 10.76,
+   "z": 12.62,
+   "variant": 2
+  },
+  {
+   "type": "flower",
+   "x": 1.96,
+   "z": 14.87,
+   "variant": 1
+  },
+  {
+   "type": "flower",
+   "x": 8.53,
+   "z": 9.71,
+   "variant": 1
+  },
+  {
+   "type": "flower",
+   "x": 14.57,
+   "z": 28.34,
+   "variant": 3
+  },
+  {
+   "type": "flower",
+   "x": 3.91,
+   "z": 14.5,
+   "variant": 2
+  },
+  {
+   "type": "flower",
+   "x": 30.88,
+   "z": 25.45,
+   "variant": 2
+  },
+  {
+   "type": "flower",
+   "x": 24.93,
+   "z": 30.4,
+   "variant": 3
+  },
+  {
+   "type": "flower",
+   "x": 33.38,
+   "z": 5.67,
+   "variant": 1
+  },
+  {
+   "type": "flower",
+   "x": 6.28,
+   "z": 20.69,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 17.49,
+   "z": 18.64,
+   "variant": 2
+  },
+  {
+   "type": "flower",
+   "x": 11.91,
+   "z": 4.91,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 16.54,
+   "z": 26.98,
+   "variant": 3
+  },
+  {
+   "type": "flower",
+   "x": 14.58,
+   "z": 12.87,
+   "variant": 3
+  },
+  {
+   "type": "flower",
+   "x": 22.51,
+   "z": 3.04,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 34.28,
+   "z": 14.24,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 12.63,
+   "z": 2.76,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 33.08,
+   "z": 19.37,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 30.58,
+   "z": 19.38,
+   "variant": 1
+  },
+  {
+   "type": "flower",
+   "x": 22.52,
+   "z": 29.48,
+   "variant": 2
+  },
+  {
+   "type": "flower",
+   "x": 17.13,
+   "z": 4.61,
+   "variant": 3
+  },
+  {
+   "type": "flower",
+   "x": 34.57,
+   "z": 14.99,
+   "variant": 3
+  },
+  {
+   "type": "flower",
+   "x": 17.28,
+   "z": 21.68,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 8.1,
+   "z": 29.38,
+   "variant": 2
+  },
+  {
+   "type": "flower",
+   "x": 6.13,
+   "z": 17.28,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 26.67,
+   "z": 10.02,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 24.59,
+   "z": 8.93,
+   "variant": 2
+  },
+  {
+   "type": "flower",
+   "x": 31.72,
+   "z": 11.73,
+   "variant": 1
+  },
+  {
+   "type": "flower",
+   "x": 28.47,
+   "z": 30.35,
+   "variant": 1
+  },
+  {
+   "type": "flower",
+   "x": 28.28,
+   "z": 25.42,
+   "variant": 1
+  },
+  {
+   "type": "flower",
+   "x": 7.92,
+   "z": 15.79,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 34.45,
+   "z": 24.59,
+   "variant": 3
+  },
+  {
+   "type": "flower",
+   "x": 9.91,
+   "z": 21.7,
+   "variant": 2
+  },
+  {
+   "type": "flower",
+   "x": 16.23,
+   "z": 28.94,
+   "variant": 2
+  },
+  {
+   "type": "flower",
+   "x": 33.29,
+   "z": 11.99,
+   "variant": 1
+  },
+  {
+   "type": "flower",
+   "x": 4.63,
+   "z": 15.11,
+   "variant": 2
+  },
+  {
+   "type": "flower",
+   "x": 8.07,
+   "z": 19.67,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 17.31,
+   "z": 20.53,
+   "variant": 0
+  },
+  {
+   "type": "flower",
+   "x": 29.24,
+   "z": 4.75,
+   "variant": 3
+  }
+ ]
+}
+</script>
+
+<script id="sim">
+/* Pure simulation. No DOM, no THREE, deterministic for a given input sequence. */
+const Sim = (() => {
+  'use strict';
+
+  const P = {
+    dt: 1 / 60,
+    r: 0.3,             // player radius in metres
+    stepUp: 0.3,        // highest rise walked without jumping
+    snapDown: 0.3,      // largest drop followed while staying grounded
+    run: 8,             // top walking speed, m/s
+    accel: 24,
+    friction: 16,
+    airAccel: 12,
+    rollFriction: 2.5,
+    rollMin: 2.0,       // rolling stops below this speed
+    rollTurn: 3.0,      // rad/s steering while rolling
+    dashMin: 11,
+    dashMax: 22,
+    dashCharge: 0.6,    // seconds to full charge
+    cap: 25,            // hard speed cap
+    jumpV: 7.5,
+    jumpCut: 3.0,       // upward speed kept after releasing jump early
+    gravity: 22,
+    maxFall: 25,
+    slope: 14,          // slope acceleration per unit gradient
+    coyote: 0.1,
+    killY: -6,
+    ringR: 0.75,
+    ringY: 0.6,         // default ring height above the floor
+    enemyR: 0.6,        // touch distance for enemies and monitors
+    hurtTime: 1.5,      // invulnerable seconds after a hit
+    scatterMax: 16,     // most rings thrown out by a hit
+    scatterLife: 4,     // seconds before thrown rings vanish
+  };
+
+  const B36 = '0123456789abcdefghijklmnopqrstuvwxyz';
+  const GRID_TYPES = { '.': ['F', 'grass'], '#': ['F', 'stone'], '=': ['F', 'wood'], 'x': ['P', 'none'], '^': ['H', 'hazard'] };
+  const DECOR = new Set(['palm', 'flower', 'bush']);
+  // optional art hint from a converted level (the original object type, in hex); ignored when malformed
+  const skinOf = e => (typeof e.skin === 'string' && /^[0-9A-F]{3}$/.test(e.skin) ? e.skin : undefined);
+  const RAMP_DIRS = { n: [0, -1, 0, 1], s: [0, 1, 2, 3], e: [1, 0, 1, 2], w: [-1, 0, 0, 3] }; // dx, dz, corner a, corner b
+  // F floor, P pit (fall in), H hazard floor, W void the player cannot enter (the original's cells without floor)
+  const COLL = new Set(['F', 'P', 'H', 'W']);
+
+  class LevelError extends Error {
+    constructor(list) { super(list.join('\n')); this.list = list; this.name = 'LevelError'; }
+  }
+
+  function makeLevel(name, W, D) {
+    return { name, width: W, depth: D, corners: new Float64Array(W * D * 4), coll: new Array(W * D).fill('F'), mat: new Array(W * D).fill('grass'), entities: [], start: null, killY: P.killY };
+  }
+
+  function fromGrid(raw, errs) {
+    const unit = raw.heightUnit ?? 0.25;
+    if (!(unit > 0)) { errs.push('heightUnit must be a positive number of metres.'); return null; }
+    const rows = raw.heights;
+    if (!Array.isArray(rows) || rows.length < 3 || typeof rows[0] !== 'string') { errs.push('"heights" must be a list of at least 3 text rows.'); return null; }
+    const D = rows.length, W = rows[0].length;
+    if (W < 3) { errs.push('Rows must be at least 3 tiles wide.'); return null; }
+    const layer = (name, fallback) => {
+      const v = raw[name];
+      if (v === undefined) return Array.from({ length: D }, () => fallback.repeat(W));
+      if (!Array.isArray(v) || v.length !== D) { errs.push(`"${name}" must have ${D} rows, the same as "heights".`); return null; }
+      return v;
+    };
+    const ramps = layer('ramps', '.'), types = layer('types', '.');
+    if (!ramps || !types) return null;
+    const check = (name, arr) => arr.forEach((row, z) => {
+      if (typeof row !== 'string' || row.length !== W) errs.push(`Row ${z} of "${name}" has ${typeof row === 'string' ? row.length : 0} tiles; expected ${W}.`);
+    });
+    check('heights', rows); check('ramps', ramps); check('types', types);
+    if (errs.length) return null;
+
+    const H = [];
+    for (let z = 0; z < D; z++) {
+      H.push([]);
+      for (let x = 0; x < W; x++) {
+        const ch = rows[z][x];
+        const v = B36.indexOf(ch.toLowerCase());
+        if (v < 0) errs.push(`Unknown height character "${ch}" at column ${x}, row ${z}.`);
+        H[z].push(v * unit);
+      }
+    }
+    const L = makeLevel(raw.name || 'Untitled', W, D);
+    for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
+      const t = types[z][x], rp = ramps[z][x], k = z * W + x;
+      if (!GRID_TYPES[t]) { errs.push(`Unknown tile type "${t}" at column ${x}, row ${z}. Use . # = x or ^.`); continue; }
+      L.coll[k] = GRID_TYPES[t][0]; L.mat[k] = GRID_TYPES[t][1];
+      const c = [H[z][x], H[z][x], H[z][x], H[z][x]];
+      if (rp !== '.') {
+        const d = RAMP_DIRS[rp];
+        if (!d) { errs.push(`Unknown ramp "${rp}" at column ${x}, row ${z}. Use n e s w or a dot.`); continue; }
+        const nx = x + d[0], nz = z + d[1];
+        if (nx < 0 || nz < 0 || nx >= W || nz >= D) { errs.push(`Ramp at column ${x}, row ${z} points off the map.`); continue; }
+        c[d[2]] = H[nz][nx]; c[d[3]] = H[nz][nx];
+      }
+      L.corners.set(c, k * 4);
+    }
+    return L;
+  }
+
+  function fromTiles(raw, errs) {
+    const W = raw.width, D = raw.depth;
+    if (!(Number.isInteger(W) && Number.isInteger(D) && W >= 3 && D >= 3)) { errs.push('"width" and "depth" must be whole numbers of at least 3.'); return null; }
+    if (!Array.isArray(raw.tiles) || raw.tiles.length !== W * D) { errs.push(`"tiles" must list exactly ${W * D} tiles (width x depth), row by row from the north-west.`); return null; }
+    const L = makeLevel(raw.name || 'Untitled', W, D);
+    raw.tiles.forEach((t, k) => {
+      const x = k % W, z = Math.floor(k / W);
+      if (!t || !Array.isArray(t.c) || t.c.length !== 4 || !t.c.every(Number.isFinite)) { errs.push(`Tile at column ${x}, row ${z} needs "c": four corner heights [nw, ne, se, sw] in metres.`); return; }
+      const ct = t.t ?? 'F';
+      if (!COLL.has(ct)) { errs.push(`Tile at column ${x}, row ${z} has unknown collision "${ct}". Use F, P, H or W.`); return; }
+      L.corners.set(t.c, k * 4); L.coll[k] = ct; L.mat[k] = t.m || (ct === 'H' ? 'hazard' : 'grass');
+    });
+    return L;
+  }
+
+  function addEntities(L, list, errs) {
+    if (!Array.isArray(list)) { errs.push('"entities" must be a list.'); return; }
+    const inBounds = (x, z) => x >= 0 && z >= 0 && x < L.width && z < L.depth;
+    const ringAt = (x, z, y, base) => {
+      if (!inBounds(x, z)) { errs.push(`A ring at (${x}, ${z}) is outside the map.`); return; }
+      const f = floorAt(L, x, z);
+      L.entities.push({ type: 'ring', x, z, y: (Number.isFinite(f) ? f : base) + y });
+    };
+    let starts = 0;
+    for (const e of list) {
+      const y = e.y ?? P.ringY;
+      switch (e.type) {
+        case 'start':
+          starts++;
+          if (!inBounds(e.x, e.z)) errs.push('The start is outside the map.');
+          else if ('PW'.includes(L.coll[Math.floor(e.z) * L.width + Math.floor(e.x)])) errs.push('The start is over a pit.');
+          else if (e.facing !== undefined && !Number.isFinite(e.facing)) errs.push('The start "facing" must be compass degrees (0 north, 90 east).');
+          else { const r = (e.facing ?? 180) * Math.PI / 180; L.start = { x: e.x, z: e.z, facing: Math.atan2(Math.sin(r), -Math.cos(r)) }; }
+          break;
+        case 'ring':
+          if (e.absY !== undefined) {
+            if (!Number.isFinite(e.absY) || !inBounds(e.x, e.z)) { errs.push(`A ring at (${e.x}, ${e.z}) needs a position on the map and a numeric "absY".`); break; }
+            L.entities.push({ type: 'ring', x: e.x, z: e.z, y: e.absY });
+          } else ringAt(e.x, e.z, y, 0);
+          break;
+        case 'enemy': case 'monitor': case 'goal': {
+          if (!inBounds(e.x, e.z)) { errs.push(`A ${e.type} at (${e.x}, ${e.z}) is outside the map.`); break; }
+          const f = floorAt(L, e.x, e.z);
+          if (!Number.isFinite(f)) { errs.push(`A ${e.type} at (${e.x}, ${e.z}) is over a pit.`); break; }
+          L.entities.push({ type: e.type, x: e.x, z: e.z, y: f, radius: e.radius ?? 1.5, speed: e.speed ?? 1.2, skin: skinOf(e) });
+          break;
+        }
+        case 'hole': {
+          // a hole that opens once the player has used `opens` big rings, and throws them out at `exit`
+          const ex = Array.isArray(e.exit) ? e.exit : [];
+          if (!inBounds(e.x, e.z) || !inBounds(ex[0], ex[1])) { errs.push(`A hole at (${e.x}, ${e.z}) needs a position and an "exit" [x, z] on the map.`); break; }
+          if (!Number.isFinite(floorAt(L, e.x, e.z)) || !Number.isFinite(floorAt(L, ex[0], ex[1]))) { errs.push(`A hole at (${e.x}, ${e.z}) or its exit is over a pit.`); break; }
+          const opens = e.opens ?? 0, launch = e.launch ?? 8;
+          if (!(Number.isInteger(opens) && opens >= 0 && opens <= 9) || !(launch >= 0 && launch <= 30)) { errs.push(`A hole needs "opens" from 0 to 9 and "launch" from 0 to 30 m/s.`); break; }
+          L.entities.push({ type: 'hole', x: e.x, z: e.z, y: floorAt(L, e.x, e.z), opens, exit: [ex[0], ex[1]], launch });
+          break;
+        }
+        case 'spring': {
+          if (!inBounds(e.x, e.z)) { errs.push(`A spring at (${e.x}, ${e.z}) is outside the map.`); break; }
+          const f = floorAt(L, e.x, e.z);
+          if (!Number.isFinite(f)) { errs.push(`A spring at (${e.x}, ${e.z}) is over a pit.`); break; }
+          const power = e.power ?? 12;
+          if (!(power > 0 && power <= 30)) { errs.push(`A spring's "power" must be between 0 and 30 m/s.`); break; }
+          L.entities.push({ type: 'spring', x: e.x, z: e.z, y: f, power, skin: skinOf(e) });
+          break;
+        }
+        case 'ringLine': {
+          if (!Array.isArray(e.from) || !Array.isArray(e.to)) { errs.push('A ringLine needs "from" and "to" as [x, z] pairs.'); break; }
+          const n = Math.max(1, e.count | 0), [x0, z0] = e.from, [x1, z1] = e.to;
+          const b = inBounds(x0, z0) ? floorAt(L, x0, z0) : 0;
+          for (let i = 0; i < n; i++) { const t = n === 1 ? 0 : i / (n - 1); ringAt(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t, y, Number.isFinite(b) ? b : 0); }
+          break;
+        }
+        case 'ringCircle': {
+          if (!Array.isArray(e.center) || !(e.radius > 0)) { errs.push('A ringCircle needs "center" as [x, z] and a positive "radius".'); break; }
+          const n = Math.max(1, e.count | 0), [cx, cz] = e.center;
+          for (let i = 0; i < n; i++) { const a = (i / n) * Math.PI * 2; ringAt(cx + Math.cos(a) * e.radius, cz + Math.sin(a) * e.radius, y, 0); }
+          break;
+        }
+        default:
+          if (DECOR.has(e.type)) {
+            if (!inBounds(e.x, e.z)) { errs.push(`A ${e.type} at (${e.x}, ${e.z}) is outside the map.`); break; }
+            const f = floorAt(L, e.x, e.z);
+            L.entities.push({ type: e.type, x: e.x, z: e.z, y: Number.isFinite(f) ? f : 0, variant: e.variant | 0, size: e.size ?? 1 });
+          } else errs.push(`Unknown entity type "${e.type}".`);
+      }
+    }
+    if (starts !== 1) errs.push(`The level needs exactly one start; it has ${starts}.`);
+  }
+
+  // optional per-level physics, for layouts built at another scale (a converted level brings the original's)
+  const PHYS = { gravity: [1, 80], jumpV: [1, 30], jumpCut: [0, 30], maxFall: [1, 60], stepUp: [0, 2], snapDown: [0, 2] };
+  function readPhysics(raw, errs) {
+    const out = {};
+    for (const k in PHYS) out[k] = P[k];
+    if (raw === undefined) return out;
+    if (!raw || typeof raw !== 'object') { errs.push('"physics" must be an object.'); return out; }
+    for (const k in raw) {
+      const lim = PHYS[k], v = raw[k];
+      if (!lim) { errs.push(`"physics" has an unknown setting "${k}".`); continue; }
+      if (!(Number.isFinite(v) && v >= lim[0] && v <= lim[1])) errs.push(`physics "${k}" must be a number from ${lim[0]} to ${lim[1]}.`);
+      else out[k] = v;
+    }
+    return out;
+  }
+  function importLevel(raw) {
+    const errs = [];
+    if (!raw || typeof raw !== 'object') throw new LevelError(['The level data is not a JSON object.']);
+    if (raw.version !== 1) errs.push(`Level version is ${raw.version}; this game reads version 1.`);
+    let L = null;
+    if (raw.format === 'grid') L = fromGrid(raw, errs);
+    else if (raw.format === 'tiles') L = fromTiles(raw, errs);
+    else errs.push(`Unknown level format "${raw.format}". Use "grid" or "tiles".`);
+    if (L && raw.killY !== undefined) {
+      if (Number.isFinite(raw.killY)) L.killY = raw.killY; else errs.push('"killY" must be a number of metres.');
+    }
+    if (L && Array.isArray(raw.palettes) && raw.palettes.length === 4 && raw.palettes.every(n => Number.isInteger(n) && n >= 1 && n <= 64)) L.palettes = raw.palettes.slice();
+    if (L) L.phys = readPhysics(raw.physics, errs);
+    // Flickies each big ring wants (0 = rings need none). Every defeated enemy frees one.
+    if (L && raw.flickies !== undefined) {
+      if (Number.isInteger(raw.flickies) && raw.flickies >= 0 && raw.flickies <= 10) L.flickies = raw.flickies;
+      else errs.push('"flickies" must be a whole number from 0 to 10.');
+    }
+    // where a converted level sits in the original (for drawing its art); ignored when malformed
+    const rm = raw.rom;
+    if (L && rm && Number.isInteger(rm.level) && Array.isArray(rm.origin) && rm.origin.length === 2 && rm.origin.every(Number.isInteger) && rm.vscale > 0 && rm.vscale <= 4)
+      L.rom = { level: rm.level, origin: rm.origin.slice(), vscale: rm.vscale };
+    if (L && !errs.length) addEntities(L, raw.entities ?? [], errs);
+    if (errs.length) throw new LevelError(errs.slice(0, 20));
+    return L;
+  }
+
+  // ---- level queries ----
+  function bilerp(c, k, u, v) {
+    return c[k] * (1 - u) * (1 - v) + c[k + 1] * u * (1 - v) + c[k + 2] * u * v + c[k + 3] * (1 - u) * v;
+  }
+  function floorAt(L, x, z) {
+    const i = Math.floor(x), j = Math.floor(z);
+    if (i < 0 || j < 0 || i >= L.width || j >= L.depth) return -Infinity;
+    const t = j * L.width + i;
+    if (L.coll[t] === 'P' || L.coll[t] === 'W') return -Infinity;
+    return bilerp(L.corners, t * 4, x - i, z - j);
+  }
+  function gradientAt(L, x, z, out) {
+    const i = Math.floor(x), j = Math.floor(z);
+    out[0] = 0; out[1] = 0;
+    if (i < 0 || j < 0 || i >= L.width || j >= L.depth) return out;
+    const t = j * L.width + i, k = t * 4, c = L.corners, u = x - i, v = z - j;
+    if (L.coll[t] === 'P' || L.coll[t] === 'W') return out;
+    out[0] = (c[k + 1] - c[k]) * (1 - v) + (c[k + 2] - c[k + 3]) * v;
+    out[1] = (c[k + 3] - c[k]) * (1 - u) + (c[k + 2] - c[k + 1]) * u;
+    return out;
+  }
+  function tileTopNear(L, i, j, px, pz) {
+    if (i < 0 || j < 0 || i >= L.width || j >= L.depth) return Infinity;
+    const t = j * L.width + i;
+    if (L.coll[t] === 'P') return -Infinity;
+    if (L.coll[t] === 'W') return Infinity;
+    const u = Math.min(1, Math.max(0, px - i)), v = Math.min(1, Math.max(0, pz - j));
+    return bilerp(L.corners, t * 4, u, v);
+  }
+
+  // Push the player's circle out of every tile too high to step onto. Returns summed normal or null.
+  const _n = [0, 0];
+  function resolveWalls(L, p) {
+    // grounded: rises up to stepUp are walkable; airborne: only clear the ledge once the feet are above it
+    const r = P.r, lim = p.y + (p.grounded ? L.phys.stepUp : 0.02);
+    let hit = false, nx = 0, nz = 0;
+    for (let iter = 0; iter < 3; iter++) {
+      let moved = false;
+      const i0 = Math.floor(p.x - r), i1 = Math.floor(p.x + r), j0 = Math.floor(p.z - r), j1 = Math.floor(p.z + r);
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const cx = Math.min(i + 1, Math.max(i, p.x)), cz = Math.min(j + 1, Math.max(j, p.z));
+        if (tileTopNear(L, i, j, cx, cz) <= lim) continue;
+        const dx = p.x - cx, dz = p.z - cz, d2 = dx * dx + dz * dz;
+        if (d2 >= r * r) continue;
+        let ux, uz, pen;
+        const d = Math.sqrt(d2);
+        if (d > 1e-6) { ux = dx / d; uz = dz / d; pen = r - d; }
+        else {
+          const l = p.x - i, rt = i + 1 - p.x, tp = p.z - j, bt = j + 1 - p.z, m = Math.min(l, rt, tp, bt);
+          if (m === l) { ux = -1; uz = 0; pen = l + r; } else if (m === rt) { ux = 1; uz = 0; pen = rt + r; }
+          else if (m === tp) { ux = 0; uz = -1; pen = tp + r; } else { ux = 0; uz = 1; pen = bt + r; }
+        }
+        p.x += ux * (pen + 1e-5); p.z += uz * (pen + 1e-5);
+        nx += ux; nz += uz; hit = moved = true;
+      }
+      if (!moved) break;
+    }
+    if (!hit) return null;
+    const m = Math.hypot(nx, nz) || 1;
+    _n[0] = nx / m; _n[1] = nz / m;
+    return _n;
+  }
+
+  // ---- world ----
+  function createWorld(L) {
+    const w = {
+      L, time: 0, ringCount: 0, deaths: 0, events: [],
+      rings: L.entities.filter(e => e.type === 'ring').map(e => ({ x: e.x, y: e.y, z: e.z, got: false, gotAt: 0 })),
+      springs: L.entities.filter(e => e.type === 'spring').map(e => ({ x: e.x, y: e.y, z: e.z, power: e.power, cool: 0, firedAt: -9, skin: e.skin })),
+      enemies: [], monitors: [], goals: [], loose: [], cleared: false, section: 0, spawn: null,
+      holes: L.entities.filter(e => e.type === 'hole'),
+      flickies: [], delivered: 0, trail: [], seed: 12345,
+      p: null,
+    };
+    resetLevel(w);
+    return w;
+  }
+  // put every ring, enemy and monitor back and the player at the start
+  function resetLevel(w) {
+    const L = w.L;
+    w.ringCount = 0; w.loose.length = 0; w.cleared = false; w.section = 0; w.spawn = null; w.inGoal = false; w.warpedAt = -9;
+    w.flickies = []; w.delivered = 0; w.trail = []; w.seed = 12345;
+    for (const g of w.rings) g.got = false;
+    w.enemies = L.entities.filter(e => e.type === 'enemy').map((e, i) => ({ x0: e.x, z0: e.z, x: e.x, z: e.z, y: e.y, radius: e.radius, speed: e.speed, ang: i * 1.7, alive: true, diedAt: -9, skin: e.skin }));
+    w.monitors = L.entities.filter(e => e.type === 'monitor').map(e => ({ x: e.x, z: e.z, y: e.y, broken: false, skin: e.skin }));
+    w.goals = L.entities.filter(e => e.type === 'goal').map(e => ({ x: e.x, z: e.z, y: e.y }));
+    respawn(w);
+  }
+  // back to the start, or to the last big ring used (the original restarts a section there)
+  function respawn(w) {
+    if (w.flickies) scatterFlickies(w);
+    const s = w.spawn || w.L.start;
+    w.p = { x: s.x, y: floorAt(w.L, s.x, s.z), z: s.z, vx: 0, vy: 0, vz: 0, grounded: true, coyote: 0,
+      rolling: false, ball: false, sprung: false, charge: 0, facing: s.facing, jumping: false, prevJump: false, prevDash: false, invuln: 0 };
+  }
+
+  const _g = [0, 0];
+  function step(w, inp) {
+    const L = w.L, p = w.p, dt = P.dt;
+    w.events.length = 0;
+    w.time += dt;
+    let mx = inp.mx || 0, mz = inp.mz || 0;
+    let m = Math.hypot(mx, mz);
+    if (m > 1) { mx /= m; mz /= m; m = 1; }
+    const jumpPress = inp.jump && !p.prevJump, dashPress = inp.dash && !p.prevDash, dashRelease = !inp.dash && p.prevDash;
+    p.prevJump = !!inp.jump; p.prevDash = !!inp.dash;
+    let speed = Math.hypot(p.vx, p.vz);
+
+    // spin dash: charge while held near standstill, launch on release
+    if (p.grounded) {
+      if (dashPress && speed > P.run * 0.6) p.rolling = true;
+      if (inp.dash && !p.rolling && speed < 2) {
+        p.charge = Math.min(P.dashCharge, p.charge + dt);
+        p.vx *= 0.8; p.vz *= 0.8;
+        if (m > 0.3) p.facing = Math.atan2(mx, mz);
+      }
+      if (dashRelease && p.charge > 0.08) {
+        const s = P.dashMin + (P.dashMax - P.dashMin) * Math.min(1, p.charge / P.dashCharge);
+        const a = m > 0.3 ? Math.atan2(mx, mz) : p.facing;
+        p.vx = Math.sin(a) * s; p.vz = Math.cos(a) * s; p.rolling = true; p.charge = 0;
+        w.events.push('dash');
+      }
+      if (!inp.dash) p.charge = 0;
+    } else p.charge = 0;
+    const charging = p.charge > 0;
+
+    // jump
+    if (jumpPress && (p.grounded || p.coyote > 0) && !charging) {
+      p.vy = L.phys.jumpV; p.grounded = false; p.coyote = 0; p.jumping = true; p.ball = true;
+      w.events.push('jump');
+    }
+    if (p.jumping && !inp.jump && p.vy > L.phys.jumpCut) p.vy = L.phys.jumpCut;
+
+    // horizontal control
+    speed = Math.hypot(p.vx, p.vz);
+    if (charging) { /* braking handled above */ }
+    else if (p.grounded && p.rolling) {
+      const ns = Math.max(0, speed - P.rollFriction * dt);
+      if (speed > 1e-6) { p.vx *= ns / speed; p.vz *= ns / speed; }
+      if (m > 0.3 && ns > 0) {
+        const cur = Math.atan2(p.vx, p.vz), want = Math.atan2(mx, mz);
+        let da = want - cur; da = Math.atan2(Math.sin(da), Math.cos(da));
+        const a = cur + Math.max(-P.rollTurn * dt, Math.min(P.rollTurn * dt, da));
+        p.vx = Math.sin(a) * ns; p.vz = Math.cos(a) * ns;
+      }
+      if (ns < P.rollMin) p.rolling = false;
+    } else {
+      const acc = p.grounded ? P.accel : P.airAccel;
+      if (m > 0.01) {
+        const top = p.grounded ? P.run * m : Math.max(P.run * m, speed);
+        const dvx = mx / m * top - p.vx, dvz = mz / m * top - p.vz, dl = Math.hypot(dvx, dvz), mxd = acc * dt;
+        const k = dl > mxd ? mxd / dl : 1;
+        p.vx += dvx * k; p.vz += dvz * k;
+      } else if (p.grounded) {
+        const ns = Math.max(0, speed - P.friction * dt);
+        if (speed > 1e-6) { p.vx *= ns / speed; p.vz *= ns / speed; }
+      }
+    }
+
+    // slope pull and gravity
+    if (p.grounded) { gradientAt(L, p.x, p.z, _g); p.vx -= _g[0] * P.slope * dt; p.vz -= _g[1] * P.slope * dt; }
+    else { p.vy = Math.max(-L.phys.maxFall, p.vy - L.phys.gravity * dt); if (p.coyote > 0) p.coyote -= dt; }
+    speed = Math.hypot(p.vx, p.vz);
+    if (speed > P.cap) { p.vx *= P.cap / speed; p.vz *= P.cap / speed; speed = P.cap; }
+
+    // move in substeps no longer than half the radius
+    const n = Math.max(1, Math.ceil(Math.max(speed, Math.abs(p.vy)) * dt / (P.r * 0.5)));
+    const sdt = dt / n;
+    for (let s = 0; s < n; s++) {
+      p.x += p.vx * sdt; p.z += p.vz * sdt;
+      const nrm = resolveWalls(L, p);
+      if (nrm) {
+        const dot = p.vx * nrm[0] + p.vz * nrm[1];
+        if (dot < 0) { p.vx -= nrm[0] * dot; p.vz -= nrm[1] * dot; }
+      }
+      const f = floorAt(L, p.x, p.z);
+      if (p.grounded) {
+        if (!Number.isFinite(f) || p.y - f > L.phys.snapDown) { p.grounded = false; p.coyote = P.coyote; p.vy = 0; }
+        else p.y = f;
+      } else {
+        p.y += p.vy * sdt;
+        if (p.vy <= 0 && Number.isFinite(f) && p.y <= f) {
+          p.y = f; p.vy = 0; p.grounded = true; p.jumping = false; p.coyote = 0; p.ball = p.rolling; p.sprung = false;
+          w.events.push('land');
+        }
+      }
+    }
+
+    if (speed > 0.3 && !charging) p.facing = Math.atan2(p.vx, p.vz);
+    if (p.y < L.killY) { w.deaths++; respawn(w); w.events.push('respawn'); return w; }
+
+    // springs: a pad on the floor that launches the player straight up, keeping horizontal speed
+    for (const sp of w.springs) {
+      if (sp.cool > 0) { sp.cool -= dt; continue; }
+      const dx = sp.x - p.x, dz = sp.z - p.z;
+      if (dx * dx + dz * dz < 0.25 && p.y >= sp.y - 0.2 && p.y <= sp.y + 0.45 && p.vy <= 0.5) {
+        p.vy = sp.power; p.grounded = false; p.jumping = false; p.coyote = 0;
+        p.ball = false; p.rolling = false; p.sprung = true; p.charge = 0;
+        sp.cool = 0.3; sp.firedAt = w.time; w.events.push('spring');
+      }
+    }
+
+    // enemies patrol a small circle and follow the floor
+    if (p.invuln > 0) p.invuln -= dt;
+    const attacking = p.ball || p.rolling || p.charge > 0;
+    const pcy = p.y + 0.45, er2 = P.enemyR * P.enemyR;
+    for (const en of w.enemies) {
+      if (!en.alive) continue;
+      en.ang += (en.speed / Math.max(0.3, en.radius)) * dt;
+      const nx = en.x0 + Math.cos(en.ang) * en.radius, nz = en.z0 + Math.sin(en.ang) * en.radius, f = floorAt(L, nx, nz);
+      if (Number.isFinite(f) && Math.abs(f - en.y) < 0.6) { en.x = nx; en.z = nz; en.y = f; }
+      const dx = p.x - en.x, dz = p.z - en.z;
+      if (dx * dx + dz * dz < er2 && Math.abs(pcy - (en.y + 0.4)) < 0.8) {
+        if (attacking) {
+          en.alive = false; en.diedAt = w.time; w.events.push('enemy');
+          if (L.flickies) w.flickies.push({ x: en.x, y: en.y + 0.3, z: en.z, vx: 0, vy: 4, vz: 0, state: 'free', age: 0, kind: w.flickies.length % 4, dir: rand(w) * 6.283 });
+          if (!p.grounded) { p.vy = Math.max(p.vy, 6); p.jumping = false; }
+        } else if (p.invuln <= 0) { hurt(w, dx, dz); if (w.events.includes('respawn')) return w; }
+      }
+    }
+    // monitors break when hit in ball form and pay out ten rings
+    for (const mo of w.monitors) {
+      if (mo.broken) continue;
+      const dx = p.x - mo.x, dz = p.z - mo.z;
+      if (dx * dx + dz * dz < er2 && Math.abs(pcy - (mo.y + 0.4)) < 0.8 && attacking) {
+        mo.broken = true; w.ringCount += 10; w.events.push('monitor');
+        if (!p.grounded) { p.vy = Math.max(p.vy, 6); p.jumping = false; }
+      }
+    }
+    // hazard tiles hurt on contact with the floor
+    if (p.grounded && p.invuln <= 0) {
+      const ti = Math.floor(p.z) * L.width + Math.floor(p.x);
+      if (L.coll[ti] === 'H') { hurt(w, -p.vx, -p.vz); if (w.events.includes('respawn')) return w; }
+    }
+    // big rings, one per section in order: each one used opens the next part of the level; the last ends it
+    // a ring counts when the player moves into it, so landing in one after a hole does not use it straight away
+    const gl = w.goals[w.section];
+    if (gl && !w.cleared) {
+      const dx = p.x - gl.x, dz = p.z - gl.z, inside = dx * dx + dz * dz < 1.0 && Math.abs(pcy - (gl.y + 0.6)) < 1.2;
+      // a ring takes the Flickies following the player and opens once it has its share (or every one there is)
+      let ready = true;
+      if (inside && !w.inGoal && L.flickies) {
+        const following = w.flickies.filter(f => f.state === 'follow');
+        const left = w.flickies.filter(f => f.state === 'free').length + w.enemies.filter(e => e.alive).length;
+        const need = Math.min(L.flickies, w.delivered + following.length + left);
+        for (const f of following.slice(0, Math.max(0, need - w.delivered))) { f.state = 'gone'; w.delivered++; }
+        ready = w.delivered >= need;
+        if (!ready) w.events.push('needFlickies');
+      }
+      if (inside && !w.inGoal && ready) {
+        w.delivered = 0;
+        if (w.section < w.goals.length - 1) { w.section++; w.spawn = { x: gl.x, z: gl.z, facing: p.facing }; w.events.push('section'); }
+        else { w.cleared = true; w.events.push('goal'); }
+      }
+      w.inGoal = inside;
+    }
+    // open holes swallow a player standing in them and throw them out of the exit (not again within a second)
+    if (p.grounded && w.time - w.warpedAt > 1) for (const h of w.holes) {
+      if (!h.opens || h.opens > w.section || Math.abs(p.x - h.x) >= 0.375 || Math.abs(p.z - h.z) >= 0.375) continue;
+      p.x = h.exit[0]; p.z = h.exit[1]; p.y = floorAt(L, p.x, p.z) + 0.05;
+      p.vx = p.vz = 0; p.vy = h.launch; p.grounded = false; p.ball = true; p.rolling = false; p.charge = 0;
+      w.events.push('warp'); w.warpedAt = w.time; w.inGoal = true;
+      break;
+    }
+    // Flickies: freed ones hop about until touched, then follow the player's trail in a line
+    w.trail.push(p.x, p.y, p.z);
+    if (w.trail.length > 3 * 400) w.trail.splice(0, 3);
+    let k = 0;
+    for (const f of w.flickies) {
+      f.age += dt;
+      if (f.state === 'follow') {
+        const back = 14 * (++k), n = w.trail.length / 3, i = Math.max(0, n - 1 - back) * 3;
+        f.x = w.trail[i]; f.z = w.trail[i + 2];
+        f.y = w.trail[i + 1] + Math.abs(Math.sin(w.time * 9 + k)) * 0.25;
+        continue;
+      }
+      if (f.state !== 'free') continue;
+      const fl = floorAt(L, f.x, f.z);
+      f.vy -= L.phys.gravity * 0.5 * dt;
+      if (f.y + f.vy * dt <= fl && f.vy < 0) {          // landed: hop again, now and then in a new direction
+        f.y = fl; f.vy = 0.35 * L.phys.jumpV;
+        if (rand(w) < 0.35) f.dir = rand(w) * 6.283;
+        f.vx = Math.cos(f.dir) * 1.2; f.vz = Math.sin(f.dir) * 1.2;
+      }
+      const nx = f.x + f.vx * dt, nz = f.z + f.vz * dt, nf = floorAt(L, nx, nz);
+      if (Number.isFinite(nf) && nf <= Math.max(fl, f.y) + L.phys.stepUp) { f.x = nx; f.z = nz; }
+      else { f.dir += Math.PI; f.vx = -f.vx; f.vz = -f.vz; }
+      f.y += f.vy * dt;
+      if (f.y < L.killY) { f.state = 'gone'; continue; }   // fell into a pit
+      const dx = p.x - f.x, dz = p.z - f.z;
+      if (f.age > 0.6 && dx * dx + dz * dz < 0.64 && Math.abs(p.y - f.y) < 1.2) { f.state = 'follow'; w.events.push('flicky'); }
+    }
+    // thrown rings bounce on the floor and can be caught again after a moment
+    for (let i = w.loose.length - 1; i >= 0; i--) {
+      const r = w.loose[i];
+      r.age += dt;
+      if (r.age > P.scatterLife) { w.loose.splice(i, 1); continue; }
+      r.vy -= L.phys.gravity * 0.6 * dt; r.x += r.vx * dt; r.z += r.vz * dt; r.y += r.vy * dt;
+      const f = floorAt(L, r.x, r.z);
+      if (Number.isFinite(f) && r.y < f + 0.3 && r.vy < 0) { r.y = f + 0.3; r.vy = -r.vy * 0.6; r.vx *= 0.8; r.vz *= 0.8; }
+      const dx = r.x - p.x, dy = r.y - pcy, dz = r.z - p.z;
+      if (r.age > 0.6 && dx * dx + dy * dy + dz * dz < P.ringR * P.ringR) { w.loose.splice(i, 1); w.ringCount++; w.events.push('ring'); }
+    }
+
+    // rings
+    const py = p.y + 0.45, r2 = P.ringR * P.ringR;
+    for (const g of w.rings) {
+      if (g.got) continue;
+      const dx = g.x - p.x, dy = g.y - py, dz = g.z - p.z;
+      if (dx * dx + dy * dy + dz * dz < r2) { g.got = true; g.gotAt = w.time; w.ringCount++; w.events.push('ring'); }
+    }
+    return w;
+  }
+
+  // A hit: lose every ring (thrown out around the player) and get knocked back; a hit with no rings sends you back to the start.
+  // deterministic dice for the sim
+  function rand(w) { w.seed = (Math.imul(w.seed, 1103515245) + 12345) >>> 0; return (w.seed >>> 8) / 16777216; }
+  function scatterFlickies(w) {
+    for (const f of w.flickies) if (f.state === 'follow') {
+      f.state = 'free'; f.age = 0; f.dir = rand(w) * 6.283; f.vy = 5; f.vx = Math.cos(f.dir) * 3; f.vz = Math.sin(f.dir) * 3;
+    }
+  }
+  function hurt(w, awayX, awayZ) {
+    const p = w.p;
+    scatterFlickies(w);
+    if (w.ringCount <= 0) { w.deaths++; respawn(w); w.events.push('respawn'); return; }
+    const n = Math.min(P.scatterMax, w.ringCount);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2, sp = 2.5 + (i % 3);
+      w.loose.push({ x: p.x, y: p.y + 0.6, z: p.z, vx: Math.cos(a) * sp, vy: 5 + (i % 2) * 1.5, vz: Math.sin(a) * sp, age: 0 });
+    }
+    w.ringCount = 0;
+    const m = Math.hypot(awayX, awayZ) || 1;
+    p.vx = (awayX / m) * 4; p.vz = (awayZ / m) * 4; p.vy = 5;
+    p.grounded = false; p.jumping = false; p.ball = false; p.rolling = false; p.charge = 0;
+    p.invuln = P.hurtTime; w.events.push('hurt');
+  }
+
+  return { P, LevelError, importLevel, floorAt, gradientAt, tileTopNear, createWorld, resetLevel, respawn, step };
+})();
+</script>
+
+<script id="s3d">
+/* Reads level terrain from the player's own Sonic 3D Blast Mega Drive ROM, in the browser, and turns it into a
+   Blast Grid "tiles" level. No game data is stored in this page; only the reading rules are.
+   Format (worked out from the ROM's own loader and collision code):
+   - level headers: 22 records of 0x2A bytes at 0x1AB62; +0x04 points to an RNC1-packed 128x128 map of big-endian words;
+     +0x20 points to a start table (x at +0x14, height at +0x16, z at +0x18, world units).
+   - map word: high byte = floor height in 8-unit steps; low byte = raise of each corner NW, NE, SE, SW
+     (2 bits each, 8-unit steps); 0 = no floor. One cell is 32 world units across. */
+const S3D = (() => {
+  'use strict';
+  const HEADERS = 0x1AB62, HSIZE = 0x2A, CELL = 32, STEP = 8, RING_TABLE = 0x1936, RING_HOVER = 18;
+  // object types, identified by watching the game run: player start, springs, monitors, the act-end ring, main enemies
+  const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal',
+    0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
+    0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy' };
+  const LEVELS = [
+    [1, 'Green Grove 1'], [2, 'Green Grove 2'], [3, 'Green Grove 3'],
+    [7, 'Rusty Ruin 1'], [6, 'Rusty Ruin 2'], [8, 'Rusty Ruin 3'],
+    [15, 'Spring Stadium 1'], [16, 'Spring Stadium 2'], [17, 'Spring Stadium 3'],
+    [9, 'Diamond Dust 1'], [10, 'Diamond Dust 2'], [11, 'Diamond Dust 3'],
+    [13, 'Volcano Valley 1'], [12, 'Volcano Valley 2'], [14, 'Volcano Valley 3'],
+    [4, 'Gene Gadget 1'], [5, 'Gene Gadget 2'], [18, 'Gene Gadget 3'],
+    [20, 'Panic Puppet 1'], [19, 'Panic Puppet 2'], [21, 'Panic Puppet 3'],
+    [22, 'Final Fight'],
+  ];
+
+  // ---- Rob Northen Compression method 1 (after the public-domain dernc algorithm) ----
+  const CRC = new Uint16Array(256);
+  for (let i = 0; i < 256; i++) { let v = i; for (let j = 0; j < 8; j++) v = v & 1 ? (v >>> 1) ^ 0xA001 : v >>> 1; CRC[i] = v; }
+  function crc16(d, a, b) { let c = 0; for (let i = a; i < b; i++) { c ^= d[i]; c = (c >>> 8) ^ CRC[c & 0xFF]; } return c; }
+  const u32 = (d, o) => ((d[o] << 24) | (d[o + 1] << 16) | (d[o + 2] << 8) | d[o + 3]) >>> 0;
+  const u16 = (d, o) => (d[o] << 8) | d[o + 1];
+  const s16 = (d, o) => { const v = u16(d, o); return v & 0x8000 ? v - 0x10000 : v; };
+
+  function rncUnpack(d, off) {
+    if (d[off] !== 0x52 || d[off + 1] !== 0x4E || d[off + 2] !== 0x43 || d[off + 3] !== 1) throw new Error('no packed block where the map should be');
+    const size = u32(d, off + 4), packed = u32(d, off + 8), ucrc = u16(d, off + 12), pcrc = u16(d, off + 14);
+    if (off + 18 + packed > d.length || crc16(d, off + 18, off + 18 + packed) !== pcrc) throw new Error('packed map failed its checksum');
+    const out = new Uint8Array(size);
+    let o = 0, p = off + 18;
+    const word = q => (q + 1 < d.length ? d[q] | (d[q + 1] << 8) : q < d.length ? d[q] : 0);
+    // bit buffer: numbers stay below 2^32 so plain arithmetic is safe
+    let buf = word(p), cnt = 16;
+    const advance = n => { buf = Math.floor(buf / 2 ** n); cnt -= n; if (cnt < 16) { p += 2; buf += word(p) * 2 ** cnt; cnt += 16; } };
+    const peek = bits => buf % 2 ** bits;
+    const read = bits => { const r = peek(bits); advance(bits); return r; };
+    const fix = () => { cnt -= 16; buf = buf % 2 ** cnt + word(p) * 2 ** cnt; cnt += 16; };
+    const mirror = (x, n) => { let r = 0; for (let i = 0; i < n; i++) { r = (r << 1) | (x & 1); x >>= 1; } return r; };
+    const table = () => {
+      const num = read(5); if (!num) return [];
+      const lens = []; for (let i = 0; i < num; i++) lens.push(read(4));
+      const t = []; let code = 0;
+      for (let i = 1; i <= Math.max(1, ...lens); i++) { for (let j = 0; j < num; j++) if (lens[j] === i) { t.push([mirror(code, i), i, j]); code++; } code <<= 1; }
+      return t;
+    };
+    const huf = t => {
+      for (const [code, ln, val] of t) if (peek(ln) === code) {
+        advance(ln);
+        if (val < 2) return val;
+        const v = 2 ** (val - 1);
+        return v + read(val - 1);
+      }
+      throw new Error('packed map is damaged');
+    };
+    advance(2);
+    while (o < size) {
+      const raw = table(), dist = table(), len = table();
+      let count = read(16);
+      for (;;) {
+        let n = huf(raw);
+        if (n) { for (let i = 0; i < n && o < size; i++) out[o++] = d[p++]; fix(); }
+        if (--count <= 0) break;
+        const back = huf(dist) + 1;
+        n = huf(len) + 2;
+        for (let i = 0; i < n && o < size; i++, o++) out[o] = out[o - back];
+      }
+    }
+    if (crc16(out, 0, size) !== ucrc) throw new Error('unpacked map failed its checksum');
+    return out;
+  }
+
+  // Is this the Mega Drive ROM this reader understands? Returns null if so, else a reason.
+  function check(d) {
+    if (d.length < 0x400000) return 'This file is smaller than the 4 MB Mega Drive game.';
+    const name = String.fromCharCode(...d.subarray(0x150, 0x16E)).trim();
+    if (!/SONIC 3D/.test(name)) return 'This file does not look like the Sonic 3D Blast Mega Drive ROM.';
+    let sum = 0; for (let i = 0x200; i + 1 < d.length; i += 2) sum = (sum + u16(d, i)) & 0xFFFF;
+    if (sum !== u16(d, 0x18E)) return 'The ROM checksum does not match, so the file may be damaged or modified.';
+    const first = u32(d, HEADERS + 4);
+    if (first + 4 > d.length || d[first] !== 0x52 || d[first + 1] !== 0x4E || d[first + 2] !== 0x43) return 'This version of the game keeps its levels somewhere this reader does not know.';
+    return null;
+  }
+
+  // ---------------- opening the player's file: plain ROM, .smd dump, or either inside a .zip ----------------
+  // SMD: 512-byte header, then 16 KB blocks holding the odd bytes in their first half and the even bytes in the second.
+  function fromSmd(d) {
+    const body = d.length - 512, out = new Uint8Array(body);
+    for (let b = 0; b < body; b += 16384) for (let i = 0; i < 8192; i++) {
+      out[b + i * 2 + 1] = d[512 + b + i]; out[b + i * 2] = d[512 + b + 8192 + i];
+    }
+    return out;
+  }
+  // Zip: read the central directory, take the likeliest game file, inflate it with the browser's own DecompressionStream.
+  async function fromZip(d) {
+    let e = -1;
+    for (let i = d.length - 22; i >= Math.max(0, d.length - 65558); i--) if (d[i] === 0x50 && d[i + 1] === 0x4B && d[i + 2] === 5 && d[i + 3] === 6) { e = i; break; }
+    if (e < 0) throw new Error('This zip file is damaged: its table of contents is missing.');
+    const le16 = o => d[o] | (d[o + 1] << 8), le32 = o => (le16(o) | (le16(o + 2) << 16)) >>> 0;
+    const files = [];
+    for (let n = le16(e + 10), o = le32(e + 16); n > 0 && o + 46 <= d.length; n--) {
+      if (le32(o) !== 0x02014B50) break;
+      const nameLen = le16(o + 28);
+      files.push({ method: le16(o + 10), csize: le32(o + 20), size: le32(o + 24), local: le32(o + 42),
+        name: new TextDecoder().decode(d.subarray(o + 46, o + 46 + nameLen)) });
+      o += 46 + nameLen + le16(o + 30) + le16(o + 32);
+    }
+    const game = /\.(md|bin|gen|smd|68k|sgd)$/i;
+    const pick = files.filter(f => !f.name.endsWith('/')).sort((a, b) => (game.test(b.name) - game.test(a.name)) || (b.size - a.size))[0];
+    if (!pick) throw new Error('This zip file has no files in it.');
+    const start = pick.local + 30 + le16(pick.local + 26) + le16(pick.local + 28), raw = d.subarray(start, start + pick.csize);
+    if (pick.method === 0) return raw.slice();
+    if (pick.method !== 8) throw new Error('This zip file uses a kind of compression the browser cannot open. Unzip it first and choose the ROM itself.');
+    if (typeof DecompressionStream === 'undefined') throw new Error('This browser cannot open zip files. Unzip it first and choose the ROM itself.');
+    const stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+  // returns the ROM bytes ready for check(), or throws an Error with a sentence for the player
+  async function openRomFile(buf) {
+    let d = new Uint8Array(buf);
+    if (d[0] === 0x50 && d[1] === 0x4B && d[2] === 3 && d[3] === 4) d = await fromZip(d);
+    if (check(d) && d.length > 512 && (d.length - 512) % 16384 === 0) { const s = fromSmd(d); if (!check(s)) d = s; }
+    return d;
+  }
+
+  // The original's movement, measured in the running game (world units, 60 frames a second; one cell = 32 units):
+  // gravity 0.25 units/frame², jump rise 60 units, terminal fall 7 units/frame, steps of 8 walked, 16 blocked.
+  // Spring rise is not measured yet: 3.27 cells is a guess.
+  function physicsFor(vscale) {
+    const r4 = v => Math.round(v * vscale * 1e4) / 1e4, g = 900 / CELL, h = 60 / CELL;
+    // launch speed that peaks at h under Blast Grid's 60 Hz stepping (it loses v/120 against the smooth formula)
+    const jump = (g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * h)) / 2;
+    return { gravity: r4(g), jumpV: r4(jump), jumpCut: r4(jump * 0.4), maxFall: r4(420 / CELL), stepUp: r4(12 / CELL), snapDown: r4(12 / CELL) };
+  }
+  const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };
+  const holeLaunch = vscale => launchFor(vscale, 127);
+  const springPower = vscale => Math.round(Math.sqrt(2 * (900 / CELL) * 3.27) * vscale * 1e4) / 1e4;
+  function convert(d, id, vscale = 1) {
+    const h = HEADERS + (id - 1) * HSIZE;
+    const raw = rncUnpack(d, u32(d, h + 4));
+    const map = new Uint16Array(128 * 128);
+    for (let i = 0; i < map.length; i++) map[i] = u16(raw, i * 2);
+    let x0 = 127, x1 = 0, z0 = 127, z1 = 0;
+    for (let i = 0; i < map.length; i++) if (map[i]) { const x = i % 128, z = i >> 7; x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+    if (x1 < x0) throw new Error('this level has no floor');
+    x0 = Math.max(0, x0 - 1); z0 = Math.max(0, z0 - 1); x1 = Math.min(127, x1 + 1); z1 = Math.min(127, z1 + 1);
+    const W = x1 - x0 + 1, D = z1 - z0 + 1, unit = STEP / CELL * vscale;
+    const tiles = [];
+    let minTop = Infinity, sumX = 0, sumZ = 0, nFloor = 0;
+    for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+      const v = map[z * 128 + x];
+      // no floor: the original never lets Sonic walk or jump into these cells (tested at 18 edges in 3 levels)
+      if (!v) { tiles.push({ c: [0, 0, 0, 0], t: 'W' }); continue; }
+      const hb = v >> 8, c = [(v >> 6) & 3, (v >> 4) & 3, (v >> 2) & 3, v & 3].map(k => Math.round((hb + k) * unit * 1e4) / 1e4);
+      minTop = Math.min(minTop, ...c); sumX += x; sumZ += z; nFloor++;
+      tiles.push({ c, t: 'F' });
+    }
+    const floorCell = (cx, cz) => cx >= 0 && cz >= 0 && cx < 128 && cz < 128 && map[cz * 128 + cx] !== 0;
+    const r3 = v => Math.round(v * 1000) / 1000;
+    // objects: 52-byte records in the packed block at header +0x00; type at +0x22, code address at +0x30, x/y/z at +6/+0xA/+0xE
+    const ob = rncUnpack(d, u32(d, h));
+    const ents = [], holes = [];
+    // start table (+0x20): [x, z, facing] per section; +0x12 >= 0 when the act has big rings, listed from +0x14
+    // as [x, y, z] per section until x is 0. Each ring used moves the act on a section.
+    const st = u32(d, h + 0x20), tableRings = s16(d, st + 0x12) >= 0;
+    let start = null;
+    for (let k = 0; (k + 1) * 0x34 <= ob.length; k++) {
+      const o = k * 0x34, t = u16(ob, o + 0x22), code = u32(ob, o + 0x30);
+      if (!(code < 0x400000 && t < 0x400)) break;
+      if (!code) continue;
+      const x = s16(ob, o + 6), z = s16(ob, o + 0xE);
+      // holes (Green Grove): mode 1 = open from the start, 4 = opened by the next big ring; the second record of a pair is 0
+      if (t === 0x1C) { const mode = u16(ob, o + 0x24); if (mode) holes.push([x, z, mode]); continue; }
+      const kind = KINDS[t];
+      if (kind === 'goal' && tableRings) continue;
+      if (!kind || !floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) continue;
+      if (kind === 'start') { start = [x / CELL, z / CELL]; continue; }
+      const e = { type: kind, x: r3(x / CELL - x0), z: r3(z / CELL - z0) };
+      if (kind === 'enemy') e.radius = 1.0;
+      if (kind === 'spring') e.power = springPower(vscale);
+      if (kind !== 'goal') e.skin = t.toString(16).toUpperCase().padStart(3, '0');
+      ents.push(e);
+    }
+    if (tableRings) for (let k = 0; k < 3; k++) {
+      const x = s16(d, st + 0x14 + 6 * k), z = s16(d, st + 0x18 + 6 * k);
+      if (!x) break;
+      if (floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) ents.push({ type: 'goal', x: r3(x / CELL - x0), z: r3(z / CELL - z0) });
+    }
+    // a hole swallows the player inside x+3..x+27, z-7..z+17 (world units): centre (x+15, z+5). Closed holes open in
+    // record order, one per ring used, and throw the player out of the next hole in record order with a 127-unit rise
+    // (GG1 seen in the running game; the GG2 chain follows the same rule and leads ring to ring, not yet watched)
+    let opens = 0;
+    holes.forEach(([x, z, mode], i) => {
+      const nx = holes[i + 1];
+      if (mode !== 4 || !nx) return;
+      opens++;
+      ents.push({ type: 'hole', x: r3((x + 15) / CELL - x0), z: r3((z + 5) / CELL - z0), opens,
+        exit: [r3((nx[0] + 15) / CELL - x0), r3((nx[1] + 5) / CELL - z0)], launch: holeLaunch(vscale) });
+    });
+    // rings: 10-byte records from block offset 0x1936 to the end of the block (one leading empty record);
+    // word 0 = sort key with a flag in bit 15, word 2 = screen y of the ring's base, word 4 = map offset of its cell
+    for (let o = RING_TABLE; o + 10 <= ob.length; o += 10) {
+      const a = u16(ob, o), c = s16(ob, o + 4), f = u16(ob, o + 8);
+      if (a === 0 && f === 0) { if (o === RING_TABLE) continue; break; }
+      const cx = (f >> 1) % 128, cz = (f >> 1) >> 7;
+      if (cx < x0 || cx > x1 || cz < z0 || cz > z1) continue;
+      const yWorld = (a & 0x7FFF) - Math.abs(c) + RING_HOVER;
+      ents.push({ type: 'ring', x: cx + 0.5 - x0, z: cz + 0.5 - z0, absY: Math.round(yWorld / CELL * vscale * 1e4) / 1e4 });
+    }
+    // start: the start object, else the start table, else the floor cell nearest the middle (boss arenas)
+    if (!start) {
+      const sx = s16(d, st), sz = s16(d, st + 2);
+      if ((sx || sz) && floorCell(Math.floor(sx / CELL), Math.floor(sz / CELL))) start = [sx / CELL, sz / CELL];
+    }
+    if (!start) {
+      const mx = sumX / nFloor, mz = sumZ / nFloor; let best = Infinity;
+      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) if (map[z * 128 + x]) {
+        const dd = (x - mx) ** 2 + (z - mz) ** 2; if (dd < best) { best = dd; start = [x + 0.5, z + 0.5]; }
+      }
+    }
+    ents.unshift({ type: 'start', x: start[0] - x0, z: start[1] - z0 });
+    const name = (LEVELS.find(l => l[0] === id) || [id, 'Level ' + id])[1];
+    return {
+      version: 1, format: 'tiles', name: name + ' (from your ROM)', width: W, depth: D,
+      killY: Math.round((minTop - 3) * 100) / 100, tiles, entities: ents, palettes: levelPalettes(d, id),
+      physics: physicsFor(vscale), rom: { level: id, origin: [x0, z0], vscale },
+      flickies: tableRings ? 5 : 0,   // every big ring wants five Flickies, freed from enemies
+    };
+  }
+  // ---------------- graphics from the player's ROM ----------------
+  // Sprite pieces seen in the running game, by object type: [x, y, tiles wide, tiles high, h-flip, v-flip,
+  // palette line, ROM address of the raw tiles]. Only positions and addresses live here; pixels come from the ROM.
+  const RECIPES = {
+    '00C': [[9,-17,4,4,0,0,3,0x028BC2],[17,-25,2,1,0,0,3,0x028DC2],[-10,-22,4,3,1,0,3,0x030788],[-10,-38,3,2,1,0,3,0x030908],[-18,-14,1,2,1,0,3,0x0309C8],[-10,-46,2,1,1,0,3,0x030A08]],
+    '018': [[-5,-18,4,4,0,0,2,0x0340C6],[-13,-18,1,3,0,0,2,0x0342C6]],
+    '03C': [[-15,-36,4,4,0,0,3,0x03CC5C],[-15,-4,4,1,0,0,3,0x03CE5C]],
+    '058': [[-16,-19,4,3,0,0,3,0x042FA2],[-8,-27,2,1,0,0,3,0x043122]],
+    '064': [[-24,-34,4,4,0,0,3,0x04D1C4],[8,-34,2,4,0,0,3,0x04D3C4],[-16,-2,4,2,0,0,3,0x04D4C4],[16,-2,1,1,0,0,3,0x04D5C4],[-24,-2,1,1,0,0,3,0x04D5E4]],
+    '094': [[-3,-41,4,4,0,0,3,0x05C73C],[-3,-9,2,2,0,0,3,0x05C93C],[13,-9,3,1,0,0,3,0x05C9BC],[5,-49,2,1,0,0,3,0x05CA1C]],
+    '0C4': [[-5,-16,4,3,0,0,3,0x064A8C],[-13,-24,4,1,0,0,3,0x064CCC],[3,8,3,1,0,0,3,0x064D4C]],
+    '100': [[-46,-39,4,4,1,0,3,0x077F9A],[-38,-55,3,2,1,0,3,0x07819A],[-46,-7,4,1,1,0,3,0x0782DA]],
+    '10C': [[11,-50,3,3,0,0,3,0x07DA52]],
+    '144': [[-8,-20,4,4,0,0,3,0x085376],[24,-20,1,4,0,0,3,0x085576],[0,-36,2,2,0,0,3,0x0855F6],[0,-44,1,1,0,0,3,0x085716]],
+    '148': [[5,-20,4,4,1,0,3,0x0873CA],[-19,-12,3,4,1,0,3,0x0875CA],[-11,-20,2,1,1,0,3,0x0877AA],[13,-28,1,1,1,0,3,0x08782A]],
+    '158': [[-14,-27,4,4,0,0,0,0x08EDB4],[-6,-35,2,1,0,0,0,0x08EFB4]],
+  };
+  const PAL_TABLE = 0x25082, RING_ART = 0x14401E, HERO_TABLE = 0x100000;
+  function paletteRGB(d, n) {
+    const out = [];
+    for (let k = 0; k < 16; k++) {
+      const v = u16(d, PAL_TABLE + (n - 1) * 32 + k * 2);
+      out.push([((v >> 1) & 7) * 255 / 7 | 0, ((v >> 5) & 7) * 255 / 7 | 0, ((v >> 9) & 7) * 255 / 7 | 0]);
+    }
+    return out;
+  }
+  // draw a w x h block of 8x8 4-bit tiles (column-major, as the console stores sprites) into RGBA pixels
+  function blit(px, size, src, w, h, x, y, hf, vf, pal) {
+    for (let cx = 0; cx < w; cx++) for (let cy = 0; cy < h; cy++) {
+      const t = (cx * h + cy) * 32;
+      for (let py = 0; py < 8; py++) for (let qx = 0; qx < 8; qx++) {
+        const b = src[t + py * 4 + (qx >> 1)];
+        if (b === undefined) continue;
+        const c = qx & 1 ? b & 15 : b >> 4;
+        if (!c) continue;
+        const X = x + (hf ? (w - 1 - cx) * 8 + 7 - qx : cx * 8 + qx), Y = y + (vf ? (h - 1 - cy) * 8 + 7 - py : cy * 8 + py);
+        if (X < 0 || Y < 0 || X >= size || Y >= size) continue;
+        const o = (Y * size + X) * 4, col = pal[c];
+        px[o] = col[0]; px[o + 1] = col[1]; px[o + 2] = col[2]; px[o + 3] = 255;
+      }
+    }
+  }
+  // Player frames: table of longs (command length/2 << 24 | offset); frame = piece list then a run/literal coded tile block.
+  function heroFrame(d, i) {
+    const ent = u32(d, HERO_TABLE + i * 4), half = ent >>> 24, F = HERO_TABLE + (ent & 0xFFFFFF);
+    const n = u16(d, F) + 1, pieces = [];
+    for (let k = 0; k < n; k++) {
+      const o = F + 2 + k * 6, sb = v => (v & 0x80 ? v - 256 : v);
+      pieces.push({ x: sb(d[o]), xf: sb(d[o + 1]), y: s16(d, o + 2), size: d[o + 4], tile: d[o + 5] });
+    }
+    const bytes = u16(d, F - 2) * 2, out = new Uint8Array(bytes + 4 * 128);
+    let p = F + s16(d, F - 4), a0 = p + half * 2, o = 0;
+    for (;;) {
+      const c = d[p++];
+      if (c === 0) break;
+      let n;
+      if (c >= 2 && c <= 0x50) { n = (0x50 - c) / 2 + 1; for (let k = 0; k < n && o + 4 <= out.length; k++) { out.set(d.subarray(a0, a0 + 4), o); o += 4; } a0 += 4; }
+      else if (c >= 0x54 && c <= 0x7C) { n = (0x7C - c) / 2 + 1; o += 4 * n; }
+      else if (c >= 0x80 && c <= 0xFE) { n = (0xFE - c) / 2 + 1; if (o + 4 * n <= out.length) out.set(d.subarray(a0, a0 + 4 * n), o); o += 4 * n; a0 += 4 * n; }
+      else throw new Error('player frame ' + i + ' is damaged');
+      if (o > out.length) throw new Error('player frame ' + i + ' is damaged');
+    }
+    return { pieces, art: out.subarray(0, bytes) };
+  }
+  function heroImage(d, i, flip, pal, size = 96, ox = 48, oy = 80) {
+    const { pieces, art } = heroFrame(d, i), px = new Uint8ClampedArray(size * size * 4);
+    let x = 0, y = 0, t = 0;
+    for (const p of pieces) {
+      x += flip ? p.xf : p.x; y += p.y; t += p.tile;
+      const w = ((p.size >> 2) & 3) + 1, h = (p.size & 3) + 1;
+      blit(px, size, art.subarray(t * 32), w, h, ox + x, oy + y, flip, false, pal);
+    }
+    return px;
+  }
+  function recipeImage(d, key, palBytes, size = 96, ox = 48, oy = 80) {
+    const rec = RECIPES[key]; if (!rec) return null;
+    const pals = palBytes.map(n => paletteRGB(d, n)), px = new Uint8ClampedArray(size * size * 4);
+    for (const [dx, dy, w, h, hf, vf, line, addr] of rec) blit(px, size, d.subarray(addr, addr + w * h * 32), w, h, ox + dx, oy + dy, !!hf, !!vf, pals[line]);
+    return px;
+  }
+  function ringImage(d, k, pal, size = 16) {
+    const px = new Uint8ClampedArray(size * size * 4);
+    blit(px, size, d.subarray(RING_ART + k * 0x80, RING_ART + k * 0x80 + 128), 2, 2, 0, 0, false, false, pal);
+    return px;
+  }
+  // Object art blocks (art table at 0x280E8 + type): 16-byte header, then a long offset table from +0x10, frames
+  // laid out like the player's (piece list; tile data at frame + s16(frame - 4), length words at frame - 2) but raw.
+  const FLICKY_ART = 0x32950, BIG_RING_ART = 0x3D068;   // types 14 (the freed bird, 16 frames) and 40 (9 frames)
+  function objFrame(d, base, i) {
+    const t = base + 0x10, F = t + u32(d, t + i * 4), n = u16(d, F) + 1, pieces = [];
+    for (let k = 0; k < n; k++) {
+      const o = F + 2 + k * 6, sb = v => (v & 0x80 ? v - 256 : v);
+      pieces.push({ x: sb(d[o]), xf: sb(d[o + 1]), y: s16(d, o + 2), size: d[o + 4], tile: d[o + 5] });
+    }
+    const start = F + s16(d, F - 4);
+    return { pieces, art: d.subarray(start, start + u16(d, F - 2) * 2) };
+  }
+  function objImage(d, base, i, pal, size = 64, ox = 32, oy = 48, flip = false) {
+    const { pieces, art } = objFrame(d, base, i), px = new Uint8ClampedArray(size * size * 4);
+    let x = 0, y = 0, t = 0;
+    for (const p of pieces) {
+      x += flip ? p.xf : p.x; y += p.y; t += p.tile;
+      blit(px, size, art.subarray(t * 32), ((p.size >> 2) & 3) + 1, (p.size & 3) + 1, ox + x, oy + y, flip, false, pal);
+    }
+    return px;
+  }
+  // palette bytes a level header names: lines 0..3
+  const levelPalettes = (d, id) => { const h = HEADERS + (id - 1) * HSIZE; return [d[h + 0x26], d[h + 0x27], d[h + 0x28], d[h + 0x29]]; };
+  // which drawn view (0 down, 1 down-left, 2 left, 3 up-left, 4 up) and mirror to use for a heading on screen,
+  // in eighths of a turn: 0 toward the camera, 2 to the right, 4 away, 6 to the left
+  const OCTANT = [[0, false], [1, true], [2, true], [3, true], [4, false], [3, false], [2, false], [1, false]];
+  const HERO = {
+    walk: v => (v === 4 ? range(101, 12) : range([5, 29, 53, 77][v], 12)),
+    run: v => (v === 4 ? range(101, 12) : range([5, 29, 53, 77][v] + 12, 12)),
+    ball: () => [113, 126, 113, 127, 113, 128, 113, 129], charge: () => [192, 193, 192, 194, 192, 195, 192, 196, 192, 197],
+  };
+  function range(a, n) { const r = []; for (let i = 0; i < n; i++) r.push(a + i); return r; }
+
+  // ---------------- level art: the isometric picture, unprojected onto the 3D faces ----------------
+  // RNC method 2 as the game's routine at 0xC7C runs it: header-less blocks (packed length, two CRCs, leeway, chunks).
+  function rnc2Unpack(d, off) {
+    let p = off + 10, buf = 0x80;
+    const out = [];
+    const bit = () => {
+      buf = (buf << 1) & 0x1FF;
+      let c = buf >> 8; buf &= 0xFF;
+      if (buf === 0) { const v = d[p++]; buf = ((v << 1) | 1) & 0xFF; c = v >> 7; }
+      return c;
+    };
+    const high = () => {
+      if (!bit()) return 0;
+      let h = bit();
+      if (bit()) { h = (h * 2 + bit()) | 4; return bit() ? h : h * 2 + bit(); }
+      return h || 2 + bit();
+    };
+    bit(); bit();
+    for (;;) {
+      if (!bit()) { out.push(d[p++]); continue; }
+      let len = 2, hi = 0;
+      if (!bit()) {
+        len = len * 2 + bit();
+        if (bit()) {
+          len = (len - 1) * 2 + bit();
+          if (len === 9) { let k = 0; for (let i = 0; i < 4; i++) k = k * 2 + bit(); for (let i = 0; i < (k + 3) * 4; i++) out.push(d[p++]); continue; }
+        }
+        hi = high();
+      } else if (bit()) {
+        len = 3;
+        if (bit()) {
+          len = d[p++];
+          if (len === 0) { if (bit()) continue; break; }
+          len += 8;
+        }
+        hi = high();
+      }
+      const dist = ((hi << 8) | d[p++]) + 1;
+      for (let i = 0; i < len; i++) out.push(out[out.length - dist]);
+    }
+    return Uint8Array.from(out);
+  }
+  // Animated static tiles (water, lava): first tile, count, ROM address of the frame the running game shows.
+  // Found by comparing the loader's VRAM with the running game's; addresses only, the pixels come from the ROM.
+  const ANIM = {
+    1: [[136, 16, 891646], [152, 16, 907006], [168, 16, 897790]], 2: [[197, 16, 891134]], 3: [[29, 16, 887550]],
+    4: [[67, 1, 907518], [69, 1, 907582], [71, 12, 907646]], 5: [[138, 1, 907518], [140, 1, 907582], [142, 12, 907646]],
+    6: [[126, 11, 914718], [138, 2, 912542]], 7: [[58, 11, 912158], [70, 2, 912542]], 9: [[174, 16, 916990]],
+    10: [[99, 16, 918270]], 12: [[125, 40, 945406]], 13: [[69, 40, 945406]], 15: [[93, 16, 949246]], 16: [[95, 16, 949246]],
+    17: [[42, 16, 949246]], 19: [[110, 2, 911806]], 20: [[125, 1, 907518], [127, 1, 907582], [129, 12, 907646], [153, 2, 911678]],
+    22: [[1, 4, 965118], [7, 3, 965310], [12, 9, 965470], [22, 15, 965790], [121, 16, 1430202], [137, 16, 1430202]],
+  };
+  const EDGE = [[0, 1], [1, 2], [2, 3], [3, 0]];                       // N, E, S, W as corner pairs (mesh order)
+  const NEIGH = [[0, -1, 3, 2], [1, 0, 0, 3], [0, 1, 1, 0], [-1, 0, 2, 1]];
+  const DONOR_SIDE = [2, 1, 2, 1];                                     // back walls borrow from the side facing the camera
+  // Level header +0x18 holds 128 packed rows, each 32 px of the picture: 256 columns x 3 bytes = two block numbers.
+  // Streamed blocks (+0x14) draw tiles from +0x0C; static blocks (+0x10) are VRAM tile words over the loader's tiles.
+  // One 32x32 atlas slot per cell top and per 32-unit band of wall; hidden faces borrow a nearby visible one.
+  function artBaker(d, id, opts = {}) {
+    const useFoliage = opts.foliage !== false;
+    const S = 32, h = HEADERS + (id - 1) * HSIZE, f = [];
+    for (let k = 0; k < 8; k++) f.push(u32(d, h + 4 * k));
+    const gfx = f[3], tabB = f[4], tabA = f[5];
+    const mp = rncUnpack(d, f[1]), map = new Uint16Array(16384);
+    for (let i = 0; i < 16384; i++) map[i] = u16(mp, i * 2);
+    const vr = new Uint8Array(0x10000);
+    vr.set(rncUnpack(d, f[2]).subarray(0, 0x10000));
+    for (let a = f[7]; ;) {
+      const k = u16(d, a);
+      if (k === 0) break;
+      if (k === 1) { const src = u32(d, a + 2), vd = u16(d, a + 10), ln = u16(d, a + 12); vr.set(rncUnpack(d, src).subarray(0, ln * 2), vd); a += 14; }
+      else if (k === 2) a += 10; else a += 2;
+    }
+    for (const [tile, n, addr] of ANIM[id] || []) vr.set(d.subarray(addr, addr + n * 32), tile * 32);
+    const base = f[6], nRows = u16(d, base) / 2, rows = [];
+    for (let r = 0; r < nRows; r++) rows.push(rnc2Unpack(d, base + u16(d, base + 2 * r)));
+    const pal = [0, 1, 2, 3].map(line => paletteRGB(d, d[h + 0x26 + line]));
+    let maxH = 0;
+    for (const v of map) if (v) maxH = Math.max(maxH, ((v >> 8) + 3) * 8);
+    const slots = [], tops = new Map(), seen = new Map(), walls = new Map();
+
+    const CH = new Float64Array(16384 * 4);           // corner heights, world units
+    for (let i = 0; i < 16384; i++) {
+      const v = map[i], hb = v >> 8;
+      CH[i * 4] = (hb + ((v >> 6) & 3)) * 8; CH[i * 4 + 1] = (hb + ((v >> 4) & 3)) * 8;
+      CH[i * 4 + 2] = (hb + ((v >> 2) & 3)) * 8; CH[i * 4 + 3] = (hb + (v & 3)) * 8;
+    }
+    const corners = (cx, cz) => {
+      if (cx < 0 || cz < 0 || cx >= 128 || cz >= 128 || !map[cz * 128 + cx]) return null;
+      const k = (cz * 128 + cx) * 4;
+      return [CH[k], CH[k + 1], CH[k + 2], CH[k + 3]];
+    };
+    const height = (x, z) => {
+      const cx = Math.floor(x / S), cz = Math.floor(z / S);
+      if (cx < 0 || cz < 0 || cx >= 128 || cz >= 128 || !map[cz * 128 + cx]) return -1e9;
+      const k = (cz * 128 + cx) * 4, u = x / S - cx, v = z / S - cz;
+      return v >= u ? CH[k] + v * (CH[k + 3] - CH[k]) + u * (CH[k + 2] - CH[k + 3]) : CH[k] + u * (CH[k + 1] - CH[k]) + v * (CH[k + 2] - CH[k + 1]);
+    };
+    // QM: highest terrain in the quadrant ahead (+x, +z) of each cell; the view ray only climbs, so once it is above
+    // that, nothing further can hide the point (same answer as marching on, much sooner)
+    const QM = new Float64Array(129 * 129).fill(-1e9);
+    for (let cz = 127; cz >= 0; cz--) for (let cx = 127; cx >= 0; cx--) {
+      const i = cz * 128 + cx, k = i * 4;
+      const own = map[i] ? Math.max(CH[k], CH[k + 1], CH[k + 2], CH[k + 3]) : -1e9;
+      QM[cz * 129 + cx] = Math.max(own, QM[cz * 129 + cx + 1], QM[(cz + 1) * 129 + cx]);
+    }
+    const visible = (x, y, z) => {
+      for (let t = 1.5; y + t <= maxH; t += 2) {
+        const cx = Math.floor((x + t) / S), cz = Math.floor((z + t) / S);
+        if (cx >= 128 || cz >= 128) return true;
+        if (cx >= 0 && cz >= 0) {
+          if (y + t + 0.5 >= QM[cz * 129 + cx]) return true;
+          const k = (cz * 128 + cx) * 4, top = map[cz * 128 + cx] ? Math.max(CH[k], CH[k + 1], CH[k + 2], CH[k + 3]) : -1e9;
+          if (y + t + 0.5 >= top) {           // nothing in this cell can reach the ray: jump to the step that leaves it
+            const exit = Math.min((cx + 1) * S - x, (cz + 1) * S - z);
+            while (t + 2 < exit) t += 2;
+            continue;
+          }
+        }
+        if (height(x + t, z + t) > y + t + 0.5) return false;
+      }
+      return true;
+    };
+    const texel = (src, o, w, px, py) => {
+      if (w & 0x0800) px = 7 - px;
+      if (w & 0x1000) py = 7 - py;
+      const b = src[o + py * 4 + (px >> 1)];
+      return px & 1 ? b & 15 : b >> 4;
+    };
+    // colour of one picture pixel as palette line*16 + index, or -1 where nothing is drawn;
+    // high priority beats low, streamed beats static
+    const PAL = new Uint8Array(64 * 3);
+    pal.forEach((line, l) => line.forEach((c, i) => PAL.set(c, (l * 16 + i) * 3)));
+    // mode 0: as the game draws it (high-priority foliage lifted out shows the ground beneath); 1: high priority only
+    let masked = null;
+    const pixel = (X, Y, mode = 0) => {
+      const r = Y >> 5, c = X >> 5;
+      if (X < 0 || Y < 0 || r >= nRows || c >= 256) return -1;
+      const low = mode === 0 && masked !== null && masked[(Y >> 3) * 1024 + (X >> 3)] === 1;
+      const row = rows[r], b0 = row[c * 3], b1 = row[c * 3 + 1], b2 = row[c * 3 + 2];
+      const A = (b0 << 4) | (b2 >> 4), B = (b1 << 4) | (b2 & 15);
+      const ty = (Y >> 3) & 3, tx = (X >> 3) & 3, py = Y & 7, px = X & 7;
+      let best = -1, bestPri = -1;
+      if (A >> 1) {
+        const col = B & 1 ? 3 - tx : tx;
+        let w = u16(d, tabA + (A >> 1) * 32 + ty * 8 + col * 2);
+        if (B & 1) w ^= 0x0800;
+        if (A & 1) w ^= 0x8000;
+        const idx = (w & 0x7FF) + (w & 0x4000 ? 0x800 : 0);
+        if (idx && !(low && w & 0x8000) && !(mode === 1 && !(w & 0x8000))) { const ci = texel(d, gfx + idx * 32, w, px, py); if (ci) { best = ((w >> 13) & 1) * 16 + ci; bestPri = w >> 15; } }
+      }
+      if (B >> 1) {
+        const w = u16(d, tabB + (B >> 1) * 32 + ty * 8 + tx * 2);
+        if (w & 0x7FF && !(low && w & 0x8000) && !(mode === 1 && !(w & 0x8000))) {
+          const ci = texel(vr, (w & 0x7FF) * 32, w, px, py);
+          if (ci && (best < 0 || (w >> 15) > bestPri)) best = ((w >> 13) & 3) * 16 + ci;
+        }
+      }
+      return best;
+    };
+    // ---- foliage: clumps of high-priority tiles (drawn in front of Sonic) that stand on a floor, lifted out as sprites ----
+    const foliage = [], rejects = [];
+    if (useFoliage) {
+      const TW = 1024, TH = nRows * 4, hi = new Uint8Array(TW * TH);
+      masked = new Uint8Array(TW * TH);
+      // which tile graphics the level also draws at low priority (ground), and which graphic each high tile shows
+      const lowUse = new Set(), hiTile = new Int32Array(TW * TH).fill(-1);
+      for (let r = 0; r < nRows; r++) for (let c = 0; c < 256; c++) {
+        const row = rows[r], b0 = row[c * 3], b1 = row[c * 3 + 1], b2 = row[c * 3 + 2];
+        const A = (b0 << 4) | (b2 >> 4), B = (b1 << 4) | (b2 & 15);
+        for (let ty = 0; ty < 4; ty++) for (let tx = 0; tx < 4; tx++) {
+          let high = false, id = -1;
+          if (A >> 1) {
+            let w = u16(d, tabA + (A >> 1) * 32 + ty * 8 + (B & 1 ? 3 - tx : tx) * 2);
+            if (A & 1) w ^= 0x8000;
+            const ix = (w & 0x7FF) + (w & 0x4000 ? 0x800 : 0);
+            if (ix) { if (w & 0x8000) { high = true; id = ix; } else lowUse.add(ix); }
+          }
+          if (B >> 1) {
+            const w = u16(d, tabB + (B >> 1) * 32 + ty * 8 + tx * 2);
+            if (w & 0x7FF) { if (w & 0x8000) { high = true; if (id < 0) id = 0x10000 + (w & 0x7FF); } else lowUse.add(0x10000 + (w & 0x7FF)); }
+          }
+          if (high) { hi[(r * 4 + ty) * TW + c * 4 + tx] = 1; hiTile[(r * 4 + ty) * TW + c * 4 + tx] = id; }
+        }
+      }
+      // the terrain a picture pixel shows: walk its view ray from the viewer's side; [x, top, z, depth into a wall]
+      const ground = (X, Y) => {
+        const k = X - 4096;
+        for (let u = 2 * (maxH + Y) + 2; u > 2 * (Y - 64); u -= 1) {
+          const x = (u + k) / 2, z = (u - k) / 2, y = u / 2 - Y, ht = height(x, z);
+          if (ht >= y) return [x, ht, z, ht - y];
+        }
+        return null;
+      };
+      // grass hanging over a cliff's top edge: a tile whose centre shows a wall face less than 28 units below its top
+      // (or sits just above such an edge: the tufts rise above the edge line too)
+      const isLip = t => {
+        const tx = t % TW, ty = (t - tx) / TW;
+        for (const dy of [4, 12, 20]) { const g = ground(tx * 8 + 4, ty * 8 + dy); if (g && g[3] >= 3 && g[3] < 28) return true; }
+        return false;
+      };
+      const comps = (tiles, allowed) => {
+        const out = [], seenT = new Set();
+        for (const st of tiles) {
+          if (seenT.has(st)) continue;
+          const comp = [st]; seenT.add(st);
+          for (let q = 0; q < comp.length; q++) {
+            const t = comp[q], tx = t % TW, ty = (t - tx) / TW;
+            for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+              const nx = tx + dx, ny = ty + dy, n = ny * TW + nx;
+              if (nx >= 0 && ny >= 0 && nx < TW && ny < TH && allowed(n) && !seenT.has(n)) { seenT.add(n); comp.push(n); }
+            }
+          }
+          out.push(comp);
+        }
+        return out;
+      };
+      const all = []; for (let t = 0; t < hi.length; t++) if (hi[t]) all.push(t);
+      const queue = comps(all, n => hi[n] === 1);
+      const bbox = comp => {
+        let x0 = TW, x1 = 0, y0 = TH, y1 = 0;
+        for (const t of comp) { const tx = t % TW, ty = (t - tx) / TW; x0 = Math.min(x0, tx); x1 = Math.max(x1, tx); y0 = Math.min(y0, ty); y1 = Math.max(y1, ty); }
+        return [x0, y0, x1, y1];
+      };
+      for (let qi = 0; qi < queue.length; qi++) {
+        const comp = queue[qi];
+        const [x0, y0, x1, y1] = bbox(comp);
+        if (x1 - x0 >= 24 || y1 - y0 >= 24) {
+          if (comp.split) { rejects.push([x0, y0, x1, y1, 'big']); continue; }
+          // a long strip: drop its grass-lip tiles and look again at what is left standing
+          const keep = new Set(comp.filter(t => !isLip(t)));
+          for (const part of comps([...keep], n => keep.has(n))) { part.split = true; queue.push(part); }
+          continue;
+        }
+        const w = (x1 - x0 + 1) * 8, h = (y1 - y0 + 1) * 8, img = new Uint8ClampedArray(w * h * 4);
+        let opaque = 0, bottom = -1, sumX = 0, nB = 0, top = h;
+        for (const t of comp) {
+          const tx = t % TW, ty = (t - tx) / TW;
+          for (let py = 0; py < 8; py++) for (let px = 0; px < 8; px++) {
+            const c = pixel(tx * 8 + px, ty * 8 + py, 1);
+            if (c < 0) continue;
+            const ix = (tx - x0) * 8 + px, iy = (ty - y0) * 8 + py, o = (iy * w + ix) * 4;
+            img[o] = PAL[c * 3]; img[o + 1] = PAL[c * 3 + 1]; img[o + 2] = PAL[c * 3 + 2]; img[o + 3] = 255;
+            opaque++; bottom = Math.max(bottom, iy); top = Math.min(top, iy);
+          }
+        }
+        if (opaque < 30 || bottom - top < 10) { rejects.push([x0, y0, x1, y1, 'small']); continue; }
+        for (let iy = bottom - 1; iy <= bottom; iy++) for (let ix = 0; ix < w; ix++) if (img[(iy * w + ix) * 4 + 3]) { sumX += ix; nB++; }
+        const g = ground(x0 * 8 + sumX / nB, y0 * 8 + bottom + 1);
+        if (!g || g[3] >= 3) { rejects.push([x0, y0, x1, y1, 'base']); continue; }   // base on a wall face or nothing: leave it painted
+        // pieces of floor drawn in front (raised edges) reuse the ground's own tiles; palms and flowers almost never do
+        const groundy = comp.filter(t => lowUse.has(hiTile[t])).length / comp.length;
+        if (groundy > 0.3) { rejects.push([x0, y0, x1, y1, 'ground']); continue; }
+        foliage.push({ x: g[0], y: g[1], z: g[2], w, h, ax: sumX / nB, ay: bottom + 1, img });
+        for (const t of comp) masked[t] = 1;
+      }
+    }
+    const sample = (x, y, z) => { const c = pixel(Math.floor(x - z + 4096), Math.floor((x + z) / 2 - y)); return c < 0 ? 0 : c; };
+    const newSlot = fn => {
+      const px = new Uint8ClampedArray(S * S * 4);
+      for (let t = 0; t < S; t++) for (let s = 0; s < S; s++) {
+        const c = fn(s, t) * 3, o = (t * S + s) * 4;
+        px[o] = PAL[c]; px[o + 1] = PAL[c + 1]; px[o + 2] = PAL[c + 2]; px[o + 3] = 255;
+      }
+      slots.push(px);
+      return slots.length - 1;
+    };
+    const topVisible = (cx, cz) => {
+      const key = cz * 128 + cx;
+      if (!seen.has(key)) {
+        const c = corners(cx, cz), X = cx * S, Z = cz * S;
+        let ok = !!c;
+        for (const [u, v] of [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]]) {
+          if (ok && !visible(X + u * S, height(X + u * S, Z + v * S), Z + v * S)) ok = false;
+        }
+        seen.set(key, ok);
+      }
+      return seen.get(key);
+    };
+    function top(cx, cz) {
+      const key = cz * 128 + cx;
+      if (tops.has(key)) return tops.get(key);
+      if (!topVisible(cx, cz)) {
+        let found = null;
+        for (let rad = 1; rad < 9 && !found; rad++) {
+          for (let dz = -rad; dz <= rad; dz++) for (let dx = -rad; dx <= rad; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dz)) !== rad) continue;
+            if (found === null && corners(cx + dx, cz + dz) && topVisible(cx + dx, cz + dz)) found = [cx + dx, cz + dz];
+          }
+        }
+        if (found) { const v = top(found[0], found[1]); tops.set(key, v); return v; }
+      }
+      const X = cx * S, Z = cz * S;
+      const v = newSlot((s, t) => { const x = X + s + 0.5, z = Z + t + 0.5; return sample(x, height(x, z), z); });
+      tops.set(key, v);
+      return v;
+    }
+    const P4 = (cx, cz) => [[cx * S, cz * S], [cx * S + S, cz * S], [cx * S + S, cz * S + S], [cx * S, cz * S + S]];
+    // does this cell have a wall on that side (its top edge above the neighbour's)?
+    function hasWall(cx, cz, edge) {
+      if (cx < 0 || cz < 0 || cx >= 128 || cz >= 128 || !map[cz * 128 + cx]) return false;
+      const [a, b] = EDGE[edge], [dx, dz, na, nb] = NEIGH[edge], k = (cz * 128 + cx) * 4;
+      const nx = cx + dx, nz = cz + dz, has = nx >= 0 && nz >= 0 && nx < 128 && nz < 128 && map[nz * 128 + nx];
+      const n = (nz * 128 + nx) * 4;
+      return !(CH[k + a] <= (has ? CH[n + na] : -1e9) && CH[k + b] <= (has ? CH[n + nb] : -1e9));
+    }
+    function wallGeom(cx, cz, edge) {
+      const c = corners(cx, cz), [a, b] = EDGE[edge], P = P4(cx, cz), [dx, dz, na, nb] = NEIGH[edge], n = corners(cx + dx, cz + dz);
+      return [P[a], P[b], c[a], c[b], n ? n[na] : -1e9, n ? n[nb] : -1e9];
+    }
+    function wallPoint(g, k, s, t) {
+      const [pa, pb, ta, tb, ba, bb] = g, fr = (s + 0.5) / S;
+      const x = pa[0] + (pb[0] - pa[0]) * fr, z = pa[1] + (pb[1] - pa[1]) * fr;
+      return [x, ta + (tb - ta) * fr - S * k - (t + 0.5), z, ba + (bb - ba) * fr];
+    }
+    const wallSeen = new Map(), donors = new Map();
+    function wallVisible(cx, cz, edge, k) {
+      if (edge === 0 || edge === 3) return false;
+      const key = ((cz * 128 + cx) * 4 + edge) * 4096 + k;
+      if (!wallSeen.has(key)) wallSeen.set(key, wallVisibleNow(cx, cz, edge, k));
+      return wallSeen.get(key);
+    }
+    function wallVisibleNow(cx, cz, edge, k) {
+      const g = wallGeom(cx, cz, edge);
+      let n = 0;
+      for (const [s, t] of [[8, 8], [24, 8], [8, 24], [24, 24]]) {
+        const [x, y, z, bot] = wallPoint(g, k, s, t);
+        if (y < bot) continue;
+        if (!visible(x + (edge === 1 ? 0.5 : 0), y, z + (edge === 2 ? 0.5 : 0))) return false;
+        n++;
+      }
+      return n > 0;
+    }
+    function plain() {
+      if (!walls.has('plain')) walls.set('plain', newSlot(() => 9));
+      return walls.get('plain');
+    }
+    // nearest visible wall band (same top band or body band) on the side that faces the camera
+    function donor(cx, cz, edge, kk) {
+      const dkey = ((cz * 128 + cx) * 4 + edge) * 3 + kk;
+      if (donors.has(dkey)) return donors.get(dkey);
+      const side = DONOR_SIDE[edge];
+      let found = null;
+      for (let rad = 0; rad < 17 && !found; rad++) {
+        for (let dz = -rad; dz <= rad; dz++) for (let dx = -rad; dx <= rad; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== rad || found) continue;
+          const x2 = cx + dx, z2 = cz + dz;
+          if (!hasWall(x2, z2, side) || (x2 === cx && z2 === cz && side === edge)) continue;
+          if (wallVisible(x2, z2, side, kk)) found = [x2, z2, side, kk];
+        }
+      }
+      donors.set(dkey, found);
+      return found;
+    }
+    function wall(cx, cz, edge, k) {
+      const key = ((cz * 128 + cx) * 4 + edge) * 4096 + k;
+      if (walls.has(key)) return walls.get(key);
+      let v;
+      if (wallVisible(cx, cz, edge, k)) {
+        const g = wallGeom(cx, cz, edge);
+        v = newSlot((s, t) => { const [x, y, z] = wallPoint(g, k, s, t); return sample(x, y, z); });
+      } else {
+        // hidden band: repeat this wall's own visible body bands if it has any, else borrow from a nearby wall,
+        // a deep body band (2) for deep bands so the grass under the top edge does not repeat down the cliff
+        const own = [];
+        for (let j = 1; j < k; j++) if (wallVisible(cx, cz, edge, j)) own.push(j);
+        if (own.length) v = wall(cx, cz, edge, own[(k - 1) % own.length]);
+        else {
+          const found = (k >= 2 && donor(cx, cz, edge, 2)) || donor(cx, cz, edge, Math.min(k, 1));
+          v = found ? wall(...found) : plain();
+        }
+      }
+      walls.set(key, v);
+      return v;
+    }
+    function atlas() {
+      const cols = 64, rowsUsed = Math.ceil(slots.length / cols);
+      let H = 32;
+      while (H < rowsUsed * S) H *= 2;
+      const W = cols * S, px = new Uint8ClampedArray(W * H * 4);
+      slots.forEach((sl, i) => {
+        const ox = (i % cols) * S, oy = Math.floor(i / cols) * S;
+        for (let t = 0; t < S; t++) px.set(sl.subarray(t * S * 4, (t + 1) * S * 4), ((oy + t) * W + ox) * 4);
+      });
+      return { width: W, height: H, pixels: px, cols, slot: S };
+    }
+    return { top, wall, atlas, foliage, rejects, get count() { return slots.length; } };
+  }
+
+  return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, ringImage, levelPalettes, OCTANT, HERO };
+})();
+</script>
+
+<script id="art">
+/* Scribbled art drawn in code: wobbly, flat, thick-outlined, on purpose. Every function returns a canvas.
+   The same seed always draws the same picture; different "boil" seeds give the shaky redraw of bad hand animation. */
+const Art = (() => {
+  'use strict';
+  const INK = '#15121f';
+  const BLUE = '#2f6bff', BLUE_DARK = '#1c45c2', SCARF = '#b8f02a', LEAF = '#3fc94a';
+
+  function rng(seed) {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6D2B79F5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function makeCanvas(w, h, scale = 1) {
+    const c = document.createElement('canvas');
+    c.width = Math.round(w * scale); c.height = Math.round(h * scale);
+    const ctx = c.getContext('2d');
+    ctx.scale(scale, scale);
+    return { c, ctx };
+  }
+  function blobPath(ctx, R, cx, cy, rx, ry, wob, n = 14) {
+    const pts = [];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2, k = 1 + (R() - 0.5) * wob;
+      pts.push([cx + Math.cos(a) * rx * k, cy + Math.sin(a) * ry * k]);
+    }
+    ctx.beginPath();
+    for (let i = 0; i <= n; i++) {
+      const p = pts[i % n], q = pts[(i + 1) % n], mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2;
+      if (i === 0) ctx.moveTo(mx, my); else ctx.quadraticCurveTo(p[0], p[1], mx, my);
+    }
+    ctx.closePath();
+  }
+  function ink(ctx, w) { ctx.lineWidth = w; ctx.strokeStyle = INK; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke(); }
+  function blob(ctx, R, cx, cy, rx, ry, fill, wob = 0.18, w = 5) {
+    blobPath(ctx, R, cx, cy, rx, ry, wob);
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (w) ink(ctx, w);
+  }
+  // shaky polyline: every segment split into three jittered pieces
+  function shaky(ctx, R, pts, w, color = INK, jit = 2.5) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0] + (R() - 0.5) * jit, pts[0][1] + (R() - 0.5) * jit);
+    for (let i = 1; i < pts.length; i++) {
+      const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+      for (let s = 1; s <= 3; s++) {
+        const t = s / 3;
+        ctx.lineTo(x0 + (x1 - x0) * t + (R() - 0.5) * jit, y0 + (y1 - y0) * t + (R() - 0.5) * jit);
+      }
+    }
+    ctx.lineWidth = w; ctx.strokeStyle = color; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
+  }
+  // an outlined band: ink underneath, colour on top, drawn with separate wobble so they never quite line up
+  function band(ctx, R, pts, w, color) { shaky(ctx, R, pts, w + 7, INK, 2); shaky(ctx, R, pts, w, color, 1.5); }
+  function hatch(ctx, R, cx, cy, rx, ry, color, n, w = 3) {
+    ctx.strokeStyle = color; ctx.lineWidth = w; ctx.lineCap = 'round';
+    for (let i = 0; i < n; i++) {
+      const a = R() * Math.PI * 2, r = Math.sqrt(R()) * 0.8;
+      const x = cx + Math.cos(a) * rx * r, y = cy + Math.sin(a) * ry * r, l = 5 + R() * 9, d = -0.7 + (R() - 0.5) * 0.5;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(d) * l, y + Math.sin(d) * l); ctx.stroke();
+    }
+  }
+  function flipped(ctx, w, flip) { if (flip) { ctx.translate(w, 0); ctx.scale(-1, 1); } }
+
+  // ---- the hero: an original blue blob with googly eyes, a leaf sprout, and a lime scarf. Drawn facing right. ----
+  // view: 'front' | 'back'; pose: 'idle' | 'run' | 'air' | 'spring' | 'ball' | 'charge'; phase: animation frame
+  function hero(view, pose, phase, boil, flip) {
+    const S = 192, { c, ctx } = makeCanvas(S, S, 128 / S);
+    const R = rng(9000 + ['idle', 'run', 'air', 'spring', 'ball', 'charge'].indexOf(pose) * 100 + phase * 10 + boil + (view === 'back' ? 50 : 0));
+    flipped(ctx, S, flip);
+    const g = 184;
+    if (pose === 'ball' || pose === 'charge') { drawBall(ctx, R, g, pose, phase); return c; }
+    const bob = pose === 'run' ? (phase % 2 ? -5 : 2) : pose === 'idle' ? (phase ? -2 : 0) : -6;
+    const cx = 100, cy = 100 + bob;
+    const front = view === 'front';
+
+    // scarf tail streams behind (to the left)
+    const fl = [0, 9, -5, 6][phase % 4];
+    const tail = pose === 'spring' ? [[cx - 30, cy + 26], [cx - 44, cy + 48], [cx - 38, cy + 72]]
+      : pose === 'idle' ? [[cx - 30, cy + 26], [cx - 46, cy + 40], [cx - 52, cy + 58]]
+      : [[cx - 30, cy + 24], [cx - 58, cy + 16 + fl], [cx - 86, cy + 26 - fl]];
+    band(ctx, R, tail, 12, SCARF);
+
+    // legs and feet
+    let A, B;
+    if (pose === 'run') { A = [cx + [26, 8, -22, 8][phase], g - [0, 12, 0, 4][phase]]; B = [cx + [-22, 8, 26, 8][phase], g - [0, 4, 0, 12][phase]]; }
+    else if (pose === 'air') { A = [cx + 22, g - 16]; B = [cx - 18, g - 6]; }
+    else if (pose === 'spring') { A = [cx + 8, g - 2]; B = [cx - 10, g - 2]; }
+    else { A = [cx + 16, g]; B = [cx - 14, g]; }
+    for (const [f, hx] of [[B, cx - 12], [A, cx + 10]]) {
+      shaky(ctx, R, [[hx, cy + 40], [f[0], f[1] - 6]], 7);
+      blob(ctx, R, f[0] + 6, f[1] - 5, 15, 8, BLUE_DARK, 0.25, 4);
+    }
+
+    // arms: back arm first, front arm after the body
+    let hf, hb;
+    if (pose === 'run') { hf = [[cx + 46, cy - 6], [cx + 34, cy + 34], [cx + 44, cy + 8], [cx + 30, cy + 30]][phase]; hb = [[cx - 40, cy + 30], [cx - 46, cy - 4], [cx - 36, cy + 26], [cx - 44, cy]][phase]; }
+    else if (pose === 'air') { hf = [cx + 38, cy - 48]; hb = [cx - 32, cy - 50]; }
+    else if (pose === 'spring') { hf = [cx + 14, cy - 76]; hb = [cx - 14, cy - 76]; }
+    else { hf = [cx + 36, cy + 36]; hb = [cx - 38, cy + 34]; }
+    shaky(ctx, R, [[cx - 26, cy + 8], hb], 6); blob(ctx, R, hb[0], hb[1], 8, 8, BLUE, 0.3, 4);
+
+    // body
+    blob(ctx, R, cx, cy, 46, 50, BLUE, 0.16, 6);
+    hatch(ctx, R, cx - 14, cy + 18, 22, 20, BLUE_DARK, 12, 3);
+    // leaf sprout on top
+    shaky(ctx, R, [[cx + 2, cy - 46], [cx + 8, cy - 64]], 4);
+    blob(ctx, R, cx + 20, cy - 68, 13, 6, LEAF, 0.3, 4);
+    // scarf round the middle
+    band(ctx, R, [[cx - 42, cy + 20], [cx - 10, cy + 30], [cx + 28, cy + 28], [cx + 44, cy + 18]], 11, SCARF);
+
+    if (front) {
+      // googly eyes, never quite matching
+      blob(ctx, R, cx + 16, cy - 16, 17, 19, '#ffffff', 0.12, 4);
+      blob(ctx, R, cx + 40, cy - 10, 11, 12, '#ffffff', 0.15, 4);
+      blob(ctx, R, cx + 16 + (R() - 0.3) * 12, cy - 14 + (R() - 0.5) * 10, 5, 5, INK, 0.2, 0);
+      blob(ctx, R, cx + 42 + (R() - 0.5) * 6, cy - 9 + (R() - 0.5) * 6, 4, 4, INK, 0.2, 0);
+      shaky(ctx, R, [[cx + 6, cy + 6], [cx + 24, cy + 13], [cx + 42, cy + 5]], 4);
+      ctx.beginPath(); ctx.rect(cx + 18, cy + 9, 7, 8); ctx.fillStyle = '#ffffff'; ctx.fill(); ink(ctx, 3);
+    } else {
+      // back of the scarf knot
+      blob(ctx, R, cx - 4, cy + 26, 9, 7, SCARF, 0.3, 4);
+    }
+    shaky(ctx, R, [[cx + 26, cy + 8], hf], 6); blob(ctx, R, hf[0], hf[1], 8, 8, BLUE, 0.3, 4);
+
+    if (pose === 'run') for (let k = 0; k < 3; k++) {
+      const y = cy - 20 + k * 22 + (R() - 0.5) * 6;
+      shaky(ctx, R, [[cx - 66 - k * 4, y], [cx - 92, y + 2]], 3, 'rgba(21,18,31,0.55)', 2);
+    }
+    return c;
+  }
+  function drawBall(ctx, R, g, pose, phase) {
+    const cx = 100, cy = g - 58;
+    if (pose === 'charge') for (let k = 0; k < 3; k++) blob(ctx, R, cx - 56 - k * 18, g - 10 - (phase + k) % 2 * 6, 14 - k * 3, 9 - k * 2, '#e9e4d8', 0.4, 3);
+    band(ctx, R, [[cx - 40, cy + 30], [cx - 66, cy + 40 + (phase % 2) * 8], [cx - 90, cy + 30]], 11, SCARF);
+    blob(ctx, R, cx, cy, 54, 54, BLUE, 0.1, 6);
+    // spiral, turned a quarter each frame
+    const pts = [], rot = phase * Math.PI / 2;
+    for (let t = 0; t <= Math.PI * 3.2; t += 0.35) { const r = 6 + t * 4.6; pts.push([cx + Math.cos(t + rot) * r, cy + Math.sin(t + rot) * r]); }
+    shaky(ctx, R, pts, 5, BLUE_DARK, 2);
+    blob(ctx, R, cx + Math.cos(rot) * 34, cy + Math.sin(rot) * 34, 10, 5, LEAF, 0.3, 3);
+    for (let k = 0; k < 3; k++) { const y = cy - 30 + k * 30; shaky(ctx, R, [[cx - 64, y], [cx - 94, y]], 3, 'rgba(21,18,31,0.55)', 2); }
+  }
+
+  function ring(boil) {
+    const { c, ctx } = makeCanvas(64, 64);
+    const R = rng(300 + boil);
+    blob(ctx, R, 32, 32, 26, 27, '#ffd21f', 0.1, 0);
+    ctx.globalCompositeOperation = 'destination-out';
+    blob(ctx, R, 32, 32, 13, 14, '#000', 0.15, 0);
+    ctx.globalCompositeOperation = 'source-over';
+    blob(ctx, R, 32, 32, 26, 27, null, 0.1, 4);
+    blob(ctx, R, 32, 32, 13, 14, null, 0.15, 3);
+    shaky(ctx, R, [[18, 24], [22, 17]], 3, '#fff8c8', 1);
+    return c;
+  }
+  function palm(variant) {
+    const { c, ctx } = makeCanvas(160, 256);
+    const R = rng(500 + variant);
+    const lean = variant % 2 ? -18 : 20, top = [80 + lean, 78];
+    const trunk = [[80, 252], [80 + lean * 0.3, 190], [80 + lean * 0.75, 130], top];
+    shaky(ctx, R, trunk, 26, INK, 2); shaky(ctx, R, trunk, 18, '#b9783c', 1.5);
+    for (let k = 1; k < 7; k++) { const t = k / 7, x = 80 + lean * t * t, y = 252 - t * 174; shaky(ctx, R, [[x - 8, y], [x + 8, y - 4]], 3); }
+    for (let k = 0; k < 6; k++) {
+      const a = Math.PI + (k / 5) * Math.PI + (R() - 0.5) * 0.3, len = 62 + R() * 14;
+      const mid = [top[0] + Math.cos(a) * len * 0.55, top[1] + Math.sin(a) * 30 - 16];
+      const end = [top[0] + Math.cos(a) * len, top[1] + Math.sin(a) * 26 + 22];
+      band(ctx, R, [top, mid, end], 14, LEAF);
+    }
+    for (let k = 0; k < 3; k++) blob(ctx, R, top[0] - 10 + k * 10, top[1] + 10 + (k % 2) * 4, 8, 8, '#7a4a22', 0.3, 3);
+    return c;
+  }
+  function bush(variant) {
+    const { c, ctx } = makeCanvas(128, 96);
+    const R = rng(700 + variant);
+    blob(ctx, R, 40, 62, 32, 28, '#36b84a', 0.2, 5);
+    blob(ctx, R, 88, 60, 32, 30, '#36b84a', 0.2, 5);
+    blob(ctx, R, 64, 44, 34, 30, '#45cc55', 0.2, 5);
+    hatch(ctx, R, 64, 58, 50, 26, 'rgba(21,18,31,0.25)', 14, 3);
+    if (variant % 2) for (let k = 0; k < 5; k++) blob(ctx, R, 30 + R() * 70, 34 + R() * 40, 4, 4, '#ff4d6d', 0.2, 2);
+    return c;
+  }
+  function flower(variant) {
+    const { c, ctx } = makeCanvas(48, 64);
+    const R = rng(800 + variant);
+    shaky(ctx, R, [[24, 63], [23, 44], [25, 26]], 4, '#2f9e3c', 1.5);
+    const col = ['#ff6fb5', '#ffffff', '#ffd21f', '#b77bff'][variant % 4];
+    for (let k = 0; k < 5; k++) { const a = (k / 5) * Math.PI * 2; blob(ctx, R, 24 + Math.cos(a) * 9, 20 + Math.sin(a) * 9, 7, 7, col, 0.3, 2.5); }
+    blob(ctx, R, 24, 20, 5, 5, '#ff9a1f', 0.3, 2.5);
+    return c;
+  }
+  function spring(sprung) {
+    const { c, ctx } = makeCanvas(96, 96);
+    const R = rng(900 + (sprung ? 1 : 0));
+    const topY = sprung ? 18 : 46;
+    blob(ctx, R, 48, 84, 36, 10, '#8a4fd6', 0.12, 4);
+    const pts = []; const n = 5;
+    for (let k = 0; k <= n; k++) pts.push([48 + (k % 2 ? 18 : -18), 80 - (80 - topY - 8) * (k / n)]);
+    shaky(ctx, R, pts, 9, INK, 1.5); shaky(ctx, R, pts, 4, '#f2f2f2', 1);
+    blob(ctx, R, 48, topY, 32, 9, '#ff8a2a', 0.12, 4);
+    return c;
+  }
+  function sky() {
+    const { c, ctx } = makeCanvas(512, 512);
+    const R = rng(42);
+    const gr = ctx.createLinearGradient(0, 0, 0, 512);
+    gr.addColorStop(0, '#55c2ff'); gr.addColorStop(1, '#c4f1ff');
+    ctx.fillStyle = gr; ctx.fillRect(0, 0, 512, 512);
+    blob(ctx, R, 420, 90, 38, 38, '#ffe14d', 0.12, 5);
+    for (let k = 0; k < 10; k++) { const a = (k / 10) * Math.PI * 2; shaky(ctx, R, [[420 + Math.cos(a) * 50, 90 + Math.sin(a) * 50], [420 + Math.cos(a) * 72, 90 + Math.sin(a) * 72]], 5); }
+    for (const [x, y, s] of [[90, 120, 1], [250, 70, 0.8], [180, 230, 1.2], [400, 260, 0.9], [60, 330, 0.8]]) {
+      blob(ctx, R, x, y, 44 * s, 20 * s, '#ffffff', 0.2, 4);
+      blob(ctx, R, x - 22 * s, y - 12 * s, 24 * s, 18 * s, '#ffffff', 0.25, 4);
+      blob(ctx, R, x + 18 * s, y - 14 * s, 26 * s, 20 * s, '#ffffff', 0.25, 4);
+      blob(ctx, R, x, y + 2 * s, 40 * s, 14 * s, '#ffffff', 0.15, 0);
+    }
+    return c;
+  }
+  // multiplied over the level's vertex colours: white with scribbled hatching and a wobbly outline per tile
+  function tile() {
+    const { c, ctx } = makeCanvas(128, 128);
+    const R = rng(77);
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 128, 128);
+    hatch(ctx, R, 64, 64, 70, 70, 'rgba(21,18,31,0.10)', 46, 3);
+    for (const pts of [[[4, 4], [124, 5]], [[124, 5], [123, 124]], [[123, 124], [5, 123]], [[5, 123], [4, 4]]]) shaky(ctx, R, pts, 5, 'rgba(21,18,31,0.55)', 3);
+    return c;
+  }
+  function water() {
+    const { c, ctx } = makeCanvas(128, 128);
+    const R = rng(88);
+    ctx.fillStyle = '#3aa8ff'; ctx.fillRect(0, 0, 128, 128);
+    for (let k = 0; k < 6; k++) { const y = 12 + k * 21; shaky(ctx, R, [[8, y], [36, y - 6], [64, y], [92, y - 6], [120, y]], 3, 'rgba(255,255,255,0.75)', 2); }
+    return c;
+  }
+  // an original enemy: a dented tin-can robot on two wheels, one angry eye, a siren on top
+  function enemy(phase, boil, flip) {
+    const S = 128, { c, ctx } = makeCanvas(S, S);
+    const R = rng(1200 + phase * 10 + boil);
+    flipped(ctx, S, flip);
+    const cx = 64, bob = phase ? -2 : 0;
+    for (const wx of [38, 90]) { blob(ctx, R, wx, 112, 13, 13, '#3a3550', 0.15, 4); shaky(ctx, R, [[wx - 6, 112 + (phase ? 4 : -4)], [wx + 6, 112 - (phase ? 4 : -4)]], 3, '#9a96b0', 1); }
+    blob(ctx, R, cx, 74 + bob, 40, 34, '#8f8aa8', 0.14, 5);
+    hatch(ctx, R, cx - 14, 86 + bob, 18, 14, 'rgba(21,18,31,0.25)', 8, 3);
+    shaky(ctx, R, [[cx - 38, 70 + bob], [cx + 38, 72 + bob]], 3, 'rgba(21,18,31,0.6)', 2);
+    blob(ctx, R, cx + 12, 62 + bob, 15, 15, '#ffffff', 0.12, 4);
+    blob(ctx, R, cx + 16 + (R() - 0.5) * 4, 62 + bob, 6, 6, '#e0302a', 0.2, 0);
+    shaky(ctx, R, [[cx - 2, 44 + bob], [cx + 26, 50 + bob]], 5);
+    blob(ctx, R, cx - 6, 38 + bob, 9, 7, phase ? '#ff4d3a' : '#ffb03a', 0.2, 4);
+    shaky(ctx, R, [[cx - 40, 80 + bob], [cx - 56, 92 + bob]], 5); shaky(ctx, R, [[cx + 40, 82 + bob], [cx + 54, 96 + bob]], 5);
+    return c;
+  }
+  function monitor(broken) {
+    const { c, ctx } = makeCanvas(96, 96);
+    const R = rng(1300 + (broken ? 1 : 0));
+    if (broken) {
+      for (let k = 0; k < 5; k++) blob(ctx, R, 22 + k * 13, 82 + (k % 2) * 4, 9, 6, '#9a98a8', 0.4, 3);
+      return c;
+    }
+    blob(ctx, R, 48, 52, 36, 36, '#a9a7b6', 0.08, 5);
+    ctx.beginPath(); ctx.rect(24, 30, 48, 38); ctx.fillStyle = '#2e6bd8'; ctx.fill(); ink(ctx, 4);
+    blob(ctx, R, 48, 49, 12, 13, null, 0.12, 0); ctx.lineWidth = 6; ctx.strokeStyle = '#ffd21f'; ctx.stroke();
+    shaky(ctx, R, [[30, 36], [38, 33]], 3, 'rgba(255,255,255,0.8)', 1);
+    shaky(ctx, R, [[20, 88], [76, 88]], 5);
+    return c;
+  }
+  function goal(boil) {
+    const { c, ctx } = makeCanvas(96, 192);
+    const R = rng(1400 + boil);
+    shaky(ctx, R, [[22, 188], [22, 20]], 7);
+    const wave = boil % 2 ? 4 : -4;
+    ctx.save(); ctx.beginPath(); ctx.moveTo(24, 22); ctx.quadraticCurveTo(54, 14 + wave, 88, 24); ctx.lineTo(88, 70); ctx.quadraticCurveTo(54, 62 - wave, 24, 70); ctx.closePath();
+    ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.clip();
+    ctx.fillStyle = INK;
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) if ((i + j) % 2) ctx.fillRect(24 + i * 16, 18 + j * 17 + (R() - 0.5) * 2, 16, 17);
+    ctx.restore();
+    ctx.beginPath(); ctx.moveTo(24, 22); ctx.quadraticCurveTo(54, 14 + wave, 88, 24); ctx.lineTo(88, 70); ctx.quadraticCurveTo(54, 62 - wave, 24, 70); ctx.closePath(); ink(ctx, 4);
+    blob(ctx, R, 22, 16, 7, 7, '#ffd21f', 0.2, 3);
+    return c;
+  }
+  // a freed bird: round body, pale belly, stubby beak; wings up or down by phase (kind picks the colour)
+  function flicky(kind, phase, flip) {
+    const { c, ctx } = makeCanvas(96, 96, 1);
+    const R = rng(900 + kind * 31 + phase * 7);
+    if (flip) { ctx.translate(96, 0); ctx.scale(-1, 1); }
+    const body = ['#3d8bff', '#ff6fae', '#4fd16a', '#ff5a4a'][kind % 4];
+    blob(ctx, R, 48, 58, 25, 22, body);
+    blob(ctx, R, 54, 64, 13, 11, '#fff6dc', 0.2, 3);
+    ctx.beginPath(); ctx.moveTo(70, 50); ctx.lineTo(86, 56); ctx.lineTo(70, 61); ctx.closePath();
+    ctx.fillStyle = '#ffb02e'; ctx.fill(); ink(ctx, 3.5);
+    blob(ctx, R, 60, 47, 5, 6, '#fff', 0.1, 2.5);
+    ctx.beginPath(); ctx.arc(62, 48, 2.4, 0, Math.PI * 2); ctx.fillStyle = INK; ctx.fill();
+    const wy = phase ? 30 : 64;
+    shaky(ctx, R, [[36, 56], [18, wy], [32, wy + (phase ? 8 : -4)]], 5);
+    shaky(ctx, R, [[44, 79], [42, 88]], 3.5); shaky(ctx, R, [[54, 79], [56, 88]], 3.5);
+    return c;
+  }
+  return { hero, ring, palm, bush, flower, spring, sky, tile, water, enemy, monitor, goal, flicky };
+})();
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script id="game">
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const canvas = $('view');
+  const isTouch = window.matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+  const LEVEL_KEY = 'blastgrid.level', CAM_KEY = 'blastgrid.cam', LOOK_KEY = 'blastgrid.look';
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } },
+    del(k) { try { localStorage.removeItem(k); } catch (e) {} },
+  };
+
+  function showError(list, hint) {
+    const ul = $('errList'); ul.textContent = '';
+    for (const msg of list) { const li = document.createElement('li'); li.textContent = msg; ul.appendChild(li); }
+    if (hint) $('errHint').textContent = hint;
+    $('helpOverlay').hidden = true; $('errorOverlay').hidden = false;
+  }
+  const readError = e => e.list || [(e instanceof SyntaxError ? 'The level data is not valid JSON: ' : 'The level data could not be read: ') + e.message];
+
+  // ---- level: the built-in one, or one this viewer loaded earlier ----
+  const builtInRaw = $('level').textContent;
+  let L, customLoaded = false;
+  try { L = Sim.importLevel(JSON.parse(builtInRaw)); }
+  catch (e) { showError(readError(e)); return; }
+  const saved = store.get(LEVEL_KEY);
+  if (saved) {
+    try { L = Sim.importLevel(JSON.parse(saved)); customLoaded = true; }
+    catch (e) { store.del(LEVEL_KEY); }
+  }
+  if (typeof THREE === 'undefined') { showError(['The 3D library did not load.'], 'Check your connection, then reload the page.'); return; }
+
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' }); }
+  catch (e) { showError(['This browser could not start WebGL, which the game needs to draw.'], 'Try another browser, or turn on hardware acceleration.'); return; }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+
+  let world = Sim.createWorld(L);
+  const scene = new THREE.Scene();
+  const tex = cnv => { const t = new THREE.CanvasTexture(cnv); t.anisotropy = 4; return t; };
+  scene.background = tex(Art.sky());
+  const sceneFog = new THREE.Fog(0xc4f1ff, 30, 70);
+  // ---- sky for levels drawn with the original art: a banded dome in the zone's colours (my palette, not the ROM's;
+  // the original has no sky), fading into an abyss below the horizon that the cliffs sink into ----
+  const ZONE_SKY = {   // top, horizon, abyss
+    'Green Grove': [0x2a6fdb, 0xa6dcff, 0x0d3a7a], 'Rusty Ruin': [0x3a2a6b, 0xf0a060, 0x3a1e14],
+    'Spring Stadium': [0x141f70, 0x6aa8ff, 0x0c1240], 'Diamond Dust': [0x5a80d0, 0xeef6ff, 0x8aa2d0],
+    'Volcano Valley': [0x2a0a12, 0xd0502a, 0x401008], 'Gene Gadget': [0x0a1a2a, 0x3a8a8a, 0x061018],
+    'Panic Puppet': [0x1a0a2a, 0x7a3a9a, 0x0a0410], 'Final Fight': [0x0a0414, 0x4a2060, 0x050208],
+  };
+  const cartoonSky = scene.background;
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(150, 32, 24), new THREE.MeshBasicMaterial({ side: THREE.BackSide, fog: false, depthWrite: false }));
+  dome.renderOrder = -1; dome.visible = false; scene.add(dome);
+  function skyTexture([top, hor, abyss]) {
+    const H = 256, c = document.createElement('canvas'); c.width = 1; c.height = H;
+    const g = c.getContext('2d'), A = new THREE.Color(), B = new THREE.Color(), out = new THREE.Color();
+    for (let y = 0; y < H; y++) {
+      const e = Math.PI / 2 - (y + 0.5) / H * Math.PI;           // elevation of this row
+      let k;
+      if (e >= 0) { k = Math.floor(Math.pow(e / (Math.PI / 2), 0.6) * 24) / 24; A.setHex(hor); B.setHex(top); }
+      else { k = Math.floor(Math.min(1, -e / 0.35) * 8) / 8; A.setHex(hor); B.setHex(abyss); }
+      out.copy(A).lerp(B, k); g.fillStyle = '#' + out.getHexString(); g.fillRect(0, y, 1, 1);
+    }
+    const t = new THREE.CanvasTexture(c); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
+    return t;
+  }
+  function applySky(art) {
+    const name = art ? ((S3D.LEVELS.find(l => l[0] === L.rom.level) || [0, ''])[1]) : '';
+    const zone = Object.keys(ZONE_SKY).find(z => name.startsWith(z));
+    if (!zone) { dome.visible = false; scene.background = cartoonSky; sceneFog.color.setHex(0xc4f1ff); return; }
+    if (dome.userData.zone !== zone) {
+      if (dome.material.map) dome.material.map.dispose();
+      dome.material.map = skyTexture(ZONE_SKY[zone]); dome.material.needsUpdate = true; dome.userData.zone = zone;
+    }
+    dome.visible = true; scene.background = null; sceneFog.color.setHex(ZONE_SKY[zone][1]);
+  }
+
+  // ---- lights: flat and bright, like a cheap cartoon ----
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a7a9a, 0.86));
+  const sun = new THREE.DirectionalLight(0xfff4e0, 0.42);
+  sun.position.set(-6, 14, 4);
+  scene.add(sun);
+
+  // ---- shared textures and sprite materials ----
+  const tileTex = tex(Art.tile()); tileTex.wrapS = tileTex.wrapT = THREE.RepeatWrapping;
+  const waterTex = tex(Art.water()); waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping;
+  const spriteMat = cnv => new THREE.SpriteMaterial({ map: tex(cnv), alphaTest: 0.5 });
+  const ringMats = [0, 1, 2].map(b => spriteMat(Art.ring(b)));
+  const springMats = [spriteMat(Art.spring(false)), spriteMat(Art.spring(true))];
+  const decorMats = {
+    palm: [0, 1].map(v => spriteMat(Art.palm(v))),
+    bush: [0, 1].map(v => spriteMat(Art.bush(v))),
+    flower: [0, 1, 2, 3].map(v => spriteMat(Art.flower(v))),
+  };
+  const monitorMats = [spriteMat(Art.monitor(false)), spriteMat(Art.monitor(true))];
+  const goalMats = [0, 1].map(b => spriteMat(Art.goal(b)));
+  const flickyMats = new Map();
+  const flickyMat = (kind, phase, flip) => {
+    const k = kind * 4 + phase * 2 + (flip ? 1 : 0);
+    if (!flickyMats.has(k)) flickyMats.set(k, spriteMat(Art.flicky(kind, phase, flip)));
+    return flickyMats.get(k);
+  };
+  const enemyMats = new Map();
+  const enemyMat = (phase, boil, flip) => {
+    const k = phase * 10 + boil + (flip ? 100 : 0);
+    if (!enemyMats.has(k)) enemyMats.set(k, spriteMat(Art.enemy(phase, boil, flip)));
+    return enemyMats.get(k);
+  };
+  const DECOR_SIZE = { palm: [2.0, 3.2], bush: [1.3, 0.98], flower: [0.34, 0.45] };
+
+  // ---- sprites drawn from the player's own ROM (decomp model: no ROM, no sprites; scribbled art instead) ----
+  const PX = 0.025;                     // metres per ROM pixel
+  const ROM_CANVAS = 96, ROM_SIZE = ROM_CANVAS * PX, ROM_RING = 16 * PX * 1.15;
+  const HERO_FOOT = 1 - 84 / ROM_CANVAS, OBJ_FOOT = 1 - 80 / ROM_CANVAS;
+  const DEFAULT_SKIN = { spring: '018', monitor: '03C', enemy: '00C' };
+  let romArt = null, artLook = store.get(LOOK_KEY) === 'scribble' ? 'scribble' : 'rom';
+  const romOn = () => !!romArt && artLook === 'rom';
+  function pixCanvas(px, size, flip) {
+    const c = document.createElement('canvas'); c.width = c.height = size;
+    const g = c.getContext('2d'); g.putImageData(new ImageData(px, size, size), 0, 0);
+    if (!flip) return c;
+    const m = document.createElement('canvas'); m.width = m.height = size;
+    const h = m.getContext('2d'); h.translate(size, 0); h.scale(-1, 1); h.drawImage(c, 0, 0);
+    return m;
+  }
+  function pixTex(cnv) {
+    const t = new THREE.CanvasTexture(cnv);
+    t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.generateMipmaps = false;
+    return t;
+  }
+  function setRom(bytes) {
+    const pal = S3D.paletteRGB(bytes, 3);
+    romArt = { d: bytes, pal, hero: new Map(), objs: new Map(), levels: new Map(), fallbackPals: S3D.levelPalettes(bytes, 1),
+      rings: Array.from({ length: 16 }, (_, k) => new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.ringImage(bytes, k, pal), 16)), alphaTest: 0.5 })) };
+  }
+  function romHeroTex(idx, flip) {
+    const key = idx * 2 + (flip ? 1 : 0);
+    let t = romArt.hero.get(key);
+    if (!t) { t = pixTex(pixCanvas(S3D.heroImage(romArt.d, idx, flip, romArt.pal), ROM_CANVAS)); romArt.hero.set(key, t); }
+    return t;
+  }
+  // the freed bird (16 frames) and the big ring, drawn from the ROM's own object art
+  function romFlickyMat(frame, flip) {
+    const key = 'f' + frame + (flip ? 'L' : 'R');
+    if (!romArt.objs.has(key)) romArt.objs.set(key, new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.objImage(romArt.d, S3D.FLICKY_ART, frame, romArt.pal, 64, 32, 48, flip), 64)), alphaTest: 0.5 }));
+    return romArt.objs.get(key);
+  }
+  function romRingMat() {
+    if (!romArt.objs.has('bigring')) romArt.objs.set('bigring', new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.objImage(romArt.d, S3D.BIG_RING_ART, 0, romArt.pal, 96, 48, 72), 96)), alphaTest: 0.5 }));
+    return romArt.objs.get('bigring');
+  }
+  // an object's look from the ROM, or null when the ROM has no snapshot for that type
+  function romObjMat(kind, skin, flip) {
+    const key = skin || DEFAULT_SKIN[kind];
+    if (!key || !S3D.RECIPES[key]) return null;
+    const pals = L.palettes || romArt.fallbackPals, id = key + pals.join(',') + (flip ? 'f' : '');
+    let m = romArt.objs.get(id);
+    if (!m) {
+      m = new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.recipeImage(romArt.d, key, pals), ROM_CANVAS, flip)), alphaTest: 0.5 });
+      romArt.objs.set(id, m);
+    }
+    return m;
+  }
+
+  // ---- level mesh, built by hand (r128 core has no merge utilities) ----
+  const COLORS = {
+    grassA: [0.47, 0.86, 0.36], grassB: [0.38, 0.76, 0.31],
+    stone: [0.66, 0.64, 0.74], hazard: [0.92, 0.36, 0.30], wood: [0.86, 0.58, 0.30],
+    earthTop: [0.88, 0.57, 0.31], earthLow: [0.50, 0.29, 0.17],
+    stoneLow: [0.40, 0.38, 0.50],
+  };
+  const BOTTOM = -8;
+  // the original level picture, unprojected onto the faces (only for converted levels while ROM sprites are on)
+  function levelArtFor(L) {
+    if (!romOn() || !L.rom) return null;
+    let a = romArt.levels.get(L.rom.level);
+    if (!a) {
+      try { a = { baker: S3D.artBaker(romArt.d, L.rom.level), tex: null, count: -1 }; }
+      catch (e) { console.warn('level art unavailable:', e.message); a = { baker: null }; }
+      romArt.levels.set(L.rom.level, a);
+    }
+    return a.baker ? a : null;
+  }
+  function artTexture(a) {
+    if (a.tex && a.count === a.baker.count) return a.tex;
+    const at = a.baker.atlas(), c = document.createElement('canvas');
+    c.width = at.width; c.height = at.height;
+    c.getContext('2d').putImageData(new ImageData(at.pixels, at.width, at.height), 0, 0);
+    if (a.tex) a.tex.dispose();
+    a.tex = new THREE.CanvasTexture(c);
+    a.tex.magFilter = THREE.NearestFilter; a.tex.minFilter = THREE.LinearFilter; a.tex.generateMipmaps = false;
+    a.count = a.baker.count; a.size = [at.width, at.height]; a.cols = at.cols;
+    return a.tex;
+  }
+  // with the level's own art when it can be drawn from the ROM, otherwise (or if drawing fails) the scribbled look
+  // tiles with a floor (pits and the void around a converted level have none)
+  const solid = (L, t) => L.coll[t] === 'F' || L.coll[t] === 'H';
+  // ---- foliage lifted out of the original picture: one quad each, turned to face the camera every frame ----
+  let foliage = null;
+  const PXH = 1 / (32 * Math.SQRT2);           // metres per picture pixel across (the picture runs along x - z)
+  function buildFoliage(art) {
+    const list = art && art.baker.foliage;
+    if (!list || !list.length) return null;
+    // shelf-pack the pictures into one texture
+    const W = 1024; let x = 0, y = 0, rowH = 0;
+    const spots = list.map(f => {
+      if (x + f.w > W) { x = 0; y += rowH + 2; rowH = 0; }
+      const at = [x, y]; x += f.w + 2; rowH = Math.max(rowH, f.h); return at;
+    });
+    let H = 32; while (H < y + rowH) H *= 2;
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const g = c.getContext('2d');
+    list.forEach((f, i) => g.putImageData(new ImageData(f.img, f.w, f.h), spots[i][0], spots[i][1]));
+    const tex = new THREE.CanvasTexture(c); tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+    const n = list.length, pos = new Float32Array(n * 12), uv = new Float32Array(n * 8), idx = [];
+    const vs = L.rom.vscale, [ox, oz] = L.rom.origin;
+    const quads = list.map((f, i) => {
+      const [sx, sy] = spots[i];
+      uv.set([sx / W, 1 - (sy + f.h) / H, (sx + f.w) / W, 1 - (sy + f.h) / H, (sx + f.w) / W, 1 - sy / H, sx / W, 1 - sy / H], i * 8);
+      idx.push(i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3);
+      return { x: f.x / 32 - ox, y: f.y / 32 * vs, z: f.z / 32 - oz, l: -f.ax * PXH, r: (f.w - f.ax) * PXH, b: -(f.h - f.ay) * vs / 32, t: f.ay * vs / 32 };
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ map: tex, alphaTest: 0.5, side: THREE.DoubleSide }));
+    mesh.frustumCulled = false;
+    return { mesh, quads, tex };
+  }
+  const _right = new THREE.Vector3();
+  function updateFoliage() {
+    if (!foliage) return;
+    _right.setFromMatrixColumn(cam.matrixWorld, 0); _right.y = 0; _right.normalize();
+    const pos = foliage.mesh.geometry.attributes.position, a = pos.array;
+    const cx = cam.position.x, cz = cam.position.z, sx = lastRp.x - cx, sz = lastRp.z - cz, len2 = sx * sx + sz * sz || 1;
+    foliage.quads.forEach((q, i) => {
+      // tuck away anything standing between the chase camera and the player
+      let hide = false;
+      if (view.mode === 'chase') {
+        const dx = q.x - cx, dz = q.z - cz, u = (dx * sx + dz * sz) / len2, ex = dx - sx * u, ez = dz - sz * u;
+        hide = u > -0.1 && u < 0.92 && ex * ex + ez * ez < 0.8 && q.y + q.t > lastRp.y;
+      }
+      const o = i * 12, l = hide ? 0 : q.l, r = hide ? 0 : q.r, b = hide ? 0 : q.b, tp = hide ? 0 : q.t;
+      a[o] = q.x + _right.x * l; a[o + 1] = q.y + b; a[o + 2] = q.z + _right.z * l;
+      a[o + 3] = q.x + _right.x * r; a[o + 4] = q.y + b; a[o + 5] = q.z + _right.z * r;
+      a[o + 6] = q.x + _right.x * r; a[o + 7] = q.y + tp; a[o + 8] = q.z + _right.z * r;
+      a[o + 9] = q.x + _right.x * l; a[o + 10] = q.y + tp; a[o + 11] = q.z + _right.z * l;
+    });
+    pos.needsUpdate = true;
+  }
+  function buildLevelMesh(L) {
+    const art = levelArtFor(L);
+    if (art) {
+      try { return buildMeshWith(L, art); }
+      catch (e) { console.warn('level art failed:', e.message); romArt.levels.set(L.rom.level, { baker: null }); }
+    }
+    return buildMeshWith(L, null);
+  }
+  function buildMeshWith(L, art) {
+    const pos = [], col = [], nrm = [], uv = [], ART_UV = [];
+    // with art, uvs are (slot, s, t in 0..1) until the atlas size is known
+    const W = L.width, D = L.depth, c = L.corners;
+    const tA = new THREE.Vector3(), tB = new THREE.Vector3(), tN = new THREE.Vector3();
+    function tri(a, b, c3, ca, cb, cc, ua, ub, uc, expect) {
+      tA.set(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+      tB.set(c3[0] - a[0], c3[1] - a[1], c3[2] - a[2]);
+      tN.crossVectors(tA, tB);
+      const len = tN.length();
+      if (len < 1e-9) return;
+      if (tN.dot(expect) < 0) { [b, c3] = [c3, b]; [cb, cc] = [cc, cb]; [ub, uc] = [uc, ub]; tN.negate(); }
+      tN.divideScalar(len);
+      for (const [v, k, u] of [[a, ca, ua], [b, cb, ub], [c3, cc, uc]]) {
+        pos.push(v[0], v[1], v[2]); col.push(k[0], k[1], k[2]); nrm.push(tN.x, tN.y, tN.z);
+        if (art) ART_UV.push(u[0], u[1], u[2]); else uv.push(u[0], u[1]);
+      }
+    }
+    const up = new THREE.Vector3(0, 1, 0);
+    let minTop = Infinity;
+    for (let t = 0; t < W * D; t++) if (solid(L, t)) for (let q = 0; q < 4; q++) minTop = Math.min(minTop, c[t * 4 + q]);
+    // with the original art the cliffs drop deep into the abyss under the sky dome; otherwise the island sits on water
+    const islandBottom = art ? minTop - 14 : minTop - 2.5, pitBottom = art ? islandBottom : BOTTOM;
+    const shade = (base, y) => { const t = 0.92 + Math.min(0.12, Math.max(-0.08, (y - 1) * 0.04)); return [base[0] * t, base[1] * t, base[2] * t]; };
+    const lerpC = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    const OFF = [[0, 0], [1, 0], [1, 1], [0, 1]], WHITE = [1, 1, 1];
+    const TUV = [[0, 0], [1, 0], [1, 1], [0, 1]];
+    // [corner a, corner b, neighbour dx, dz, neighbour's corner matching a, matching b, outward normal]
+    const EDGES = [
+      [0, 1, 0, -1, 3, 2, new THREE.Vector3(0, 0, -1)],
+      [1, 2, 1, 0, 0, 3, new THREE.Vector3(1, 0, 0)],
+      [2, 3, 0, 1, 1, 0, new THREE.Vector3(0, 0, 1)],
+      [3, 0, -1, 0, 2, 1, new THREE.Vector3(-1, 0, 0)],
+    ];
+    for (let j = 0; j < D; j++) for (let i = 0; i < W; i++) {
+      const t = j * W + i, k = t * 4;
+      if (!solid(L, t)) continue;
+      const mat = L.mat[t];
+      const h = [c[k], c[k + 1], c[k + 2], c[k + 3]];
+      const V = OFF.map((o, q) => [i + o[0], h[q], j + o[1]]);
+      const top = COLORS[mat] || ((i + j) % 2 ? COLORS.grassA : COLORS.grassB);
+      const tc = art ? WHITE : shade(top, (h[0] + h[2]) / 2);
+      if (art) {
+        const slot = art.baker.top(i + L.rom.origin[0], j + L.rom.origin[1]), su = q => [slot, OFF[q][0], OFF[q][1]];
+        tri(V[0], V[3], V[2], tc, tc, tc, su(0), su(3), su(2), up);
+        tri(V[0], V[2], V[1], tc, tc, tc, su(0), su(2), su(1), up);
+      } else {
+        tri(V[0], V[3], V[2], tc, tc, tc, TUV[0], TUV[3], TUV[2], up);
+        tri(V[0], V[2], V[1], tc, tc, tc, TUV[0], TUV[2], TUV[1], up);
+      }
+      const stony = mat === 'stone';
+      const sideTop = stony ? COLORS.stone : COLORS.earthTop, sideLow = stony ? COLORS.stoneLow : COLORS.earthLow;
+      const colAt = y => lerpC(sideLow, sideTop, Math.min(1, Math.max(0, (y + 2) / 5)));
+      for (let e = 0; e < 4; e++) {
+        const [a, b, dx, dz, na, nb, out] = EDGES[e];
+        const ni = i + dx, nj = j + dz;
+        const inside = ni >= 0 && nj >= 0 && ni < W && nj < D;
+        let ba = inside ? pitBottom : islandBottom, bb = ba;
+        if (inside) { const nt = nj * W + ni; if (solid(L, nt)) { ba = c[nt * 4 + na]; bb = c[nt * 4 + nb]; } }
+        const ta = h[a], tb = h[b];
+        if (ta <= ba + 1e-6 && tb <= bb + 1e-6) continue;
+        const ya = Math.min(ba, ta), yb = Math.min(bb, tb);
+        const pa = [i + OFF[a][0], j + OFF[a][1]], pb = [i + OFF[b][0], j + OFF[b][1]];
+        if (art) {
+          // bands one original height unit tall (32 units), following the slope of the top edge
+          const bm = L.rom.vscale, n = Math.ceil(Math.max(ta - ya, tb - yb) / bm - 1e-6);
+          for (let k = 0; k < n; k++) {
+            const a1 = ta - k * bm, b1 = tb - k * bm, a0 = Math.max(ya, a1 - bm), b0 = Math.max(yb, b1 - bm);
+            if (a1 <= a0 + 1e-6 && b1 <= b0 + 1e-6) continue;
+            const slot = art.baker.wall(i + L.rom.origin[0], j + L.rom.origin[1], e, k);
+            const P = (p, y) => [p[0], y, p[1]], da = Math.max(0, a1 - a0) / bm, db = Math.max(0, b1 - b0) / bm;
+            tri(P(pa, a0 + da * bm), P(pa, a0), P(pb, b0), WHITE, WHITE, WHITE, [slot, 0, 0], [slot, 0, da], [slot, 1, db], out);
+            tri(P(pa, a0 + da * bm), P(pb, b0), P(pb, b0 + db * bm), WHITE, WHITE, WHITE, [slot, 0, 0], [slot, 1, db], [slot, 1, 0], out);
+          }
+          continue;
+        }
+        const A1 = [pa[0], ta, pa[1]], A0 = [pa[0], ya, pa[1]], B1 = [pb[0], tb, pb[1]], B0 = [pb[0], yb, pb[1]];
+        tri(A1, A0, B0, colAt(ta), colAt(ya), colAt(yb), [0, ta], [0, ya], [1, yb], out);
+        tri(A1, B0, B1, colAt(ta), colAt(yb), colAt(tb), [0, ta], [1, yb], [1, tb], out);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    let mat;
+    if (art) {
+      // slot (row by row in a 64-wide grid of 32 px slots) plus the position inside it, kept half a texel in
+      const tex = artTexture(art), [W, H] = art.size;
+      for (let q = 0; q < ART_UV.length; q += 3) {
+        const slot = ART_UV[q], px = (slot % art.cols) * 32 + 0.5 + ART_UV[q + 1] * 31, py = Math.floor(slot / art.cols) * 32 + 0.5 + ART_UV[q + 2] * 31;
+        uv.push(px / W, 1 - py / H);
+      }
+      mat = new THREE.MeshBasicMaterial({ map: tex });
+    } else mat = new THREE.MeshLambertMaterial({ vertexColors: true, map: tileTex });
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    const mesh = new THREE.Mesh(g, mat);
+    mesh.userData.waterY = minTop - 0.6; mesh.userData.art = !!art;
+    return mesh;
+  }
+  // water sheet under the pits so a gorge reads as a river
+  function buildWater(L, y) {
+    const pos = [], uv = [];
+    for (let j = 0; j < L.depth; j++) for (let i = 0; i < L.width; i++) {
+      if (L.coll[j * L.width + i] !== 'P') continue;
+      pos.push(i, y, j, i, y, j + 1, i + 1, y, j + 1, i, y, j, i + 1, y, j + 1, i + 1, y, j);
+      uv.push(i, j, i, j + 1, i + 1, j + 1, i, j, i + 1, j + 1, i + 1, j);
+    }
+    if (!pos.length) return null;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    return new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: waterTex }));
+  }
+
+  // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
+  let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
+  let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
+  function buildLevelObjects() {
+    if (levelGroup) {
+      scene.remove(levelGroup);
+      if (foliage) foliage.tex.dispose();
+      levelGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); o.material.dispose(); } else if (o.isSprite && o.userData.fade !== undefined) o.material.dispose(); });
+    }
+    levelGroup = new THREE.Group();
+    const mesh = buildLevelMesh(L);
+    levelGroup.add(mesh);
+    foliage = mesh.userData.art ? buildFoliage(levelArtFor(L)) : null;
+    if (foliage) levelGroup.add(foliage.mesh);
+    waterMesh = mesh.userData.art ? null : buildWater(L, mesh.userData.waterY);
+    applySky(mesh.userData.art);
+    if (waterMesh) levelGroup.add(waterMesh);
+    tallDecor = [];
+    const rom = romOn();
+    ringSize = rom ? ROM_RING : 0.62;
+    ringSprites = world.rings.map((g, q) => {
+      const s = new THREE.Sprite(rom ? romArt.rings[0] : ringMats[q % 3]);
+      s.position.set(g.x, g.y, g.z); s.scale.set(ringSize, ringSize, 1);
+      levelGroup.add(s); return s;
+    });
+    const bottomSprite = (mat, x, y, z, sx, sy, cy = 0.04) => {
+      const s = new THREE.Sprite(mat); s.center.set(0.5, cy); s.position.set(x, y, z); s.scale.set(sx, sy, 1); levelGroup.add(s); return s;
+    };
+    // each object sprite remembers its size and, when drawn from the ROM, its materials (native and mirrored)
+    const objSprite = (kind, o, crudeMat, crudeSize, crudeFoot) => {
+      const rm = rom ? romObjMat(kind, o.skin, false) : null;
+      const s = rm ? bottomSprite(rm, o.x, o.y, o.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT) : bottomSprite(crudeMat, o.x, o.y, o.z, crudeSize, crudeSize, crudeFoot);
+      s.userData.size = rm ? ROM_SIZE : crudeSize;
+      if (rm) s.userData.rom = [rm, kind === 'enemy' ? romObjMat(kind, o.skin, true) : rm];
+      return s;
+    };
+    springSprites = world.springs.map(sp => objSprite('spring', sp, springMats[0], 0.95, 0.06));
+    enemySprites = world.enemies.map(en => objSprite('enemy', en, enemyMat(0, 0, false), 1.05, 0.04));
+    monitorSprites = world.monitors.map(mo => objSprite('monitor', mo, monitorMats[0], 0.85, 0.04));
+    // the original's big ring floats 56 units above the floor
+    const lift = L.rom ? 56 / 32 * L.rom.vscale : 1.2;
+    goalSprites = world.goals.map(gl => {
+      if (!rom) return bottomSprite(goalMats[0], gl.x, gl.y, gl.z, 1.1, 2.2);
+      const s = bottomSprite(romRingMat(), gl.x, gl.y + lift, gl.z, ROM_SIZE, ROM_SIZE, 1 - 72 / ROM_CANVAS);
+      s.userData.rom = true; return s;
+    });
+    flickySprites = [];
+    for (let i = 0; i < 24; i++) { const s = new THREE.Sprite(flickyMat(0, 0, false)); s.center.set(0.5, 0.08); s.scale.set(0.55, 0.55, 1); s.visible = false; levelGroup.add(s); flickySprites.push(s); }
+    $('flickyHud').hidden = !L.flickies;
+    looseSprites = [];
+    for (let i = 0; i < Sim.P.scatterMax; i++) { const s = new THREE.Sprite(rom ? romArt.rings[0] : ringMats[0]); s.scale.set(0.5, 0.5, 1); s.visible = false; levelGroup.add(s); looseSprites.push(s); }
+    for (const e of L.entities) {
+      const mats = decorMats[e.type];
+      if (!mats) continue;
+      const base = mats[e.variant % mats.length];
+      // trees and bushes get their own material so each can fade when it blocks the camera
+      const tall = e.type !== 'flower';
+      const s = new THREE.Sprite(tall ? base.clone() : base);
+      const [w, h] = DECOR_SIZE[e.type];
+      s.center.set(0.5, 0.03); s.position.set(e.x, e.y, e.z); s.scale.set(w * e.size, h * e.size, 1);
+      if (tall) { s.material.transparent = true; s.userData.fade = 1; tallDecor.push(s); }
+      levelGroup.add(s);
+    }
+    scene.add(levelGroup);
+    $('ringTotal').textContent = '/ ' + world.rings.length;
+    $('ringCount').textContent = '0';
+  }
+  buildLevelObjects();
+
+  // ---- the player: a billboard sprite drawn per frame, with line boil ----
+  const heroTex = new Map();
+  function heroTexture(view, pose, phase, boil, flip) {
+    const key = view + pose + phase + boil + (flip ? 'L' : 'R');
+    let t = heroTex.get(key);
+    if (!t) { t = tex(Art.hero(view, pose, phase, boil, flip)); heroTex.set(key, t); }
+    return t;
+  }
+  const heroMat = new THREE.SpriteMaterial({ map: heroTexture('front', 'idle', 0, 0, false), alphaTest: 0.5 });
+  const hero = new THREE.Sprite(heroMat);
+  hero.center.set(0.5, 0.04); hero.scale.set(1.5, 1.5, 1);
+  scene.add(hero);
+  // silhouette: the same drawing, tinted, shown only where the level hides the player
+  const silMat = new THREE.SpriteMaterial({ map: heroMat.map, color: 0xffc43d, transparent: true, opacity: 0.55, alphaTest: 0.5, depthWrite: false, depthFunc: THREE.GreaterDepth, fog: false });
+  const sil = new THREE.Sprite(silMat);
+  sil.center.copy(hero.center); sil.scale.copy(hero.scale); sil.renderOrder = 10;
+  scene.add(sil);
+  const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.34, 20), new THREE.MeshBasicMaterial({ color: 0x1a1430, transparent: true, opacity: 0.35, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  scene.add(shadow);
+  const look3 = { facingLeft: false, view: 'front', idleFor: 0, runCycle: 0, ballCycle: 0, oct: 0, romCycle: 0 };
+  // which ROM frame to show: view from the heading on screen, pose from the sim
+  function romHeroPick(pose, sp, sx, sf, t, dt) {
+    if (sp > 0.6) look3.oct = ((Math.round(Math.atan2(sx, -sf) / (Math.PI / 4)) % 8) + 8) % 8;
+    const [v, flip] = S3D.OCTANT[look3.oct], side = !look3.facingLeft; // ball and charge frames face left as stored
+    if (pose === 'charge') { const q = S3D.HERO.charge(); return [q[Math.floor(t * 20) % q.length], side]; }
+    if (pose === 'ball' || pose === 'spring') { const q = S3D.HERO.ball(); return [q[Math.floor(look3.ballCycle * 2) % q.length], side]; }
+    if (pose === 'run' || pose === 'air') {
+      look3.romCycle += dt * (6 + sp * 2.2);
+      const q = sp > Sim.P.run * 0.75 ? S3D.HERO.run(v) : S3D.HERO.walk(v);
+      return [q[pose === 'air' ? 2 : Math.floor(look3.romCycle) % q.length], flip];
+    }
+    if (look3.idleFor > 5 && look3.oct === 0) return [235 + Math.floor(t * 6) % 7, false];
+    return [v, flip];
+  }
+
+  // ---- cameras: chase (perspective, on a leash behind the player) and isometric (orthographic) ----
+  const PITCH_ISO = Math.atan(1 / Math.SQRT2);
+  const isoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
+  const chaseCam = new THREE.PerspectiveCamera(55, 1, 0.1, 200);
+  const view = {
+    mode: store.get(CAM_KEY) === 'iso' ? 'iso' : 'chase',
+    yaw: 0, yawTarget: 0, zoom: 1, target: new THREE.Vector3(),
+    dist: 6.5, pitch: 0.36, effPitch: 0.36, pendingYaw: 0, blockedDist: 6.5, followY: 0,
+    pos: new THREE.Vector3(), look: new THREE.Vector3(),
+  };
+  let cam = view.mode === 'iso' ? isoCam : chaseCam;
+  const lastRp = new THREE.Vector3();
+  const orbit = { yaw: 0, pitch: 0 }; // continuous look input this frame (radians)
+  // put the camera behind the player's start facing
+  function resetCamera() {
+    const p = world.p, yaw = p.facing + Math.PI;
+    lastRp.set(p.x, p.y, p.z);
+    view.followY = p.y; view.blockedDist = view.dist; view.pendingYaw = 0;
+    view.pos.set(p.x + Math.sin(yaw) * view.dist, p.y + 2.5, p.z + Math.cos(yaw) * view.dist);
+    view.yawTarget = view.yaw = Math.round((yaw - Math.PI / 4) / (Math.PI / 2)) * Math.PI / 2 + Math.PI / 4;
+    view.target.set(p.x, p.y + 0.4, p.z);
+  }
+  resetCamera();
+  function resize() {
+    const w = window.innerWidth, h = window.innerHeight, aspect = w / h;
+    renderer.setSize(w, h, false);
+    const viewH = (aspect >= 1 ? 11 : Math.max(11, 8.5 / aspect)) / view.zoom;
+    isoCam.top = viewH / 2; isoCam.bottom = -viewH / 2; isoCam.left = -viewH * aspect / 2; isoCam.right = viewH * aspect / 2;
+    isoCam.updateProjectionMatrix();
+    chaseCam.aspect = aspect; chaseCam.fov = aspect >= 1 ? 55 : 72; chaseCam.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+  resize();
+  // bearing of the camera as seen from the player (0 = camera south of the player)
+  function currentYaw() { return view.mode === 'iso' ? view.yaw : Math.atan2(view.pos.x - lastRp.x, view.pos.z - lastRp.z); }
+  function setMode(mode) {
+    const yawNow = currentYaw();
+    view.mode = mode; cam = mode === 'iso' ? isoCam : chaseCam;
+    scene.fog = mode === 'chase' ? sceneFog : null;
+    if (mode === 'iso') { view.yawTarget = Math.round((yawNow - Math.PI / 4) / (Math.PI / 2)) * Math.PI / 2 + Math.PI / 4; view.yaw = view.yawTarget; }
+    else { view.followY = lastRp.y; view.pos.set(lastRp.x + Math.sin(yawNow) * view.dist, lastRp.y + 2.5, lastRp.z + Math.cos(yawNow) * view.dist); view.blockedDist = view.dist; }
+    const b = $('camMode'); b.textContent = mode === 'iso' ? '3D' : 'ISO';
+    b.setAttribute('aria-label', mode === 'iso' ? 'Switch to the 3D chase camera' : 'Switch to the isometric view');
+    store.set(CAM_KEY, mode);
+  }
+  const rotateCam = dir => {
+    if (view.mode === 'iso') view.yawTarget += dir * Math.PI / 2;
+    else view.pendingYaw += dir * Math.PI / 4;
+  };
+
+  function updateIso(rp, dt) {
+    orbit.yaw = orbit.pitch = 0;
+    view.yaw += (view.yawTarget - view.yaw) * Math.min(1, dt * 9);
+    const k = 1 - Math.exp(-dt * 7);
+    const ahead = window.innerHeight > window.innerWidth ? 3.5 / view.zoom : 0;
+    const tx = rp.x - Math.sin(view.yaw) * ahead, tz = rp.z - Math.cos(view.yaw) * ahead;
+    view.target.x += (tx - view.target.x) * k; view.target.y += (rp.y + 0.4 - view.target.y) * k; view.target.z += (tz - view.target.z) * k;
+    const d = 40, t = view.target;
+    isoCam.position.set(t.x + Math.sin(view.yaw) * Math.cos(PITCH_ISO) * d, t.y + Math.sin(PITCH_ISO) * d, t.z + Math.cos(view.yaw) * Math.cos(PITCH_ISO) * d);
+    isoCam.lookAt(t);
+  }
+
+  // Fraction (0..1] of the way from a to b before the level blocks the line of sight.
+  // terrain height as the camera sees it: the void that blocks the player is open air to the camera
+  const camTop = (L, i, j, x, z) => (i >= 0 && j >= 0 && i < L.width && j < L.depth && L.coll[j * L.width + i] === 'W' ? -Infinity : Sim.tileTopNear(L, i, j, x, z));
+  function clearFraction(ax, ay, az, bx, by, bz) {
+    const N = 28;
+    for (let q = 1; q <= N; q++) {
+      const t = q / N, x = ax + (bx - ax) * t, y = ay + (by - ay) * t, z = az + (bz - az) * t;
+      const i = Math.floor(x), j = Math.floor(z);
+      if (i < 0 || j < 0 || i >= L.width || j >= L.depth) continue;
+      if (camTop(L, i, j, x, z) + 0.35 > y) return Math.max(0, (q - 1) / N);
+    }
+    return 1;
+  }
+  // How far the camera can sit from the focus along (yaw, pitch): inside the map, never over or inside a wall
+  // taller than the player's chest, and with a clear view of the player.
+  function roomAt(yaw, pitch, fx, fy, fz) {
+    const dx = Math.sin(yaw), dz = Math.cos(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch), m = 0.3;
+    let h = view.dist * cp;
+    if (dx > 1e-6) h = Math.min(h, (L.width - m - fx) / dx); else if (dx < -1e-6) h = Math.min(h, (m - fx) / dx);
+    if (dz > 1e-6) h = Math.min(h, (L.depth - m - fz) / dz); else if (dz < -1e-6) h = Math.min(h, (m - fz) / dz);
+    const wallY = view.followY + 0.9;
+    for (let t = 0.1; t < h; t += 0.1) {
+      const x = fx + dx * t, z = fz + dz * t;
+      if (camTop(L, Math.floor(x), Math.floor(z), x, z) > wallY) { h = Math.max(0, t - m); break; }
+    }
+    const d = Math.max(0, h / cp);
+    const frac = clearFraction(fx, fy, fz, fx + dx * cp * d, fy + sp * d, fz + dz * cp * d);
+    return { room: frac * d, frac };
+  }
+  function updateChase(rp, dt, p) {
+    const looking = orbit.yaw !== 0 || orbit.pitch !== 0;
+    // height to frame: steady during jumps, catches up on landing or long falls
+    const fy = p.grounded ? 9 : (rp.y < view.followY - 0.5 ? 6 : 1.5);
+    view.followY += (rp.y - view.followY) * Math.min(1, dt * fy);
+    const fx = rp.x, fz = rp.z, focusY = view.followY + 0.8;
+    // leash: keep the camera's current bearing from the player
+    let yaw = Math.atan2(view.pos.x - fx, view.pos.z - fz);
+    const stepYaw = view.pendingYaw * Math.min(1, dt * 10);
+    view.pendingYaw -= stepYaw;
+    yaw += stepYaw + orbit.yaw;
+    view.pitch = Math.min(1.15, Math.max(0.05, view.pitch + orbit.pitch));
+    orbit.yaw = orbit.pitch = 0;
+    // at speed, ease round behind the direction of travel
+    const sp = Math.hypot(p.vx, p.vz);
+    if (!looking && sp > Sim.P.run * 1.1) {
+      let d = Math.atan2(-p.vx, -p.vz) - yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+      yaw += d * Math.min(1, dt * 1.6 * Math.min(1, (sp - Sim.P.run) / 8));
+    }
+    // Mario 64 style obstacle handling: stay inside the level, rise to look over walls,
+    // swing toward open space, and only pull in close as a last resort.
+    let best = roomAt(yaw, view.pitch, fx, focusY, fz), pitchUse = view.pitch;
+    for (let pp = view.pitch + 0.08; best.frac < 0.999 && pp <= 1.25; pp += 0.08) {
+      const r = roomAt(yaw, pp, fx, focusY, fz);
+      if (r.frac >= 0.999 || r.room > best.room + 0.05) { best = r; pitchUse = pp; }
+    }
+    view.effPitch += (pitchUse - view.effPitch) * Math.min(1, dt * (looking ? 30 : pitchUse > view.effPitch ? 10 : 2.5));
+    if (!looking && best.room < view.dist * 0.6) {
+      let bestOff = 0, bestRoom = best.room + 0.5;
+      for (const off of [0.4, -0.4, 0.8, -0.8, 1.2, -1.2, 1.6, -1.6]) {
+        const r = roomAt(yaw + off, view.effPitch, fx, focusY, fz).room;
+        if (r > bestRoom + 0.3 * Math.abs(off)) { bestRoom = r; bestOff = off; }
+      }
+      if (bestOff) yaw += Math.sign(bestOff) * Math.min(Math.abs(bestOff), dt * 2.2);
+    }
+    const free = Math.max(1.2, roomAt(yaw, view.effPitch, fx, focusY, fz).room);
+    view.blockedDist = free < view.blockedDist ? free : view.blockedDist + (free - view.blockedDist) * Math.min(1, dt * 3);
+    const dd = Math.min(view.blockedDist, view.dist), cp = Math.cos(view.effPitch), spch = Math.sin(view.effPitch);
+    view.pos.set(fx + Math.sin(yaw) * cp * dd, focusY + spch * dd, fz + Math.cos(yaw) * cp * dd);
+    const floorHere = Sim.floorAt(L, view.pos.x, view.pos.z);
+    if (Number.isFinite(floorHere) && view.pos.y < floorHere + 0.4) view.pos.y = floorHere + 0.4;
+    chaseCam.position.copy(view.pos);
+    view.look.set(fx, focusY - 0.15, fz);
+    chaseCam.lookAt(view.look);
+    view.target.set(fx, focusY, fz);
+  }
+
+  // ---- input ----
+  const keys = new Set();
+  const KEYMAP = { ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
+    Space: 'jump', KeyJ: 'jump', ShiftLeft: 'dash', ShiftRight: 'dash', KeyK: 'dash' };
+  window.addEventListener('keydown', e => {
+    if (!started && !$('helpOverlay').hidden && (e.code === 'Enter' || e.code === 'Space')) { e.preventDefault(); start(); return; }
+    if (e.code in KEYMAP) { keys.add(KEYMAP[e.code]); e.preventDefault(); }
+    else if (e.code === 'KeyQ' && !e.repeat) rotateCam(-1);
+    else if (e.code === 'KeyE' && !e.repeat) rotateCam(1);
+    else if (e.code === 'KeyR' && !e.repeat) restart();
+    else if (e.code === 'KeyV' && !e.repeat) setMode(view.mode === 'iso' ? 'chase' : 'iso');
+  });
+  window.addEventListener('keyup', e => { if (e.code in KEYMAP) keys.delete(KEYMAP[e.code]); });
+  window.addEventListener('blur', () => keys.clear());
+  window.addEventListener('wheel', e => {
+    if (view.mode === 'iso') { view.zoom = Math.min(1.8, Math.max(0.55, view.zoom * (e.deltaY > 0 ? 0.92 : 1.08))); resize(); }
+    else view.dist = Math.min(12, Math.max(3, view.dist * (e.deltaY > 0 ? 1.08 : 0.92)));
+  }, { passive: true });
+
+  // touch: floating stick on the left half, look-drag on the right half; mouse drag looks too
+  const touch = { stickId: null, ox: 0, oy: 0, x: 0, y: 0, jump: false, dash: false };
+  const stickEl = $('stick'), knob = $('stickKnob');
+  const STICK_R = 55, DEAD = 0.13;
+  if (isTouch) $('touchUI').hidden = false;
+  const look = { id: null, lx: 0, ly: 0, acc: 0 };
+  canvas.addEventListener('pointerdown', e => {
+    canvas.focus();
+    if (e.pointerType !== 'mouse' && e.clientX < window.innerWidth * 0.5 && touch.stickId === null) {
+      touch.stickId = e.pointerId; touch.ox = e.clientX; touch.oy = e.clientY; touch.x = touch.y = 0;
+      stickEl.style.left = e.clientX + 'px'; stickEl.style.top = e.clientY + 'px'; stickEl.hidden = false; $('stickHint').hidden = true;
+    } else if (look.id === null) {
+      look.id = e.pointerId; look.lx = e.clientX; look.ly = e.clientY; look.acc = 0;
+    } else return;
+    canvas.setPointerCapture(e.pointerId); e.preventDefault();
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (e.pointerId === look.id) {
+      const dx = e.clientX - look.lx, dy = e.clientY - look.ly;
+      look.lx = e.clientX; look.ly = e.clientY;
+      if (view.mode === 'chase') { orbit.yaw -= dx * 0.009; orbit.pitch += dy * 0.006; }
+      else { look.acc += dx; if (Math.abs(look.acc) > 70) { rotateCam(look.acc > 0 ? -1 : 1); look.acc = 0; } }
+      return;
+    }
+    if (e.pointerId !== touch.stickId) return;
+    let dx = e.clientX - touch.ox, dy = e.clientY - touch.oy;
+    const d = Math.hypot(dx, dy);
+    if (d > STICK_R) { dx *= STICK_R / d; dy *= STICK_R / d; }
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    const cd = Math.min(d, STICK_R), mag = cd / STICK_R, live = mag < DEAD ? 0 : (mag - DEAD) / (1 - DEAD);
+    touch.x = cd > 1e-6 ? dx / cd * live : 0;
+    touch.y = cd > 1e-6 ? dy / cd * live : 0;
+  });
+  const endPointer = e => {
+    if (e.pointerId === look.id) { look.id = null; return; }
+    if (e.pointerId !== touch.stickId) return;
+    touch.stickId = null; touch.x = touch.y = 0; stickEl.hidden = true; knob.style.transform = '';
+  };
+  canvas.addEventListener('pointerup', endPointer); canvas.addEventListener('pointercancel', endPointer);
+  canvas.addEventListener('contextmenu', e => e.preventDefault());
+  for (const [id, key] of [['padJump', 'jump'], ['padDash', 'dash']]) {
+    const el = $(id); let pid = null;
+    el.addEventListener('pointerdown', e => { pid = e.pointerId; touch[key] = true; el.classList.add('held'); el.setPointerCapture(e.pointerId); e.preventDefault(); });
+    const up = e => { if (e.pointerId !== pid) return; pid = null; touch[key] = false; el.classList.remove('held'); };
+    el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+    el.addEventListener('contextmenu', e => e.preventDefault());
+  }
+  document.addEventListener('gesturestart', e => e.preventDefault());
+  document.addEventListener('dblclick', e => e.preventDefault());
+
+  // controller: standard mapping (A 0, B 1, X 2, Y 3, LB 4, RB 5, Back 8, Start 9, R3 11, d-pad 12-15);
+  // some browsers give non-standard pads the right stick on axes 3 and 4 instead of 2 and 3
+  const pad = { held: new Set(), flick: 0 };
+  const curve = (v, dz) => (Math.abs(v) < dz ? 0 : Math.sign(v) * Math.pow((Math.abs(v) - dz) / (1 - dz), 1.5));
+  window.addEventListener('gamepadconnected', () => toast('Controller ready: left stick moves, right stick looks, Start pauses.', 3));
+  function readInput(dt) {
+    let ix = (keys.has('right') ? 1 : 0) - (keys.has('left') ? 1 : 0);
+    let iy = (keys.has('down') ? 1 : 0) - (keys.has('up') ? 1 : 0);
+    let jump = keys.has('jump') || touch.jump, dash = keys.has('dash') || touch.dash;
+    if (Math.hypot(touch.x, touch.y) > Math.hypot(ix, iy)) { ix = touch.x; iy = touch.y; }
+    const gp = navigator.getGamepads ? Array.from(navigator.getGamepads()).find(g => g && g.connected) : null;
+    if (gp) {
+      const ax = gp.axes[0] || 0, ay = gp.axes[1] || 0, mag = Math.hypot(ax, ay);
+      if (mag > 0.15 && mag > Math.hypot(ix, iy)) { const s = Math.min(1, (mag - 0.15) / 0.85) / mag; ix = ax * s; iy = ay * s; }
+      const b = i => !!(gp.buttons[i] && gp.buttons[i].pressed);
+      const tap = i => { const now = b(i), was = pad.held.has(i); if (now) pad.held.add(i); else pad.held.delete(i); return now && !was; };
+      const startTap = tap(9), aTap = tap(0);
+      if (!started) { if ((startTap || aTap) && $('errorOverlay').hidden) { start(); pad.ignoreA = true; } }
+      else if (startTap) openHelp();
+      if (!b(0)) pad.ignoreA = false;   // the A press that resumed the game is not also a jump
+      jump = jump || (b(0) && !pad.ignoreA); dash = dash || b(1) || b(2);
+      if (tap(4)) rotateCam(-1);
+      if (tap(5)) rotateCam(1);
+      if (tap(3) || tap(8)) setMode(view.mode === 'iso' ? 'chase' : 'iso');
+      if (tap(11)) resetCamera();
+      if (b(12)) iy = -1; if (b(13)) iy = 1; if (b(14)) ix = -1; if (b(15)) ix = 1;
+      const [ri, rj] = gp.mapping === 'standard' || gp.axes.length < 6 ? [2, 3] : [3, 4];
+      const rx = curve(gp.axes[ri] || 0, 0.18), ry = curve(gp.axes[rj] || 0, 0.18);
+      if (view.mode === 'chase') { orbit.yaw -= rx * 2.6 * dt; orbit.pitch += ry * 1.4 * dt; }
+      else {   // isometric: flick the right stick to swing 90 degrees
+        const f = Math.abs(rx) > 0.6 ? Math.sign(rx) : 0;
+        if (f && f !== pad.flick) rotateCam(-f);
+        pad.flick = f;
+      }
+    }
+    const m = Math.hypot(ix, iy);
+    if (m > 1) { ix /= m; iy /= m; }
+    return { ix, iy, jump, dash };
+  }
+  // chase: relative to where the camera is now; iso: frozen while held so a 90 degree turn does not swerve you
+  let basisYaw = view.yawTarget;
+  const simInput = { mx: 0, mz: 0, jump: false, dash: false };
+  function toWorld(inp) {
+    if (view.mode === 'chase') basisYaw = currentYaw();
+    else if (Math.hypot(inp.ix, inp.iy) < 0.05) basisYaw = view.yawTarget;
+    const s = Math.sin(basisYaw), c = Math.cos(basisYaw);
+    simInput.mx = started ? c * inp.ix + s * inp.iy : 0;
+    simInput.mz = started ? -s * inp.ix + c * inp.iy : 0;
+    simInput.jump = started && inp.jump; simInput.dash = started && inp.dash;
+    return simInput;
+  }
+
+  // ---- HUD, help card, level loading ----
+  const rows = isTouch
+    ? [['Left thumb', 'Drag anywhere on the left to move'], ['Right thumb', 'Drag on the right to look around'], ['Jump', 'Jump; hold for height'], ['Dash', 'Hold while still to charge a spin dash, release to launch. Tap while running to roll.'], ['⟲ ⟳', 'Swing the camera 45 degrees'], ['ISO / 3D', 'Switch between the chase camera and the isometric view']]
+    : [['WASD / arrows', 'Move'], ['Mouse drag', 'Look around'], ['Space or J', 'Jump; hold for height'], ['Shift or K', 'Hold while still to charge a spin dash, release to launch. Tap while running to roll.'], ['Q / E', 'Swing the camera 45 degrees'], ['Wheel', 'Camera distance'], ['V', 'Switch to the isometric view and back'], ['R', 'Restart'], ['Controller', 'Left stick moves, right stick looks, A jump, B or X dash, LB/RB swing, Y or Back switches view, right stick click recentres, Start pauses']];
+  for (const [k, v] of rows) { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; $('keysList').append(dt, dd); }
+  let started = false;
+  function start() { started = true; $('helpOverlay').hidden = true; canvas.focus(); }
+  function openHelp() { started = false; $('playBtn').textContent = 'Resume'; $('restartBtn').hidden = false; $('helpOverlay').hidden = false; }
+  $('playBtn').addEventListener('click', start);
+  $('helpBtn').addEventListener('click', openHelp);
+  $('restartBtn').addEventListener('click', () => { restart(); start(); });
+  $('camLeft').addEventListener('click', () => rotateCam(-1));
+  $('camRight').addEventListener('click', () => rotateCam(1));
+  $('camMode').addEventListener('click', () => setMode(view.mode === 'iso' ? 'chase' : 'iso'));
+  let toastTimer = 0, flickyHudKey = -1;
+  function toast(msg, secs) { const t = $('toast'); t.textContent = msg; t.hidden = false; toastTimer = secs; }
+
+  function showLevelName() {
+    $('levelName').textContent = customLoaded ? `Playing your level: ${L.name}` : `Playing the built-in level: ${L.name}`;
+    $('builtInBtn').hidden = !customLoaded;
+  }
+  function setLoadMsg(list) {
+    const ul = $('loadMsg'); ul.textContent = '';
+    for (const m of list) { const li = document.createElement('li'); li.textContent = m; ul.appendChild(li); }
+    ul.hidden = !list.length;
+  }
+  function useLevel(newL, custom) {
+    L = newL; customLoaded = custom;
+    world = Sim.createWorld(L);
+    buildLevelObjects(); resetCamera(); restart();
+    showLevelName();
+  }
+  $('levelFile').addEventListener('change', e => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result);
+      try {
+        const newL = Sim.importLevel(JSON.parse(text));
+        useLevel(newL, true);
+        const kept = store.set(LEVEL_KEY, text);
+        setLoadMsg(kept ? [] : ['Loaded for this visit only: the browser would not store a file this size.']);
+      } catch (err) { setLoadMsg(readError(err).slice(0, 6)); }
+    };
+    reader.onerror = () => setLoadMsg(['The file could not be read. Try choosing it again.']);
+    reader.readAsText(file);
+  });
+  // ---- the player's own ROM: read on the device, never uploaded; kept in this browser's IndexedDB until forgotten ----
+  let romBytes = null;
+  const romStore = {
+    open() {
+      return new Promise((ok, fail) => {
+        try {
+          const rq = indexedDB.open('blastgrid', 1);
+          rq.onupgradeneeded = () => rq.result.createObjectStore('rom');
+          rq.onsuccess = () => ok(rq.result); rq.onerror = () => fail(rq.error);
+        } catch (e) { fail(e); }
+      });
+    },
+    async run(mode, fn) {
+      const db = await this.open();
+      return new Promise((ok, fail) => {
+        const tx = db.transaction('rom', mode), rq = fn(tx.objectStore('rom'));
+        tx.oncomplete = () => { db.close(); ok(rq.result); }; tx.onerror = () => { db.close(); fail(tx.error); };
+      });
+    },
+    get() { return this.run('readonly', s => s.get('rom')).catch(() => null); },
+    put(bytes) { return this.run('readwrite', s => s.put(bytes, 'rom')).then(() => true, () => false); },
+    del() { return this.run('readwrite', s => s.delete('rom')).catch(() => null); },
+  };
+  function useRom(bytes) {
+    romBytes = bytes;
+    const sel = $('romLevel'); sel.textContent = '';
+    for (const [id, name] of S3D.LEVELS) { const o = document.createElement('option'); o.value = id; o.textContent = name; sel.appendChild(o); }
+    $('romPick').hidden = false; $('lookSel').value = artLook;
+    try { setRom(bytes); } catch (e) { romArt = null; setLoadMsg(['The level layouts work, but the sprites could not be read from this ROM: ' + e.message + '.']); }
+    buildLevelObjects();
+  }
+  $('lookSel').addEventListener('change', () => { artLook = $('lookSel').value === 'scribble' ? 'scribble' : 'rom'; store.set(LOOK_KEY, artLook); buildLevelObjects(); });
+  $('romForget').addEventListener('click', () => {
+    romStore.del(); romBytes = null; romArt = null; $('romPick').hidden = true;
+    buildLevelObjects(); setLoadMsg(['Forgotten: this browser no longer keeps your ROM.']);
+  });
+  romStore.get().then(v => { if (v && !romBytes) { const b = new Uint8Array(v); if (!S3D.check(b)) useRom(b); } });
+  $('romFile').addEventListener('change', e => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      let bytes;
+      try { bytes = await S3D.openRomFile(reader.result); } catch (err) { setLoadMsg([err.message]); return; }
+      const why = S3D.check(bytes);
+      if (why) { setLoadMsg([why]); return; } // keep any ROM already in use
+      setLoadMsg([]); useRom(bytes);
+      romStore.put(bytes).then(kept => { if (!kept) setLoadMsg(['Using your ROM for this visit only: the browser would not keep a copy.']); });
+    };
+    reader.onerror = () => setLoadMsg(['The ROM file could not be read. Try choosing it again.']);
+    reader.readAsArrayBuffer(file);
+  });
+  $('romGo').addEventListener('click', () => {
+    if (!romBytes) return;
+    try {
+      const raw = S3D.convert(romBytes, Number($('romLevel').value), Number($('romScale').value));
+      useLevel(Sim.importLevel(raw), true);
+      const kept = store.set(LEVEL_KEY, JSON.stringify(raw));
+      setLoadMsg(kept ? [] : ['Loaded for this visit only: the browser would not store a level this size.']);
+      start();
+    } catch (err) { setLoadMsg(['That level could not be converted: ' + err.message + '.']); }
+  });
+  $('builtInBtn').addEventListener('click', () => { store.del(LEVEL_KEY); useLevel(Sim.importLevel(JSON.parse(builtInRaw)), false); setLoadMsg([]); });
+  showLevelName();
+
+  let cleared = false;
+  function restart() {
+    Sim.resetLevel(world);
+    for (let q = 0; q < world.rings.length; q++) ringSprites[q].visible = true;
+    for (const s of enemySprites) s.visible = true;
+    for (const s of monitorSprites) s.visible = true;
+    prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z; cleared = false;
+    $('ringCount').textContent = '0';
+  }
+
+  // Fade trees and bushes that stand between the camera and the player (or right in front of the lens).
+  function fadeBlockers(dt) {
+    const cx = cam.position.x, cz = cam.position.z, px = lastRp.x, pz = lastRp.z;
+    const sx = px - cx, sz = pz - cz, len2 = sx * sx + sz * sz || 1;
+    for (const s of tallDecor) {
+      const dx = s.position.x - cx, dz = s.position.z - cz;
+      const u = (dx * sx + dz * sz) / len2;
+      let block = false;
+      if (view.mode === 'chase') {
+        const ex = dx - sx * Math.max(0, Math.min(1, u)), ez = dz - sz * Math.max(0, Math.min(1, u));
+        block = (u > -0.1 && u < 0.97 && ex * ex + ez * ez < 1.4 * 1.4) || dx * dx + dz * dz < 2.2 * 2.2;
+      } else {
+        // isometric: fade whatever stands just in front of the player on screen
+        const fx = s.position.x - px, fz = s.position.z - pz, toward = fx * Math.sin(view.yaw) + fz * Math.cos(view.yaw);
+        block = toward > 0 && toward < 3.5 && Math.abs(fx * Math.cos(view.yaw) - fz * Math.sin(view.yaw)) < 1.2;
+      }
+      const target = block ? 0.22 : 1;
+      s.userData.fade += (target - s.userData.fade) * Math.min(1, dt * 8);
+      s.material.opacity = s.userData.fade;
+      s.material.depthWrite = s.userData.fade > 0.95;
+    }
+  }
+
+  // ---- loop: fixed 60 Hz sim, interpolated render ----
+  const STEP = Sim.P.dt;
+  const prev = { x: world.p.x, y: world.p.y, z: world.p.z };
+  let acc = 0, last = performance.now(), frames = 0, shownRings = -1;
+  const g2 = [0, 0], nrmV = new THREE.Vector3(), zAxis = new THREE.Vector3(0, 0, 1), rp = new THREE.Vector3();
+  function frame(now) {
+    const dt = Math.min(0.25, (now - last) / 1000); last = now;
+    acc += dt;
+    let steps = 0;
+    const inp = toWorld(readInput(dt));
+    while (acc >= STEP && steps < 5) {
+      prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
+      Sim.step(world, inp);
+      if (world.events.includes('respawn')) { prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z; toast('Back to the start.', 1.4); }
+      if (world.events.includes('goal')) toast('Goal! Keep exploring, or open ? to restart.', 4);
+      if (world.events.includes('needFlickies')) toast(`The ring needs ${L.flickies} Flickies. Free them from enemies and bring them here.`, 3);
+      if (world.events.includes('section')) toast(world.holes.some(h => h.opens === world.section) ? 'Ring used. Step into the hole beneath it.' : 'Ring used. On to the next one.', 3);
+      if (world.events.includes('warp')) { prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z; }
+      acc -= STEP; steps++;
+    }
+    if (steps === 5) acc = 0;
+    const a = acc / STEP, p = world.p, t = now / 1000;
+    rp.set(prev.x + (p.x - prev.x) * a, prev.y + (p.y - prev.y) * a, prev.z + (p.z - prev.z) * a);
+
+    // pick the drawing: pose from the sim state, view and left/right from movement relative to the camera
+    const sp = Math.hypot(p.vx, p.vz);
+    const camYaw = currentYaw(), rx = Math.cos(camYaw), rz = -Math.sin(camYaw), fx = -Math.sin(camYaw), fz = -Math.cos(camYaw);
+    let pose, phase;
+    if (p.charge > 0) { pose = 'charge'; phase = Math.floor(t * 20) % 2; }
+    else if (p.ball || p.rolling) { look3.ballCycle += dt * Math.max(sp, 6) * 1.4; pose = 'ball'; phase = Math.floor(look3.ballCycle) % 4; }
+    else if (!p.grounded) { pose = p.sprung ? 'spring' : 'air'; phase = 0; }
+    else if (sp > 0.6) { look3.runCycle += dt * (3 + sp * 1.1); pose = 'run'; phase = Math.floor(look3.runCycle) % 4; }
+    else { pose = 'idle'; phase = Math.floor(t * 2) % 2; }
+    if (sp > 0.6) {
+      const sx = p.vx * rx + p.vz * rz, sf = p.vx * fx + p.vz * fz;
+      if (Math.abs(sx) > 0.3) look3.facingLeft = sx < 0;
+      look3.view = sf > sp * 0.35 ? 'back' : 'front';
+      look3.idleFor = 0;
+    } else if ((look3.idleFor += dt) > 1.2) look3.view = 'front';
+    const ballLike = pose === 'ball' || pose === 'charge';
+    let map;
+    if (romOn()) {
+      const [idx, flip] = romHeroPick(pose, sp, p.vx * rx + p.vz * rz, p.vx * fx + p.vz * fz, t, dt);
+      map = romHeroTex(idx, flip);
+      if (hero.scale.x !== ROM_SIZE) { hero.scale.set(ROM_SIZE, ROM_SIZE, 1); hero.center.set(0.5, HERO_FOOT); sil.scale.copy(hero.scale); sil.center.copy(hero.center); }
+    } else {
+      map = heroTexture(ballLike ? 'front' : look3.view, pose, phase, Math.floor(t * 8) % 3, look3.facingLeft);
+      if (hero.scale.x !== 1.5) { hero.scale.set(1.5, 1.5, 1); hero.center.set(0.5, 0.04); sil.scale.copy(hero.scale); sil.center.copy(hero.center); }
+    }
+    if (heroMat.map !== map) { heroMat.map = map; silMat.map = map; }
+    hero.position.copy(rp); sil.position.copy(rp);
+    hero.visible = !(p.invuln > 0 && Math.floor(t * 16) % 2);
+
+    // shadow on the floor under the player, tilted with the slope
+    const f = Sim.floorAt(L, rp.x, rp.z);
+    shadow.visible = Number.isFinite(f) && rp.y - f < 6;
+    if (shadow.visible) {
+      Sim.gradientAt(L, rp.x, rp.z, g2);
+      nrmV.set(-g2[0], 1, -g2[1]).normalize();
+      shadow.quaternion.setFromUnitVectors(zAxis, nrmV);
+      shadow.position.set(rp.x, f + 0.02, rp.z);
+      shadow.scale.setScalar(Math.max(0.45, 1 - (rp.y - f) * 0.18));
+    }
+
+    // rings turn like flat coins; collected rings pop and vanish
+    const boil = Math.floor(t * 8) % 3, rom = romOn(), ringFrame = Math.floor(t * 15) % 16;
+    for (let q = 0; q < ringSprites.length; q++) {
+      const s = ringSprites[q], g = world.rings[q];
+      if (!s.visible) continue;
+      s.material = rom ? romArt.rings[ringFrame] : ringMats[(boil + q) % 3];
+      if (g.got) {
+        const k = (world.time - g.gotAt) / 0.25;
+        if (k >= 1) s.visible = false; else { s.scale.set(ringSize * (1 + k), ringSize * (1 + k), 1); s.position.y = g.y + k * 0.6; }
+      } else {
+        // the ROM rings spin in their own frames; the scribbled ones turn like flat coins
+        s.scale.set(rom ? ringSize : 0.06 + 0.56 * Math.abs(Math.cos(t * 2.6 + q * 0.5)), ringSize, 1); s.position.y = g.y;
+      }
+    }
+    // enemies roll along their loop; a defeated one pops and vanishes
+    for (let q = 0; q < enemySprites.length; q++) {
+      const s = enemySprites[q], en = world.enemies[q];
+      if (!en.alive) {
+        const k = (world.time - en.diedAt) / 0.3;
+        if (k >= 1) { s.visible = false; continue; }
+        const z = s.userData.size;
+        s.scale.set(z * (1 + k), z * (1 - k), 1); continue;
+      }
+      s.visible = true; s.scale.set(s.userData.size, s.userData.size, 1);
+      const dx = en.x - s.position.x, dz = en.z - s.position.z, sx = dx * rx + dz * rz;
+      s.position.set(en.x, en.y, en.z);
+      if (Math.abs(sx) > 1e-4) s.userData.left = sx < 0;
+      s.material = s.userData.rom ? s.userData.rom[s.userData.left ? 0 : 1] : enemyMat(Math.floor(t * 6) % 2, (Math.floor(t * 8) + q) % 3, !!s.userData.left);
+    }
+    for (let q = 0; q < monitorSprites.length; q++) {
+      const s = monitorSprites[q], broken = world.monitors[q].broken;
+      if (s.userData.rom) s.visible = !broken; else s.material = monitorMats[broken ? 1 : 0];
+    }
+    // Flickies: hop about, face the way they go; the HUD shows how many the ring has and how many follow
+    for (let q = 0; q < flickySprites.length; q++) {
+      const s = flickySprites[q], f = world.flickies.filter(ff => ff.state !== 'gone')[q];
+      s.visible = !!f;
+      if (!f) continue;
+      const dx = f.x - s.position.x, dz = f.z - s.position.z, sx = dx * rx + dz * rz;
+      if (Math.abs(sx) > 1e-3) s.userData.left = sx < 0;
+      s.position.set(f.x, f.y, f.z);
+      if (rom) { s.material = romFlickyMat(Math.floor(t * 12 + q * 3) % 16, !s.userData.left); s.scale.set(64 * PX, 64 * PX, 1); s.center.set(0.5, 1 - 52 / 64); }
+      else { s.material = flickyMat(f.kind, Math.floor(t * 8 + q) % 2, !!s.userData.left); s.scale.set(0.55, 0.55, 1); s.center.set(0.5, 0.08); }
+    }
+    if (L.flickies) {
+      const following = world.flickies.filter(f => f.state === 'follow').length, key = world.delivered * 100 + following;
+      if (flickyHudKey !== key) {
+        flickyHudKey = key;
+        const dots = $('flickyDots'); dots.textContent = '';
+        for (let i = 0; i < L.flickies; i++) {
+          const d = document.createElement('span');
+          d.className = i < world.delivered ? 'got' : i < world.delivered + following ? 'with' : '';
+          dots.appendChild(d);
+        }
+      }
+    }
+    // only the big ring of the current section is out
+    for (let q = 0; q < goalSprites.length; q++) {
+      if (goalSprites[q].userData.rom) goalSprites[q].scale.x = ROM_SIZE * (0.35 + 0.65 * Math.abs(Math.cos(t * 1.6)));
+      else goalSprites[q].material = goalMats[Math.floor(t * 3) % 2];
+      goalSprites[q].visible = q === world.section && !world.cleared;
+    }
+    for (let q = 0; q < looseSprites.length; q++) {
+      const s = looseSprites[q], r = world.loose[q];
+      s.visible = !!r && !(r.age > Sim.P.scatterLife - 1 && Math.floor(t * 12) % 2);
+      if (!r) continue;
+      s.position.set(r.x, r.y, r.z);
+      if (rom) { s.material = romArt.rings[(ringFrame * 2 + q) % 16]; s.scale.set(ringSize * 0.85, ringSize * 0.85, 1); }
+      else { s.material = ringMats[(boil + q) % 3]; s.scale.set(0.06 + 0.44 * Math.abs(Math.cos(t * 6 + q)), 0.5, 1); }
+    }
+    for (let q = 0; q < springSprites.length; q++) {
+      const s = springSprites[q], fired = world.time - world.springs[q].firedAt < 0.25;
+      if (s.userData.rom) s.scale.set(s.userData.size, s.userData.size * (fired ? 1.25 : 1), 1);
+      else s.material = springMats[fired ? 1 : 0];
+    }
+    if (waterMesh) waterTex.offset.set(t * 0.08, t * 0.03);
+
+    if (shownRings !== world.ringCount) { shownRings = world.ringCount; $('ringCount').textContent = String(world.ringCount); }
+    if (!cleared && world.rings.length && world.ringCount === world.rings.length) { cleared = true; toast(`All ${world.rings.length} rings. Level clear. Open ? to restart.`, 6); }
+    if (toastTimer > 0) { toastTimer -= dt; if (toastTimer <= 0) $('toast').hidden = true; }
+
+    if (view.mode === 'iso') updateIso(rp, dt); else updateChase(rp, dt, p);
+    lastRp.copy(rp);
+    fadeBlockers(dt);
+    updateFoliage();
+    dome.position.copy(cam.position);
+    renderer.render(scene, cam);
+    frames++;
+    requestAnimationFrame(frame);
+  }
+  window.__game = { Sim, view, setMode, start, get world() { return world; }, get level() { return L; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
+  setMode(view.mode);
+  requestAnimationFrame(frame);
+})();
+</script>

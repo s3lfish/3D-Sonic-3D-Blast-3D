@@ -1,0 +1,90 @@
+# Blast Grid
+
+A true 3D take on an isometric Mega Drive platformer, playable in your browser. It reads the level layouts, level
+art and sprites from **your own copy** of the Mega Drive *Sonic 3D Blast* ROM, and falls back to crude original
+scribbled art and a built-in level when you have no ROM.
+
+## ▶ [Play it in your browser](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/)
+
+No install. Works with keyboard, mouse, touch or a controller.
+
+## Using your ROM
+
+1. Open the game and choose **Choose ROM file** on the start card. A plain ROM (`.bin`, `.md`), an `.smd` dump, or
+   either one inside a `.zip` all work.
+2. Pick a level, choose **True shape** or **Half height**, and press **Play this level**.
+
+The ROM never leaves your device. The page reads it with JavaScript in your browser and keeps a copy in the
+browser's own storage (IndexedDB) so the sprites load next time; **Forget ROM** removes it. This repository contains
+no ROM data, no extracted levels and no pictures made from the ROM: only the rules for reading it.
+
+Known good ROM: SHA-1 `89957568386a5023d198ac2251ded9dfb2ab65e7` (the 4 MB Mega Drive release). Other releases are
+untested.
+
+## Controls
+
+| Input | Action |
+| --- | --- |
+| WASD / arrows | Move |
+| Space or J | Jump (hold for height) |
+| Shift or K | Hold while still to charge a spin dash, release to launch; tap while running to roll |
+| Mouse drag | Look around |
+| Q / E | Swing the camera |
+| Mouse wheel | Camera distance |
+| V | Switch between the chase camera and the isometric view |
+| R | Restart |
+| Controller | Left stick moves, right stick looks, A jump, B or X dash, LB/RB swing, Y or Back switches view, right stick click recentres, Start pauses |
+
+## What works
+
+- All 22 levels' terrain, start points, rings, springs, monitors, big rings and most enemies.
+- The original level art unprojected onto the 3D faces, foliage as standing sprites, zone skies.
+- Movement measured in the original (jump height, gravity, step height; edges are walls).
+- Green Grove sections: Flickies freed from enemies open each big ring; holes carry you to the next section.
+  Green Grove Act 1 can be played to the end.
+
+Not done yet: section gimmicks outside Green Grove (lifts, tubes, objects that change the map), Flicky colours,
+monitor icons, bosses, sound. See `re/NOTES.md` for what is known and what is not.
+
+## Working on it
+
+The page is one self-contained file, `index.html`, built from `src/`:
+
+- `src/s3d.js`: reads the ROM (decompression, level maps, level art bake, sprites). Rules only, never ROM bytes.
+- `src/game.js`: rendering, camera, input, HUD (Three.js r128 from a CDN).
+- `src/art.js`: the scribbled fallback art, drawn in code.
+- The simulation lives in the `#sim` script inside `index.html` and is edited there.
+
+```sh
+python3 tools/build.py          # rebuild index.html from src/
+npm install                     # playwright, sharp, three@0.128.0 for the browser tests
+npm test                        # simulation tests (Node only)
+npm run test:render             # headless render check, screenshots in test-out/
+npm run test:pad                # fake controller test
+```
+
+To try changes, serve the folder (for example `python3 -m http.server`) and open `http://localhost:8000/`.
+
+`CLAUDE.md` is a terse project map kept for coding agents; it doubles as a list of conventions and past mistakes.
+
+## Reverse-engineering notes and tools
+
+`re/` holds the notes (`re/NOTES.md`) and the Python reference tools used to work out the formats: RNC unpackers,
+the reference level converter and art bake that the browser code is checked against byte for byte, sprite
+decoders, and emulator probes used to measure movement. Put your own ROM at `re/rom/s3d.bin` (ignored by git) and
+run the tools from inside `re/`. Their outputs stay on your machine; please keep it that way.
+
+## Contributing
+
+Pull requests welcome. Two hard rules:
+
+1. Never commit ROM bytes, extracted maps, ROM-derived binaries, emulator states, or screenshots and renders of the
+   original art. `re/leakcheck.py` checks the page; run it before you push.
+2. Keep the fallback hero clearly original. No look-alikes of existing characters.
+
+## Licence and disclaimer
+
+GPL-3.0 (see `LICENSE`). Copyright 2026 Bill Page and contributors.
+
+This is an unofficial fan project, not affiliated with or endorsed by Sega or Sonic Team. Sonic the Hedgehog and
+Sonic 3D Blast are trademarks of Sega. You need your own legally obtained copy of the game to use the ROM features.

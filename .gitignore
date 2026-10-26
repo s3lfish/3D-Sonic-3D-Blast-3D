@@ -1,0 +1,21 @@
+# Never commit ROM data or anything made from it.
+rom/
+re/rom/
+re/emu/
+re/ref/
+*.bin
+*.smd
+*.gen
+*.zip
+*.state
+re/out/lv*.json
+re/out/*.bin
+re/out/*.png
+re/out/*.rgba
+*.png
+!docs/*.png
+__pycache__/
+node_modules/
+package-lock.json
+test-out/
+re/out/player_frames.json

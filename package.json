@@ -1,0 +1,17 @@
+{
+  "name": "blast-grid",
+  "private": true,
+  "description": "A true 3D, browser-playable take on an isometric Mega Drive platformer, built from your own ROM.",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "build": "python3 tools/build.py",
+    "test": "node tests/sim.test.js",
+    "test:render": "node tests/render.test.js node_modules/three/build/three.min.js test-out",
+    "test:pad": "node tests/pad.test.js node_modules/three/build/three.min.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.47.0",
+    "sharp": "^0.33.0",
+    "three": "0.128.0"
+  }
+}
