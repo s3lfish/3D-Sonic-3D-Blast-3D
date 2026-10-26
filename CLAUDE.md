@@ -75,7 +75,15 @@ serves index.html from main.
   File.slice, only MUSEUM.MUS and SPRDATA.MUS kept, IndexedDB key 'jam'). `buildHero3d` makes a group per part
   (Lambert, vertex colours + texture atlas, DoubleSide) and the jump ball; `updateHero3d` picks idle/walk/run/sprint/
   spring/fall/skid (sim `p.skid`: grounded, fast, stick against travel) at 30 frames a second (assumed) scaled by speed; angles z,y,x → Euler 'ZYX'; model faces -x so
-  rotation.y = facing + pi/2. Hero select `#heroSel` ('3d' default when a disc is loaded; `blastgrid.hero`).
+  rotation.y = facing + pi/2. Model select `#heroSel` ('3d' default when a disc is loaded; `blastgrid.hero`).
+  Skid table 0x290A6 (SCHG's 0x290AC is 6 bytes off); the skid clip plays through once (`h.skidT`).
+- Jam objects (`Jam.props`, `buildJamProps`, `jamOn()` = disc loaded and Models = 3D; ROM look only): Green Grove palms
+  where `artBaker(...).palms` finds them (pattern match on the picture; pieces use `bare` with the palm cut out),
+  trunk quad turned to the camera, hidden between chase camera and player; springs (coil squashed to `SPRING_REST`,
+  stretched when fired), big ring (1.6 m, centred at the sprite's anchor, spins; shrinks when used), Flickies (one
+  model per colour per slot, flying animation, `FLICKY_YAW`). 16-bit parts: texture definition = index - 1, flat
+  normals, shadow lifted out of the floor. Jam meshes carry `userData.jam` and are shared: never disposed with a level.
+  `jamOn`/`heroMode`/`hero3d` are declared near the top of game.js: level building reads them during start-up.
 - Scar: `sun` is already the scene's light at the top of game.js; the scene's hemisphere and sun light the hero.
 - Big ring in ROM look: object art 0x3D068 frame 0, floating 56 units up, squeezed in x to turn.
 - ROM files: `S3D.openRomFile` takes a plain ROM, an .smd dump (de-interleaved) or either inside a .zip (stored or
@@ -106,7 +114,8 @@ serves index.html from main.
 
 ## Status
 - 2026-10-26: ROM results screen, Saturn screen option, ROM music and effects by emulation (GG1 music checked against
-  the reference emulator: same notes at the same tempo, top-note agreement 0.53 vs 0.14 chance). 3D Sonic from Bill's Sonic Jam USA disc (formats from Sonic Retro SCHG).
+  the reference emulator: same notes at the same tempo, top-note agreement 0.53 vs 0.14 chance). 3D Sonic from Bill's Sonic Jam USA disc (formats from Sonic Retro SCHG),
+  with skid, and Jam palms (GG 16/36/4), springs, big ring and Flickies. 65 sim tests.
 - 2026-10-26: Springs measured (140 units), monitors with ROM icons and effects, mines, turrets, superchargers, Scouters
   chase, Hunters stand, Flickies coloured in turn, act end moves to the next act, sound effects, spin dash on hold. 64 sim tests.
 - 2026-10-26: Published on GitHub (s3lfish/3D-Sonic-3D-Blast-3D), Pages at https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/.

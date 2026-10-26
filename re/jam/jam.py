@@ -22,6 +22,8 @@ class Jam:
             Q.append([(v // 8) % nv if v >= 0 else (-v // 8 - 1) % nv for v in q])
             o = dp - B + 16 * i
             b0, b1, tex, pmod, col, gour, ctrl = struct.unpack('>BBHHHHH', self.m[o:o + 12])
+            # parts with 16-bit vertices number their textures from 1 (see NOTES.md)
+            if tex and ip - vp < 12 * nv: tex -= 1
             D.append(dict(flags=b0, depth=b1, tex=tex, pmod=pmod, col=col, gour=gour, ctrl=ctrl))
         return V, Q, D
     def texture(self, idx):

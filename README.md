@@ -46,7 +46,8 @@ untested.
 - Monitors show their icon and give rings, a shield, a gold shield, invincibility, speed shoes or a 1-up.
 - Mines, Turrets, chasing and standing enemies, and superchargers (stand on one and press jump).
 - The original's act results screen, then the next act.
-- With your own Sonic Jam (Saturn) disc image: a 3D Sonic using the Saturn game's own model, textures and moves.
+- With your own Sonic Jam (Saturn) disc image: a 3D Sonic using the Saturn game's own model, textures and moves
+  (including his skid), and Sonic World's palm trees, springs, big ring and Flickies in place of the flat sprites.
 - A Saturn screen option: low resolution, wobbly textures, and checkerboard see-through effects.
 - With your ROM: the original music and sound effects, played by an emulated Mega Drive sound chip running the
   game's own sound program from your ROM. Without a ROM: simple sound effects made in the browser. M turns sound off.

@@ -43,7 +43,8 @@ const Jam = (() => {
   }
   function check(museum, sprdata) {
     if (museum.length < 0x50000 || sprdata.length < 0x40000) return 'This Sonic Jam disc is a version the game does not know';
-    for (const f of SONIC.parts) { const p = u32(museum, f); if (p < HWRAM || p >= HWRAM + museum.length) return 'This Sonic Jam disc is a version the game does not know'; }
+    const inRam = f => { const p = u32(museum, f); return p >= HWRAM && p < HWRAM + museum.length; };
+    if (!SONIC.parts.every(inRam)) return 'This Sonic Jam disc is a version the game does not know';
     return null;
   }
 
@@ -54,9 +55,16 @@ const Jam = (() => {
     // body, head, right thigh, calf, foot, left thigh, calf, foot, right bicep, wrist, hand, left bicep, wrist, hand, tail
     parent: [-1, 0, 0, 2, 3, 0, 5, 6, 0, 8, 9, 0, 11, 12, 0],
   };
-  // animation jump tables (frames at 30 a second, assumed)
+  // animation jump tables (frames at 30 a second, assumed); the skid table sits 6 bytes before the address SCHG gives
   const ANIMS = { idle: 0x28E1A, walk: 0x298FA, run: 0x27BFE, sprint: 0x277D0, jump: 0x27F92, curl: 0x275B0, fall: 0x2692C,
-    skid: 0x290AC, spring: 0x31162, springFall: 0x31666, balance: 0x2C924, push: 0x2A3A6 };
+    skid: 0x290A6, spring: 0x31162, springFall: 0x31666, balance: 0x2C924, push: 0x2A3A6 };
+  // Sonic World objects: group footer and part count. Palm and spring stand y-down like Sonic's parts; the palm's
+  // second part (the trunk) is one flat quad the game turns to face the camera. Flickies in the order blue, purple,
+  // green, red (Blast Grid's Flicky colours in turn), 10 parts: body, L leg, L foot, R leg, R foot, L arm, L hand,
+  // R arm, R hand, head; their flying animation keeps 16-bit positions.
+  const MODELS = { palm: [0x5034C, 2], spring: [0x50B44, 2], bigRing: [0x52FDC, 1],
+    flicky: [[0x53880, 0x53F08, 0x53BC4, 0x5424C], 10] };
+  const FLICKY = { parent: [-1, 0, 1, 0, 3, 0, 5, 0, 7, 0], fly: 0x1FAD0 };
 
   function part(m, f) {
     const vp = u32(m, f) - HWRAM, nv = u32(m, f + 4), ip = u32(m, f + 8) - HWRAM, nq = u32(m, f + 12);
@@ -66,15 +74,21 @@ const Jam = (() => {
     // to the index table that follows
     const wide = (ip - vp) >= 12 * nv;
     for (let i = 0; i < nv; i++) verts.push(wide ? [0, 4, 8].map(k => s32(m, vp + 12 * i + k) / 65536) : [0, 2, 4].map(k => s16(m, vp + 6 * i + k)));
-    const hasN = np >= HWRAM && np < HWRAM + m.length;
-    for (let i = 0; i < nv; i++) normals.push(hasN ? [0, 4, 8].map(k => s32(m, np - HWRAM + 12 * i + k) / 65536) : [0, 1, 0]);
+    // parts with 16-bit vertices have no normals (their pointer is not an address): the game lights them flat
+    const hasN = wide && np >= HWRAM && np < HWRAM + m.length;
+    for (let i = 0; i < nv; i++) normals.push(hasN ? [0, 4, 8].map(k => s32(m, np - HWRAM + 12 * i + k) / 65536) : null);
     for (let i = 0; i < nq; i++) {
       // indices count in 8s; a negative index -8k is an alias of vertex k - 1
       const idx = [0, 2, 4, 6].map(k => { const v = s16(m, ip + 8 * i + k); return ((v >= 0 ? v / 8 : -v / 8 - 1) % nv + nv) % nv; });
-      const o = dp + 16 * i;
-      quads.push({ idx, flags: m[o], tex: u16(m, o + 2), pmod: u16(m, o + 4), colour: u16(m, o + 6), ctrl: u16(m, o + 10) });
+      const o = dp + 16 * i, tex = u16(m, o + 2), pmod = u16(m, o + 4);
+      // VDP1 draws colour 0 of a 16-colour texture as see-through unless CMDPMOD bit 6 (SPD) is set. Parts with
+      // 16-bit vertices count their textures from 1 (palm and bush: fronds, trunk and shadow line up only that way)
+      const key = tex ? (tex - (wide ? 0 : 1)) * 2 + (pmod & 0x40 ? 0 : 1) : 0;
+      quads.push({ idx, flags: m[o], tex, key, pmod, colour: u16(m, o + 6), ctrl: u16(m, o + 10) });
     }
-    return { verts, normals, quads };
+    // a 16-bit part's shadow lies flat at y = 0, in the floor: lift it a little (y is down)
+    if (!wide) for (const q of quads) if (q.idx.every(i => verts[i][1] === 0)) for (const i of q.idx) verts[i] = [verts[i][0], -3, verts[i][2]];
+    return { verts, normals, quads, hasN };
   }
   function group(m, footer, n) {
     const parts = [], offsets = [];
@@ -82,28 +96,29 @@ const Jam = (() => {
     for (let k = 0; k < n; k++) offsets.push([0, 4, 8].map(i => s32(m, footer + 4 * n + 12 * k + i) / 65536));
     return { parts, offsets };
   }
-  // a texture: width, height and RGBA pixels (4 bits a pixel through a 16-colour table of 15-bit colours)
-  function texture(m, s, id) {
-    const o = TEXDEFS + 8 * id, w = m[o + 2] * 8, h = m[o + 3], pa = u16(m, o) * 8 - VDP1, ca = u16(m, o + 4) * 8 - VDP1;
+  // a texture: width, height and RGBA pixels (4 bits a pixel through a 16-colour table of 15-bit colours);
+  // key = id * 2 + 1 when colour 0 is see-through
+  function texture(m, s, key) {
+    const id = key >> 1, clear = key & 1, o = TEXDEFS + 8 * id, w = m[o + 2] * 8, h = m[o + 3], pa = u16(m, o) * 8 - VDP1, ca = u16(m, o + 4) * 8 - VDP1;
     const lut = [];
     for (let k = 0; k < 16; k++) { const v = u16(s, ca + 2 * k); lut.push([(v & 31) * 255 / 31 | 0, ((v >> 5) & 31) * 255 / 31 | 0, ((v >> 10) & 31) * 255 / 31 | 0]); }
     const px = new Uint8ClampedArray(w * h * 4);
     for (let i = 0; i < w * h; i++) {
       const b = s[pa + (i >> 1)], c = i & 1 ? b & 15 : b >> 4;
-      px.set(lut[c], i * 4); px[i * 4 + 3] = 255;
+      px.set(lut[c], i * 4); px[i * 4 + 3] = clear && !c ? 0 : 255;
     }
     return { w, h, px };
   }
   // frames of one animation: global position, global rotation, then one rotation per part (z, y, x in 1/65536 turns)
-  function anim(m, name, parts = 15) {
-    const table = ANIMS[name], frames = [];
+  function anim(m, table, parts = 15, wordPos = false) {
+    const frames = [];
     for (let o = table; ; o += 2) {
       const off = s16(m, o);
       if (!off) break;
       let p = table + off;
       const flags = u16(m, p); p += 2;
       const pos = [0, 0, 0], rot = [0, 0, 0], rots = [];
-      for (let i = 0; i < 3; i++) if (!(flags & (8 << i))) { pos[i] = s32(m, p) / 65536; p += 4; }
+      for (let i = 0; i < 3; i++) if (!(flags & (8 << i))) { if (wordPos) { pos[i] = s16(m, p); p += 2; } else { pos[i] = s32(m, p) / 65536; p += 4; } }
       for (let i = 0; i < 3; i++) if (!(flags & (0x40 << i))) { rot[i] = s16(m, p); p += 2; }
       for (let k = 0; k < parts; k++) {
         const r = [0, 0, 0];
@@ -116,13 +131,24 @@ const Jam = (() => {
   }
   function sonic(museum, sprdata) {
     const body = group(museum, SONIC.group, 15), ball = group(museum, SONIC.ball, 1);
-    const ids = new Set();
-    for (const p of body.parts.concat(ball.parts)) for (const q of p.quads) if (q.tex) ids.add(q.tex);
-    const textures = new Map();
-    for (const id of ids) textures.set(id, texture(museum, sprdata, id));
     const anims = {};
-    for (const name of Object.keys(ANIMS)) anims[name] = anim(museum, name);
-    return { parts: body.parts, offsets: body.offsets, parent: SONIC.parent, ball: ball.parts[0], textures, anims };
+    for (const name of Object.keys(ANIMS)) anims[name] = anim(museum, ANIMS[name]);
+    return { parts: body.parts, offsets: body.offsets, parent: SONIC.parent, ball: ball.parts[0], textures: texturesOf(museum, sprdata, body.parts.concat(ball.parts)), anims };
   }
-  return { openDisc, check, sonic, ANIMS };
+  function texturesOf(museum, sprdata, parts) {
+    const textures = new Map();
+    for (const p of parts) for (const q of p.quads) if (q.key && !textures.has(q.key)) textures.set(q.key, texture(museum, sprdata, q.key));
+    return textures;
+  }
+  // the Sonic World objects Blast Grid uses, with one texture map for all of them
+  function props(museum, sprdata) {
+    const out = {}, all = [];
+    for (const name of ['palm', 'spring', 'bigRing']) { out[name] = group(museum, MODELS[name][0], MODELS[name][1]); all.push(...out[name].parts); }
+    out.flickies = MODELS.flicky[0].map(f => { const g = group(museum, f, MODELS.flicky[1]); all.push(...g.parts); return g; });
+    out.flickyParent = FLICKY.parent;
+    out.fly = anim(museum, FLICKY.fly, MODELS.flicky[1], true);
+    out.textures = texturesOf(museum, sprdata, all);
+    return out;
+  }
+  return { openDisc, check, sonic, props, ANIMS };
 })();

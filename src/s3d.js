@@ -474,6 +474,7 @@ const S3D = (() => {
     17: [[42, 16, 949246]], 19: [[110, 2, 911806]], 20: [[125, 1, 907518], [127, 1, 907582], [129, 12, 907646], [153, 2, 911678]],
     22: [[1, 4, 965118], [7, 3, 965310], [12, 9, 965470], [22, 15, 965790], [121, 16, 1430202], [137, 16, 1430202]],
   };
+  const PALM_LEVELS = [1, 2, 3];                                       // Green Grove: palms found by their picture
   const EDGE = [[0, 1], [1, 2], [2, 3], [3, 0]];                       // N, E, S, W as corner pairs (mesh order)
   const NEIGH = [[0, -1, 3, 2], [1, 0, 0, 3], [0, 1, 1, 0], [-1, 0, 2, 1]];
   const DONOR_SIDE = [2, 1, 2, 1];                                     // back walls borrow from the side facing the camera
@@ -583,7 +584,7 @@ const S3D = (() => {
       return best;
     };
     // ---- foliage: clumps of high-priority tiles (drawn in front of Sonic) that stand on a floor, lifted out as sprites ----
-    const foliage = [], rejects = [];
+    const foliage = [], rejects = [], palms = [];
     if (useFoliage) {
       const TW = 1024, TH = nRows * 4, hi = new Uint8Array(TW * TH);
       masked = new Uint8Array(TW * TH);
@@ -675,8 +676,46 @@ const S3D = (() => {
         // pieces of floor drawn in front (raised edges) reuse the ground's own tiles; palms and flowers almost never do
         const groundy = comp.filter(t => lowUse.has(hiTile[t])).length / comp.length;
         if (groundy > 0.3) { rejects.push([x0, y0, x1, y1, 'ground']); continue; }
-        foliage.push({ x: g[0], y: g[1], z: g[2], w, h, ax: sumX / nB, ay: bottom + 1, img });
+        foliage.push({ x: g[0], y: g[1], z: g[2], w, h, ax: sumX / nB, ay: bottom + 1, img, px: x0 * 8, py: y0 * 8 });
         for (const t of comp) masked[t] = 1;
+      }
+      // ---- Green Grove palms: all one picture, sometimes mirrored, sometimes overlapping flowers or another palm ----
+      // A palm standing alone (64 x 80, its leaves 8 x 8 tiles holding 1766 green pixels) is the pattern; any
+      // tile-aligned window whose green matches it (or its mirror) nine parts in ten is a palm. Each palm gets its foot
+      // on the floor and is cut out of a copy of its piece (`bare`), for a game that draws palms as models.
+      if (PALM_LEVELS.includes(id)) {
+        const leafy = (img, o) => img[o + 3] && img[o] < 40 && img[o + 2] < 40 && img[o + 1] > 60;
+        const greenOf = f => { let n = 0; for (let o = 0; o < f.img.length; o += 4) if (leafy(f.img, o)) n++; return n; };
+        // the lone palm whose foot is furthest from its middle has nothing else drawn at its foot
+        const lone = foliage.filter(f => f.w === 64 && f.h === 80 && Math.abs(greenOf(f) - 1766) < 40).sort((a, b) => Math.abs(b.ax - 32) - Math.abs(a.ax - 32))[0];
+        if (lone) {
+          const green = [], solidPx = [];
+          for (let y = 0; y < 80; y++) for (let x = 0; x < 64; x++) {
+            const o = (y * 64 + x) * 4;
+            if (leafy(lone.img, o)) green.push([x, y]);
+            if (lone.img[o + 3]) solidPx.push([x, y]);
+          }
+          foliage.forEach((f, fi) => {
+            const found = [];
+            for (let ty = 0; ty * 8 + 80 <= f.h; ty++) for (let tx = 0; tx * 8 + 64 <= f.w; tx++) for (const mir of [false, true]) {
+              let hit = 0;
+              for (const [x, y] of green) if (leafy(f.img, ((ty * 8 + y) * f.w + tx * 8 + (mir ? 63 - x : x)) * 4)) hit++;
+              if (hit >= green.length * 0.9) found.push({ tx, ty, mir, hit });
+            }
+            found.sort((a, b) => b.hit - a.hit);
+            const kept = [];
+            for (const c of found) if (kept.every(k => Math.abs(k.tx - c.tx) >= 4 || Math.abs(k.ty - c.ty) >= 4)) kept.push(c);
+            for (const c of kept) {
+              const footX = c.mir ? 64 - lone.ax : lone.ax;
+              const g = ground(f.px + c.tx * 8 + footX, f.py + c.ty * 8 + 80);
+              if (!g || g[3] >= 3) continue;   // foot on a wall face or nothing: leave this one painted
+              if (!f.bare) f.bare = f.img.slice();
+              for (const [x, y] of solidPx) f.bare[((c.ty * 8 + y) * f.w + c.tx * 8 + (c.mir ? 63 - x : x)) * 4 + 3] = 0;
+              palms.push({ x: g[0], y: g[1], z: g[2], mirror: c.mir, piece: fi });
+            }
+            if (f.bare) { let n = 0; for (let o = 3; o < f.bare.length; o += 4) if (f.bare[o]) n++; f.bareCount = n; }
+          });
+        }
       }
     }
     const sample = (x, y, z) => { const c = pixel(Math.floor(x - z + 4096), Math.floor((x + z) / 2 - y)); return c < 0 ? 0 : c; };
@@ -808,7 +847,7 @@ const S3D = (() => {
       });
       return { width: W, height: H, pixels: px, cols, slot: S };
     }
-    return { top, wall, atlas, foliage, rejects, get count() { return slots.length; } };
+    return { top, wall, atlas, foliage, palms, rejects, get count() { return slots.length; } };
   }
 
   return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, levelPalettes, OCTANT, HERO };

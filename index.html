@@ -154,8 +154,8 @@ body {
       </div>
       <ul id="jamMsg" class="loadmsg" hidden></ul>
       <div class="romrow" id="jamPick" hidden>
-        <label for="heroSel">Hero</label>
-        <select id="heroSel"><option value="3d">3D Sonic from Sonic Jam</option><option value="sprite">Sprites</option></select>
+        <label for="heroSel">Models</label>
+        <select id="heroSel"><option value="3d">3D models from Sonic Jam</option><option value="sprite">Sprites</option></select>
         <button id="jamForget" class="secondary">Forget disc</button>
       </div>
     </div>
@@ -1747,7 +1747,8 @@ const Jam = (() => {
   }
   function check(museum, sprdata) {
     if (museum.length < 0x50000 || sprdata.length < 0x40000) return 'This Sonic Jam disc is a version the game does not know';
-    for (const f of SONIC.parts) { const p = u32(museum, f); if (p < HWRAM || p >= HWRAM + museum.length) return 'This Sonic Jam disc is a version the game does not know'; }
+    const inRam = f => { const p = u32(museum, f); return p >= HWRAM && p < HWRAM + museum.length; };
+    if (!SONIC.parts.every(inRam)) return 'This Sonic Jam disc is a version the game does not know';
     return null;
   }
 
@@ -1758,9 +1759,16 @@ const Jam = (() => {
     // body, head, right thigh, calf, foot, left thigh, calf, foot, right bicep, wrist, hand, left bicep, wrist, hand, tail
     parent: [-1, 0, 0, 2, 3, 0, 5, 6, 0, 8, 9, 0, 11, 12, 0],
   };
-  // animation jump tables (frames at 30 a second, assumed)
+  // animation jump tables (frames at 30 a second, assumed); the skid table sits 6 bytes before the address SCHG gives
   const ANIMS = { idle: 0x28E1A, walk: 0x298FA, run: 0x27BFE, sprint: 0x277D0, jump: 0x27F92, curl: 0x275B0, fall: 0x2692C,
-    skid: 0x290AC, spring: 0x31162, springFall: 0x31666, balance: 0x2C924, push: 0x2A3A6 };
+    skid: 0x290A6, spring: 0x31162, springFall: 0x31666, balance: 0x2C924, push: 0x2A3A6 };
+  // Sonic World objects: group footer and part count. Palm and spring stand y-down like Sonic's parts; the palm's
+  // second part (the trunk) is one flat quad the game turns to face the camera. Flickies in the order blue, purple,
+  // green, red (Blast Grid's Flicky colours in turn), 10 parts: body, L leg, L foot, R leg, R foot, L arm, L hand,
+  // R arm, R hand, head; their flying animation keeps 16-bit positions.
+  const MODELS = { palm: [0x5034C, 2], spring: [0x50B44, 2], bigRing: [0x52FDC, 1],
+    flicky: [[0x53880, 0x53F08, 0x53BC4, 0x5424C], 10] };
+  const FLICKY = { parent: [-1, 0, 1, 0, 3, 0, 5, 0, 7, 0], fly: 0x1FAD0 };
 
   function part(m, f) {
     const vp = u32(m, f) - HWRAM, nv = u32(m, f + 4), ip = u32(m, f + 8) - HWRAM, nq = u32(m, f + 12);
@@ -1770,15 +1778,21 @@ const Jam = (() => {
     // to the index table that follows
     const wide = (ip - vp) >= 12 * nv;
     for (let i = 0; i < nv; i++) verts.push(wide ? [0, 4, 8].map(k => s32(m, vp + 12 * i + k) / 65536) : [0, 2, 4].map(k => s16(m, vp + 6 * i + k)));
-    const hasN = np >= HWRAM && np < HWRAM + m.length;
-    for (let i = 0; i < nv; i++) normals.push(hasN ? [0, 4, 8].map(k => s32(m, np - HWRAM + 12 * i + k) / 65536) : [0, 1, 0]);
+    // parts with 16-bit vertices have no normals (their pointer is not an address): the game lights them flat
+    const hasN = wide && np >= HWRAM && np < HWRAM + m.length;
+    for (let i = 0; i < nv; i++) normals.push(hasN ? [0, 4, 8].map(k => s32(m, np - HWRAM + 12 * i + k) / 65536) : null);
     for (let i = 0; i < nq; i++) {
       // indices count in 8s; a negative index -8k is an alias of vertex k - 1
       const idx = [0, 2, 4, 6].map(k => { const v = s16(m, ip + 8 * i + k); return ((v >= 0 ? v / 8 : -v / 8 - 1) % nv + nv) % nv; });
-      const o = dp + 16 * i;
-      quads.push({ idx, flags: m[o], tex: u16(m, o + 2), pmod: u16(m, o + 4), colour: u16(m, o + 6), ctrl: u16(m, o + 10) });
+      const o = dp + 16 * i, tex = u16(m, o + 2), pmod = u16(m, o + 4);
+      // VDP1 draws colour 0 of a 16-colour texture as see-through unless CMDPMOD bit 6 (SPD) is set. Parts with
+      // 16-bit vertices count their textures from 1 (palm and bush: fronds, trunk and shadow line up only that way)
+      const key = tex ? (tex - (wide ? 0 : 1)) * 2 + (pmod & 0x40 ? 0 : 1) : 0;
+      quads.push({ idx, flags: m[o], tex, key, pmod, colour: u16(m, o + 6), ctrl: u16(m, o + 10) });
     }
-    return { verts, normals, quads };
+    // a 16-bit part's shadow lies flat at y = 0, in the floor: lift it a little (y is down)
+    if (!wide) for (const q of quads) if (q.idx.every(i => verts[i][1] === 0)) for (const i of q.idx) verts[i] = [verts[i][0], -3, verts[i][2]];
+    return { verts, normals, quads, hasN };
   }
   function group(m, footer, n) {
     const parts = [], offsets = [];
@@ -1786,28 +1800,29 @@ const Jam = (() => {
     for (let k = 0; k < n; k++) offsets.push([0, 4, 8].map(i => s32(m, footer + 4 * n + 12 * k + i) / 65536));
     return { parts, offsets };
   }
-  // a texture: width, height and RGBA pixels (4 bits a pixel through a 16-colour table of 15-bit colours)
-  function texture(m, s, id) {
-    const o = TEXDEFS + 8 * id, w = m[o + 2] * 8, h = m[o + 3], pa = u16(m, o) * 8 - VDP1, ca = u16(m, o + 4) * 8 - VDP1;
+  // a texture: width, height and RGBA pixels (4 bits a pixel through a 16-colour table of 15-bit colours);
+  // key = id * 2 + 1 when colour 0 is see-through
+  function texture(m, s, key) {
+    const id = key >> 1, clear = key & 1, o = TEXDEFS + 8 * id, w = m[o + 2] * 8, h = m[o + 3], pa = u16(m, o) * 8 - VDP1, ca = u16(m, o + 4) * 8 - VDP1;
     const lut = [];
     for (let k = 0; k < 16; k++) { const v = u16(s, ca + 2 * k); lut.push([(v & 31) * 255 / 31 | 0, ((v >> 5) & 31) * 255 / 31 | 0, ((v >> 10) & 31) * 255 / 31 | 0]); }
     const px = new Uint8ClampedArray(w * h * 4);
     for (let i = 0; i < w * h; i++) {
       const b = s[pa + (i >> 1)], c = i & 1 ? b & 15 : b >> 4;
-      px.set(lut[c], i * 4); px[i * 4 + 3] = 255;
+      px.set(lut[c], i * 4); px[i * 4 + 3] = clear && !c ? 0 : 255;
     }
     return { w, h, px };
   }
   // frames of one animation: global position, global rotation, then one rotation per part (z, y, x in 1/65536 turns)
-  function anim(m, name, parts = 15) {
-    const table = ANIMS[name], frames = [];
+  function anim(m, table, parts = 15, wordPos = false) {
+    const frames = [];
     for (let o = table; ; o += 2) {
       const off = s16(m, o);
       if (!off) break;
       let p = table + off;
       const flags = u16(m, p); p += 2;
       const pos = [0, 0, 0], rot = [0, 0, 0], rots = [];
-      for (let i = 0; i < 3; i++) if (!(flags & (8 << i))) { pos[i] = s32(m, p) / 65536; p += 4; }
+      for (let i = 0; i < 3; i++) if (!(flags & (8 << i))) { if (wordPos) { pos[i] = s16(m, p); p += 2; } else { pos[i] = s32(m, p) / 65536; p += 4; } }
       for (let i = 0; i < 3; i++) if (!(flags & (0x40 << i))) { rot[i] = s16(m, p); p += 2; }
       for (let k = 0; k < parts; k++) {
         const r = [0, 0, 0];
@@ -1820,15 +1835,26 @@ const Jam = (() => {
   }
   function sonic(museum, sprdata) {
     const body = group(museum, SONIC.group, 15), ball = group(museum, SONIC.ball, 1);
-    const ids = new Set();
-    for (const p of body.parts.concat(ball.parts)) for (const q of p.quads) if (q.tex) ids.add(q.tex);
-    const textures = new Map();
-    for (const id of ids) textures.set(id, texture(museum, sprdata, id));
     const anims = {};
-    for (const name of Object.keys(ANIMS)) anims[name] = anim(museum, name);
-    return { parts: body.parts, offsets: body.offsets, parent: SONIC.parent, ball: ball.parts[0], textures, anims };
+    for (const name of Object.keys(ANIMS)) anims[name] = anim(museum, ANIMS[name]);
+    return { parts: body.parts, offsets: body.offsets, parent: SONIC.parent, ball: ball.parts[0], textures: texturesOf(museum, sprdata, body.parts.concat(ball.parts)), anims };
   }
-  return { openDisc, check, sonic, ANIMS };
+  function texturesOf(museum, sprdata, parts) {
+    const textures = new Map();
+    for (const p of parts) for (const q of p.quads) if (q.key && !textures.has(q.key)) textures.set(q.key, texture(museum, sprdata, q.key));
+    return textures;
+  }
+  // the Sonic World objects Blast Grid uses, with one texture map for all of them
+  function props(museum, sprdata) {
+    const out = {}, all = [];
+    for (const name of ['palm', 'spring', 'bigRing']) { out[name] = group(museum, MODELS[name][0], MODELS[name][1]); all.push(...out[name].parts); }
+    out.flickies = MODELS.flicky[0].map(f => { const g = group(museum, f, MODELS.flicky[1]); all.push(...g.parts); return g; });
+    out.flickyParent = FLICKY.parent;
+    out.fly = anim(museum, FLICKY.fly, MODELS.flicky[1], true);
+    out.textures = texturesOf(museum, sprdata, all);
+    return out;
+  }
+  return { openDisc, check, sonic, props, ANIMS };
 })();
 </script>
 <script id="s3d">
@@ -2308,6 +2334,7 @@ const S3D = (() => {
     17: [[42, 16, 949246]], 19: [[110, 2, 911806]], 20: [[125, 1, 907518], [127, 1, 907582], [129, 12, 907646], [153, 2, 911678]],
     22: [[1, 4, 965118], [7, 3, 965310], [12, 9, 965470], [22, 15, 965790], [121, 16, 1430202], [137, 16, 1430202]],
   };
+  const PALM_LEVELS = [1, 2, 3];                                       // Green Grove: palms found by their picture
   const EDGE = [[0, 1], [1, 2], [2, 3], [3, 0]];                       // N, E, S, W as corner pairs (mesh order)
   const NEIGH = [[0, -1, 3, 2], [1, 0, 0, 3], [0, 1, 1, 0], [-1, 0, 2, 1]];
   const DONOR_SIDE = [2, 1, 2, 1];                                     // back walls borrow from the side facing the camera
@@ -2417,7 +2444,7 @@ const S3D = (() => {
       return best;
     };
     // ---- foliage: clumps of high-priority tiles (drawn in front of Sonic) that stand on a floor, lifted out as sprites ----
-    const foliage = [], rejects = [];
+    const foliage = [], rejects = [], palms = [];
     if (useFoliage) {
       const TW = 1024, TH = nRows * 4, hi = new Uint8Array(TW * TH);
       masked = new Uint8Array(TW * TH);
@@ -2509,8 +2536,46 @@ const S3D = (() => {
         // pieces of floor drawn in front (raised edges) reuse the ground's own tiles; palms and flowers almost never do
         const groundy = comp.filter(t => lowUse.has(hiTile[t])).length / comp.length;
         if (groundy > 0.3) { rejects.push([x0, y0, x1, y1, 'ground']); continue; }
-        foliage.push({ x: g[0], y: g[1], z: g[2], w, h, ax: sumX / nB, ay: bottom + 1, img });
+        foliage.push({ x: g[0], y: g[1], z: g[2], w, h, ax: sumX / nB, ay: bottom + 1, img, px: x0 * 8, py: y0 * 8 });
         for (const t of comp) masked[t] = 1;
+      }
+      // ---- Green Grove palms: all one picture, sometimes mirrored, sometimes overlapping flowers or another palm ----
+      // A palm standing alone (64 x 80, its leaves 8 x 8 tiles holding 1766 green pixels) is the pattern; any
+      // tile-aligned window whose green matches it (or its mirror) nine parts in ten is a palm. Each palm gets its foot
+      // on the floor and is cut out of a copy of its piece (`bare`), for a game that draws palms as models.
+      if (PALM_LEVELS.includes(id)) {
+        const leafy = (img, o) => img[o + 3] && img[o] < 40 && img[o + 2] < 40 && img[o + 1] > 60;
+        const greenOf = f => { let n = 0; for (let o = 0; o < f.img.length; o += 4) if (leafy(f.img, o)) n++; return n; };
+        // the lone palm whose foot is furthest from its middle has nothing else drawn at its foot
+        const lone = foliage.filter(f => f.w === 64 && f.h === 80 && Math.abs(greenOf(f) - 1766) < 40).sort((a, b) => Math.abs(b.ax - 32) - Math.abs(a.ax - 32))[0];
+        if (lone) {
+          const green = [], solidPx = [];
+          for (let y = 0; y < 80; y++) for (let x = 0; x < 64; x++) {
+            const o = (y * 64 + x) * 4;
+            if (leafy(lone.img, o)) green.push([x, y]);
+            if (lone.img[o + 3]) solidPx.push([x, y]);
+          }
+          foliage.forEach((f, fi) => {
+            const found = [];
+            for (let ty = 0; ty * 8 + 80 <= f.h; ty++) for (let tx = 0; tx * 8 + 64 <= f.w; tx++) for (const mir of [false, true]) {
+              let hit = 0;
+              for (const [x, y] of green) if (leafy(f.img, ((ty * 8 + y) * f.w + tx * 8 + (mir ? 63 - x : x)) * 4)) hit++;
+              if (hit >= green.length * 0.9) found.push({ tx, ty, mir, hit });
+            }
+            found.sort((a, b) => b.hit - a.hit);
+            const kept = [];
+            for (const c of found) if (kept.every(k => Math.abs(k.tx - c.tx) >= 4 || Math.abs(k.ty - c.ty) >= 4)) kept.push(c);
+            for (const c of kept) {
+              const footX = c.mir ? 64 - lone.ax : lone.ax;
+              const g = ground(f.px + c.tx * 8 + footX, f.py + c.ty * 8 + 80);
+              if (!g || g[3] >= 3) continue;   // foot on a wall face or nothing: leave this one painted
+              if (!f.bare) f.bare = f.img.slice();
+              for (const [x, y] of solidPx) f.bare[((c.ty * 8 + y) * f.w + c.tx * 8 + (c.mir ? 63 - x : x)) * 4 + 3] = 0;
+              palms.push({ x: g[0], y: g[1], z: g[2], mirror: c.mir, piece: fi });
+            }
+            if (f.bare) { let n = 0; for (let o = 3; o < f.bare.length; o += 4) if (f.bare[o]) n++; f.bareCount = n; }
+          });
+        }
       }
     }
     const sample = (x, y, z) => { const c = pixel(Math.floor(x - z + 4096), Math.floor((x + z) / 2 - y)); return c < 0 ? 0 : c; };
@@ -2642,7 +2707,7 @@ const S3D = (() => {
       });
       return { width: W, height: H, pixels: px, cols, slot: S };
     }
-    return { top, wall, atlas, foliage, rejects, get count() { return slots.length; } };
+    return { top, wall, atlas, foliage, palms, rejects, get count() { return slots.length; } };
   }
 
   return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, levelPalettes, OCTANT, HERO };
@@ -3100,6 +3165,11 @@ const Art = (() => {
   }
   // the freed bird (16 frames) and the big ring, drawn from the ROM's own object art
   const FLICKY_HUES = [null, 325, 115, 2];   // blue as drawn, then pink, green, red
+  const FLICKY_YAW = Math.PI / 2;             // the Jam Flicky faces its -x, as Jam Sonic does
+  // Sonic Jam disc: the 3D hero and the Sonic World objects (declared early: level building asks for them)
+  const HERO_KEY = 'blastgrid.hero';
+  let hero3d = null, jamProps = null, heroMode = store.get(HERO_KEY) === 'sprite' ? 'sprite' : '3d';
+  const jamOn = () => !!jamProps && heroMode === '3d';
   function tintBlue(px, hue) {
     for (let i = 0; i < px.length; i += 4) {
       if (!px[i + 3]) continue;
@@ -3406,10 +3476,12 @@ const Art = (() => {
   // tiles with a floor (pits and the void around a converted level have none)
   const solid = (L, t) => L.coll[t] === 'F' || L.coll[t] === 'H';
   // ---- foliage lifted out of the original picture: one quad each, turned to face the camera every frame ----
-  let foliage = null;
+  let foliage = null, jamPalms = [];
   const PXH = 1 / (32 * Math.SQRT2);           // metres per picture pixel across (the picture runs along x - z)
   function buildFoliage(art) {
-    const list = art && art.baker.foliage;
+    // with 3D palms, pieces show what is left once their palms are cut out (`bare`)
+    const cut = jamOn() && art && art.baker.palms && art.baker.palms.length > 0;
+    const list = art && art.baker.foliage && art.baker.foliage.filter(f => !(cut && f.bare && f.bareCount < 30)).map(f => (cut && f.bare ? { ...f, img: f.bare } : f));
     if (!list || !list.length) return null;
     // shelf-pack the pictures into one texture
     const W = 1024; let x = 0, y = 0, rowH = 0;
@@ -3440,6 +3512,16 @@ const Art = (() => {
   }
   const _right = new THREE.Vector3();
   function updateFoliage() {
+    const cx0 = cam.position.x, cz0 = cam.position.z, px0 = lastRp.x - cx0, pz0 = lastRp.z - cz0, l0 = px0 * px0 + pz0 * pz0 || 1;
+    for (const pm of jamPalms) {
+      pm.trunk.rotation.y = Math.atan2(cx0 - pm.x, cz0 - pm.z) - pm.g.rotation.y;
+      let hide = false;
+      if (view.mode === 'chase') {
+        const dx = pm.x - cx0, dz = pm.z - cz0, u = (dx * px0 + dz * pz0) / l0, ex = dx - px0 * u, ez = dz - pz0 * u;
+        hide = u > -0.1 && u < 0.92 && ex * ex + ez * ez < 1.2 && pm.top > lastRp.y;
+      }
+      pm.g.visible = !hide;
+    }
     if (!foliage) return;
     _right.setFromMatrixColumn(cam.matrixWorld, 0); _right.y = 0; _right.normalize();
     const pos = foliage.mesh.geometry.attributes.position, a = pos.array;
@@ -3586,17 +3668,32 @@ const Art = (() => {
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
   let mineSprites = [], turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
+  let jamSprings = [], jamFlickies = [];
+  const SPRING_REST = 0.3;   // how far the Jam spring's coil stands at rest (fired: 1)
   function buildLevelObjects() {
     if (levelGroup) {
       scene.remove(levelGroup);
       if (foliage) foliage.tex.dispose();
-      levelGroup.traverse(o => { if (o.isMesh) { o.geometry.dispose(); for (const m of [].concat(o.material)) m.dispose(); } else if (o.isSprite && o.userData.fade !== undefined) o.material.dispose(); });
+      levelGroup.traverse(o => { if (o.isMesh && !o.userData.jam) { o.geometry.dispose(); for (const m of [].concat(o.material)) m.dispose(); } else if (o.isSprite && o.userData.fade !== undefined) o.material.dispose(); });
     }
     levelGroup = new THREE.Group();
     const mesh = buildLevelMesh(L);
     levelGroup.add(mesh);
     foliage = mesh.userData.art ? buildFoliage(levelArtFor(L)) : null;
     if (foliage) levelGroup.add(foliage.mesh);
+    // Green Grove's palms as Sonic Jam's 3D palm, each turned its own way; the trunk is a flat quad facing the camera
+    jamPalms = [];
+    const art = mesh.userData.art && levelArtFor(L);
+    if (jamOn() && art && art.baker.palms) {
+      const vs = L.rom.vscale, [ox, oz] = L.rom.origin;
+      jamPalms = art.baker.palms.map(pm => {
+        const c = jamCopy(jamProps.palm), x = pm.x / 32 - ox, z = pm.z / 32 - oz;
+        c.g.position.set(x, pm.y / 32 * vs, z); c.g.scale.y *= vs;
+        c.g.rotation.y = Math.abs(Math.sin(x * 12.9898 + z * 78.233) * 43758.5453 % 1) * Math.PI * 2;
+        levelGroup.add(c.g);
+        return { g: c.g, trunk: c.nodes[1], x, z, top: pm.y / 32 * vs + 80 / 32 * vs };
+      });
+    }
     waterMesh = mesh.userData.art ? null : buildWater(L, mesh.userData.waterY);
     applySky(mesh.userData.art);
     if (waterMesh) levelGroup.add(waterMesh);
@@ -3619,7 +3716,13 @@ const Art = (() => {
       if (rm) s.userData.rom = [rm, kind === 'enemy' ? romObjMat(kind, o.skin, true) : rm];
       return s;
     };
+    jamSprings = [];
     springSprites = world.springs.map(sp => {
+      if (rom && jamOn()) {
+        const c = jamCopy(jamProps.spring); c.g.position.set(sp.x, sp.y, sp.z); c.g.userData.jam = true;
+        jamProps.spring.coil(c.nodes, SPRING_REST); jamSprings.push(c.nodes); levelGroup.add(c.g); return c.g;
+      }
+      jamSprings.push(null);
       const dm = rom ? romSpringMats(sp.skin) : null;
       if (!dm) return objSprite('spring', sp, springMats[0], 0.95, 0.06);
       const g = springDrum(dm, sp); levelGroup.add(g); return g;
@@ -3647,11 +3750,17 @@ const Art = (() => {
     const lift = L.rom ? 56 / 32 * L.rom.vscale : 1.2;
     goalSprites = world.goals.map(gl => {
       if (!rom) return bottomSprite(goalMats[0], gl.x, gl.y, gl.z, 1.1, 2.2);
+      if (jamOn()) {   // Sonic Jam's ring, centred where the original's ring sprite is
+        const c = jamCopy(jamProps.ring); c.g.position.set(gl.x, gl.y + lift - 0.8, gl.z); c.g.userData.rom = true; c.g.userData.jam = true;
+        levelGroup.add(c.g); return c.g;
+      }
       const s = bottomSprite(romRingMat(), gl.x, gl.y + lift, gl.z, ROM_SIZE, ROM_SIZE, 1 - 72 / ROM_CANVAS);
       s.userData.rom = true; return s;
     });
     flickySprites = [];
     for (let i = 0; i < 24; i++) { const s = new THREE.Sprite(flickyMat(0, 0, false)); s.center.set(0.5, 0.08); s.scale.set(0.55, 0.55, 1); s.visible = false; levelGroup.add(s); flickySprites.push(s); }
+    // Sonic Jam's Flickies: one holder per slot, with a model per colour made when first needed
+    jamFlickies = rom && jamOn() ? flickySprites.map(() => { const g = new THREE.Group(); g.visible = false; levelGroup.add(g); return { g, kinds: [], yaw: 0 }; }) : [];
     goalFx = null;
     $('flickyHud').hidden = !L.flickies;
     if (typeof satScene === 'function' && satReady) satScene();
@@ -3693,41 +3802,51 @@ const Art = (() => {
   sil.center.copy(hero.center); sil.scale.copy(hero.scale); sil.renderOrder = 10;
   scene.add(sil);
   // ---- 3D Sonic from the player's own Sonic Jam disc (Saturn): parts, textures and moves read by Jam (src/jam.js) ----
-  const HERO_KEY = 'blastgrid.hero';
-  let hero3d = null, heroMode = store.get(HERO_KEY) === 'sprite' ? 'sprite' : '3d';
   const turn = v => v * Math.PI * 2 / 65536;
-  function buildHero3d(data) {
-    const S = Jam.sonic(data.museum, data.sprdata);
-    // the model's textures in one canvas (shelves), with a white corner for the plain-coloured quads
+  // a set of Jam models' textures in one canvas (shelves), with a white corner for the plain-coloured quads;
+  // meshOf turns a part into a mesh, each quad two triangles with its texture stretched corner to corner as VDP1 does
+  function jamKit(textures) {
     const W = 256, place = new Map();
     let x = 4, y = 0, rowH = 4;
-    for (const [id, t] of S.textures) { if (x + t.w > W) { x = 0; y += rowH; rowH = 0; } place.set(id, [x, y]); x += t.w; rowH = Math.max(rowH, t.h); }
+    for (const [key, t] of textures) { if (x + t.w > W) { x = 0; y += rowH; rowH = 0; } place.set(key, [x, y]); x += t.w; rowH = Math.max(rowH, t.h); }
     let H = 4; while (H < y + rowH) H *= 2;
     const cnv = document.createElement('canvas'); cnv.width = W; cnv.height = H;
     const g = cnv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 4, 4);
-    for (const [id, t] of S.textures) { const [px, py] = place.get(id); g.putImageData(new ImageData(t.px, t.w, t.h), px, py); }
+    for (const [key, t] of textures) { const [px, py] = place.get(key); g.putImageData(new ImageData(t.px, t.w, t.h), px, py); }
     const map = new THREE.CanvasTexture(cnv);
     map.magFilter = THREE.NearestFilter; map.minFilter = THREE.NearestFilter; map.generateMipmaps = false; map.flipY = false;
-    const mat = new THREE.MeshLambertMaterial({ map, vertexColors: true, side: THREE.DoubleSide });
-    // each quad as two triangles; textured quads stretch their texture corner to corner, as the Saturn's VDP1 does
+    const mat = new THREE.MeshLambertMaterial({ map, vertexColors: true, side: THREE.DoubleSide, alphaTest: 0.5 });
     const meshOf = part => {
       const pos = [], nrm = [], uv = [], col = [], white = [[1 / W, 1 / H], [3 / W, 1 / H], [3 / W, 3 / H], [1 / W, 3 / H]];
+      const fa = new THREE.Vector3(), fb = new THREE.Vector3(), fn = new THREE.Vector3();
       for (const q of part.quads) {
         let uvs = white, c = [1, 1, 1];
-        if (q.tex && place.has(q.tex)) {
-          const t = S.textures.get(q.tex), [px, py] = place.get(q.tex);
+        if (q.key && place.has(q.key)) {
+          const t = textures.get(q.key), [px, py] = place.get(q.key);
           let u0 = px / W, v0 = py / H, u1 = (px + t.w) / W, v1 = (py + t.h) / H;
           if (q.ctrl & 0x10) [u0, u1] = [u1, u0];
           if (q.ctrl & 0x20) [v0, v1] = [v1, v0];
           uvs = [[u0, v0], [u1, v0], [u1, v1], [u0, v1]];
         } else { const v = q.colour; c = [(v & 31) / 31, ((v >> 5) & 31) / 31, ((v >> 10) & 31) / 31]; }
-        for (const k of [0, 1, 2, 0, 2, 3]) { pos.push(...part.verts[q.idx[k]]); nrm.push(...part.normals[q.idx[k]]); uv.push(...uvs[k]); col.push(...c); }
+        // parts without normals are lit flat: one normal per quad from its first three corners
+        let flat = null;
+        if (!part.hasN) {
+          const [a, b, d] = [0, 1, 2].map(k => part.verts[q.idx[k]]);
+          fa.set(b[0] - a[0], b[1] - a[1], b[2] - a[2]); fb.set(d[0] - a[0], d[1] - a[1], d[2] - a[2]);
+          fn.crossVectors(fa, fb); if (fn.lengthSq() < 1e-9) fn.set(0, 1, 0); fn.normalize(); flat = [fn.x, fn.y, fn.z];
+        }
+        for (const k of [0, 1, 2, 0, 2, 3]) { pos.push(...part.verts[q.idx[k]]); nrm.push(...(flat || part.normals[q.idx[k]])); uv.push(...uvs[k]); col.push(...c); }
       }
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
       geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-      return new THREE.Mesh(geo, mat);
+      const mesh = new THREE.Mesh(geo, mat); mesh.userData.jam = true;   // shared by every copy: never disposed with a level
+      return mesh;
     };
+    return { meshOf };
+  }
+  function buildHero3d(data) {
+    const S = Jam.sonic(data.museum, data.sprdata), { meshOf } = jamKit(S.textures);
     // root (place, facing) > lift (feet on the floor) > anim (each frame's global move) > body > limbs
     const root = new THREE.Group(), lift = new THREE.Group(), anim = new THREE.Group();
     root.add(lift); lift.add(anim);
@@ -3753,6 +3872,52 @@ const Art = (() => {
     h.anim.position.fromArray(f.pos); h.anim.rotation.set(turn(f.rot[2]), turn(f.rot[1]), turn(f.rot[0]), 'ZYX');
     h.nodes.forEach((n, k) => { const r = f.rots[k]; n.rotation.set(turn(r[2]), turn(r[1]), turn(r[0]), 'ZYX'); });
   }
+  // ---- Sonic World objects from the same disc: palms, springs, the big ring and Flickies (Jam.props) ----
+  function buildJamProps(data) {
+    const P = Jam.props(data.museum, data.sprdata), { meshOf } = jamKit(P.textures);
+    // a model as nested groups: part k at its offset, under its parent part when the model has a tree
+    const modelOf = (G, parent) => {
+      const anim = new THREE.Group();
+      const nodes = G.parts.map((pt, k) => { const n = new THREE.Group(); n.position.fromArray(G.offsets[k]); n.add(meshOf(pt)); return n; });
+      nodes.forEach((n, k) => (parent && parent[k] >= 0 ? nodes[parent[k]] : anim).add(n));
+      return { anim, nodes };
+    };
+    // stand a model on y = 0 (y-down models turned over), `size` metres along `axis`; the wrapper is what gets placed
+    const stand = (anim, size, axis, yDown) => {
+      const fit = new THREE.Group(), w = new THREE.Group(); fit.add(anim); w.add(fit);
+      if (yDown) fit.scale.y = -1;
+      w.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(fit), s = size / (box.max[axis] - box.min[axis]);
+      fit.position.y = -box.min.y; w.scale.setScalar(s);
+      return { w, fit, s };
+    };
+    const palm = modelOf(P.palm), spring = modelOf(P.spring), ring = modelOf(P.bigRing);
+    const out = {
+      palm: stand(palm.anim, 80 / 32, 'y', true),          // as tall as the original's palm picture (80 units)
+      spring: stand(spring.anim, 0.92, 'x', true),         // as wide as the drum it replaces
+      ring: stand(ring.anim, 1.6, 'y', false),             // as wide as the original's ring sprite (64 px)
+      flickies: P.flickies.map(G => { const m = modelOf(G, P.flickyParent); return { ...m, ...stand(m.anim, 0.42, 'y', false) }; }),
+      fly: P.fly,
+    };
+    // the spring's coil (part 1, from its top at y = -c up to 0 in the model's y-down units) squashes at rest and
+    // stretches when fired; its pad (part 0) rides on top
+    const cg = spring.nodes[1].children[0].geometry; cg.computeBoundingBox();
+    const c = -cg.boundingBox.min.y, pad0 = spring.nodes[0].position.y;
+    out.spring.nodes = spring.nodes;
+    out.spring.coil = ([pad, coil], k) => { coil.scale.y = k; pad.position.y = pad0 + c * (1 - k); };
+    out.palm.nodes = palm.nodes;
+    return out;
+  }
+  // a copy of a prop, with its parts found again by their place in the tree
+  function jamCopy(prop, nodes = prop.nodes || []) {
+    const g = prop.w.clone(), a = [], b = [];
+    prop.w.traverse(o => a.push(o)); g.traverse(o => b.push(o));
+    return { g, nodes: nodes.map(n => b[a.indexOf(n)]), anim: prop.anim ? b[a.indexOf(prop.anim)] : null };
+  }
+  function poseJam(nodes, anim, f) {
+    anim.position.fromArray(f.pos); anim.rotation.set(turn(f.rot[2]), turn(f.rot[1]), turn(f.rot[0]), 'ZYX');
+    nodes.forEach((n, k) => { const r = f.rots[k]; n.rotation.set(turn(r[2]), turn(r[1]), turn(r[0]), 'ZYX'); });
+  }
   // each frame: pick the move from the sim state, like the sprite hero does
   function updateHero3d(p, rp, dt, t) {
     const h = hero3d, sp = Math.hypot(p.vx, p.vz), run = Sim.P.run;
@@ -3761,9 +3926,12 @@ const Art = (() => {
     const balled = p.charge > 0 || p.ball || p.rolling;
     h.ball.visible = balled; h.anim.visible = !balled;
     if (balled) { h.ball.rotation.z -= dt * Math.max(sp, p.charge > 0 ? 14 : 8) * 1.6; return; }
+    // a skid is over in a tenth of a second at the sim's braking; its animation plays through once all the same
+    if (p.skid && !h.wasSkid) h.skidT = h.S.anims.skid.length / 30;
+    h.wasSkid = p.skid; h.skidT = Math.max(0, (h.skidT || 0) - dt);
     let clip, rate = 30;
     if (!p.grounded) clip = p.sprung ? 'spring' : 'fall';
-    else if (p.skid) clip = 'skid', rate = 30;
+    else if (p.skid || h.skidT > 0) clip = 'skid';
     else if (sp < 0.3) clip = 'idle', rate = 15;
     else if (sp < run * 0.55) clip = 'walk', rate = 30 * Math.max(0.4, sp / (run * 0.4));
     else if (sp < run * 1.1) clip = 'run', rate = 30 * Math.max(0.7, sp / run);
@@ -4222,6 +4390,8 @@ const Art = (() => {
     try {
       if (hero3d) { scene.remove(hero3d.root); hero3d = null; }
       hero3d = buildHero3d(data);
+      try { jamProps = buildJamProps(data); } catch (e) { jamProps = null; console.warn('Sonic Jam objects:', e.message); }
+      if (levelGroup) buildLevelObjects();
       if (satReady) satScene();
       $('jamPick').hidden = false; $('heroSel').value = heroMode;
       return true;
@@ -4240,9 +4410,10 @@ const Art = (() => {
       romStore.put({ museum: data.museum, sprdata: data.sprdata }, 'jam').then(kept => { if (!kept) setLoadMsg(['Using the disc for this visit only: the browser would not keep a copy.'], 'jamMsg'); });
     } catch (err) { setLoadMsg([err.message + '.'], 'jamMsg'); }
   });
-  $('heroSel').addEventListener('change', () => { heroMode = $('heroSel').value === 'sprite' ? 'sprite' : '3d'; store.set(HERO_KEY, heroMode); });
+  $('heroSel').addEventListener('change', () => { heroMode = $('heroSel').value === 'sprite' ? 'sprite' : '3d'; store.set(HERO_KEY, heroMode); if (levelGroup) buildLevelObjects(); });
   $('jamForget').addEventListener('click', () => {
     romStore.del('jam'); if (hero3d) { scene.remove(hero3d.root); hero3d = null; }
+    jamProps = null; if (levelGroup) buildLevelObjects();
     $('jamPick').hidden = true; setLoadMsg(['Forgotten: this browser no longer keeps the Sonic Jam files.'], 'jamMsg');
   });
   $('romGo').addEventListener('click', () => {
@@ -4361,7 +4532,7 @@ const Art = (() => {
       if (world.events.includes('monitor') && MdSound.on && !Sfx.muted) MdSound.power(world.power);
       if (world.events.includes('section') || world.events.includes('goal')) {
         const used = goalSprites[world.events.includes('goal') ? world.goals.length - 1 : world.section - 1];
-        if (used) { const s = used.clone(); if (!used.userData.rom) s.material = used.material.clone(), s.material.transparent = true; levelGroup.add(s); goalFx = { sprite: s, t0: now / 1000, rom: !!used.userData.rom }; }
+        if (used) { const s = used.clone(); if (!used.userData.rom) s.material = used.material.clone(), s.material.transparent = true; levelGroup.add(s); goalFx = { sprite: s, t0: now / 1000, rom: !!used.userData.rom, jam: !!used.userData.jam, s0: s.scale.x }; }
         flash();
       }
       if (world.events.includes('goal')) actClear();
@@ -4477,10 +4648,24 @@ const Art = (() => {
     for (let q = 0; q < flickySprites.length; q++) {
       const s = flickySprites[q], f = world.flickies.filter(ff => ff.state !== 'gone')[q];
       s.visible = !!f;
+      if (jamFlickies[q]) jamFlickies[q].g.visible = !!f;
       if (!f) continue;
       const dx = f.x - s.position.x, dz = f.z - s.position.z, sx = dx * rx + dz * rz;
       if (Math.abs(sx) > 1e-3) s.userData.left = sx < 0;
       s.position.set(f.x, f.y, f.z);
+      const jf = jamFlickies[q];
+      if (jf) {
+        s.visible = false;
+        const k = f.kind % 4;
+        if (!jf.kinds[k]) { jf.kinds[k] = jamCopy(jamProps.flickies[k]); jf.g.add(jf.kinds[k].g); }
+        jf.kinds.forEach((c, i) => { if (c) c.g.visible = i === k; });
+        jf.g.visible = true; jf.g.position.set(f.x, f.y, f.z);
+        if (dx * dx + dz * dz > 1e-6) jf.yaw = Math.atan2(dx, dz);
+        jf.g.rotation.y = jf.yaw + FLICKY_YAW;
+        const c = jf.kinds[k], fly = jamProps.fly;
+        poseJam(c.nodes, c.anim, fly[Math.floor(t * 30 + q * 5) % fly.length]);
+        continue;
+      }
       if (rom) { s.material = romFlickyMat(Math.floor(t * 12 + q * 3) % 16, !s.userData.left, f.kind); s.scale.set(64 * PX, 64 * PX, 1); s.center.set(0.5, 1 - 52 / 64); }
       else { s.material = flickyMat(f.kind, Math.floor(t * 8 + q) % 2, !!s.userData.left); s.scale.set(0.55, 0.55, 1); s.center.set(0.5, 0.08); }
     }
@@ -4498,7 +4683,8 @@ const Art = (() => {
     }
     // only the big ring of the current section is out
     for (let q = 0; q < goalSprites.length; q++) {
-      if (goalSprites[q].userData.rom) goalSprites[q].scale.x = ROM_SIZE * (0.35 + 0.65 * Math.abs(Math.cos(t * 1.6)));
+      if (goalSprites[q].userData.jam) goalSprites[q].rotation.y = t * 1.6;
+      else if (goalSprites[q].userData.rom) goalSprites[q].scale.x = ROM_SIZE * (0.35 + 0.65 * Math.abs(Math.cos(t * 1.6)));
       else goalSprites[q].material = goalMats[Math.floor(t * 3) % 2];
       goalSprites[q].visible = q === world.section && !world.cleared;
     }
@@ -4507,6 +4693,7 @@ const Art = (() => {
     if (goalFx) {
       const k = (t - goalFx.t0) / 0.6, s = goalFx.sprite;
       if (k >= 1) { s.visible = false; goalFx = null; }
+      else if (goalFx.jam) { s.visible = true; s.scale.setScalar(goalFx.s0 * (1 - k)); s.rotation.y = t * 1.6 + k * 12; }
       else if (goalFx.rom) { s.visible = true; s.material = romRingFrameMat(Math.min(8, Math.floor(k * 9))); }
       else { s.visible = true; s.scale.set(1.1 * (1 + k), 2.2 * (1 + k), 1); s.material.opacity = 1 - k; }
     }
@@ -4520,7 +4707,8 @@ const Art = (() => {
     }
     for (let q = 0; q < springSprites.length; q++) {
       const s = springSprites[q], fired = world.time - world.springs[q].firedAt < 0.25;
-      if (s.userData.drum) { s.userData.drum.scale.y = fired ? 1.6 : 1; s.userData.drum.position.y = fired ? 0.2 : 0.15; }
+      if (jamSprings[q]) jamProps.spring.coil(jamSprings[q], fired ? 1 : SPRING_REST);
+      else if (s.userData.drum) { s.userData.drum.scale.y = fired ? 1.6 : 1; s.userData.drum.position.y = fired ? 0.2 : 0.15; }
       else if (s.userData.rom) s.scale.set(s.userData.size, s.userData.size * (fired ? 1.25 : 1), 1);
       else s.material = springMats[fired ? 1 : 0];
     }
@@ -4544,7 +4732,7 @@ const Art = (() => {
   }
   satReady = true; setSaturn(saturn);
   $('screenSel').addEventListener('change', () => setSaturn($('screenSel').value === 'saturn'));
-  window.__game = { MdSound, Sim, get hero3d() { return hero3d; }, view, setMode, start, get world() { return world; }, get level() { return L; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
+  window.__game = { MdSound, Sim, get hero3d() { return hero3d; }, get jamProps() { return jamProps; }, jamCopy, poseJam, get jamPalms() { return jamPalms; }, view, setMode, start, get world() { return world; }, get level() { return L; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
   setMode(view.mode);
   requestAnimationFrame(frame);
 })();

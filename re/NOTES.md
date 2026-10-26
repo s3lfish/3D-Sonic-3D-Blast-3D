@@ -164,7 +164,7 @@ original art. The browser code carries reading rules only.
   Monitors also queue on $0AC6: blue shield 3A, gold shield 3F (others in code at 0xC190 to 0xC210: 33, 19, 3E, 1B).
 - Emulated in the page (sound/md_sound.c) and checked against the reference emulator: Green Grove's music matches.
 
-## Sonic Jam (Saturn): the 3D Sonic
+## Sonic Jam (Saturn): the 3D Sonic and Sonic World objects
 
 The formats come from the Sonic Retro SCHG pages for Sonic Jam (Models, Animations, Textures); `re/jam/jam.py` reads
 them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS and SPRDATA.MUS in `re/jam/files/`.
@@ -180,6 +180,22 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   colour 0 is drawn; CMDCTRL bits 0x10 and 0x20 flip the texture.
 - Some parts keep whole-unit 16-bit vertices (6 bytes each, told apart by the gap to the index table), drawn y-down
   (palm tree, bush, arch, checkpoint); those have no vertex normals. Other models' footers are listed in the SCHG page.
+- Parts with 16-bit vertices number their textures from 1: definition = index - 1 (palm and bush: fronds, coconuts,
+  trunk, base and a star-shaped shadow at y = 0 only line up that way). 32-bit parts (Sonic, spring, Flickies) use the
+  index as it is. Inferred from the pictures, not from the game's code.
+- Textures in quads whose CMDPMOD lacks bit 6 (palm, spring coil, Flickies) draw colour 0 as see-through.
+- Skid: the jump table is at 0x290A6 (11 frames), 6 bytes before the address the SCHG page gives; read from 0x290AC
+  the frames come out as nonsense flags.
+- Objects used: palm 0x5034C (2 parts: fronds with coconuts and shadow; trunk, one flat quad the game turns to the
+  camera), spring 0x50B44 (pad, coil), big ring 0x52FDC, Flickies blue 0x53880, purple 0x53F08, green 0x53BC4,
+  red 0x5424C (10 parts; parents body; L leg, R leg, L arm, R arm and head on the body; each foot or hand on its limb).
+  Flicky flying animation 0x1FAD0 (17 frames) keeps 16-bit global positions (frames are 48 bytes: flags, y, z, rot x,
+  then 10 x 2 words).
+- The "bush" (0x506F4) is a short pineapple-like plant; Green Grove's foliage has no bushes (palms, flowers, flower
+  beds and the cannon), so it is not used.
+- Green Grove palms in the level art (`artBaker(...).palms`): a lone 64 x 80 palm picture is the pattern; every
+  tile-aligned window whose green pixels match it or its mirror nine in ten is a palm (GG1 16, GG2 36, GG3 4; 16
+  of 16 checked by eye in GG1). Cut out of the foliage pieces when the game draws Jam palms.
 - The Mega Drive game has no skid frames as far as the emulator shows: reversing turns Sonic through his views.
 - Checked on the USA disc. Whether the European disc keeps the same offsets is not known.
 
