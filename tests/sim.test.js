@@ -831,6 +831,14 @@ test('a half-height level keeps the original\'s speeds across', () => {
   const sp = vs => { const w = ROMLV(0, 0, [], vs); place(w, 1.5, 4.5); w.p.facing = Math.PI / 2; run(w, 40, { mx: 1 }); return w.p.vx; };
   near(sp(0.5), sp(1), 1e-9, 'same speed');
 });
+test('the original\'s jump button: pressed in the air and held, he jumps as he lands; held on, never again', () => {
+  const w = ROMLV(0); place(w, 3.5, 4.5); Object.assign(w.p, { grounded: false, y: w.p.y + 0.5, vy: 0 });
+  let jumps = 0, landed = -1; run(w, 120, (f, ww) => { if (ww.events.includes('land') && landed < 0) landed = f; if (ww.events.includes('jump')) jumps++; return { jump: true }; });
+  assert.ok(landed >= 0 && jumps === 1, `one jump from the press in the air (landed ${landed}, jumps ${jumps})`);
+  const v = ROMLV(0); place(v, 3.5, 4.5); jumps = 0;
+  run(v, 5, {}); run(v, 120, (f, ww) => { if (ww.events.includes('jump')) jumps++; return { jump: true }; });
+  assert.strictEqual(jumps, 1, 'pressed on the ground: one jump, none while held');
+});
 test('the original\'s floor and slopes: triangles in whole units, the pull on steep ones, a jump thrown downhill', () => {
   let w = ROMLV(1);
   near(Sim.floorAt(w.L, 3.5, 3.5), 1 + 3 / 32, 1e-9, 'a one-step ramp: whole units on its triangle (bilinear would be 1.125)');

@@ -131,7 +131,10 @@ original art. The browser code carries reading rules only.
     triangle when x + z <= 31 within the cell; else split NW-SE) turned to the north-west one (ror 4 / ror 2 / rol 2)
     and reads 0x263574 + 0x44C8[byte] = the triangle's normal at 1/8 a step x 0x5A00, cut toward 0 (checked, all 256).
     Grounded, with a part 0x1000+ or a velocity 0x800+: velocity += g + g/4 (rolling: g/4 first). A jump (0x3660) adds
-    g x 32 and leaves at the normal's upright word (0x5A00 on flat), then $56 = 1.
+    g x 32 and leaves at the normal's upright word (0x5A00 on flat), then $56 = 1. It needs $46 > 0 with $44 set and
+    $60 clear. $46 (0x2E0E, start of his frame, pad bit 5 = A, set when let go): let go 0; pressed with $46 0 or 2:
+    1 if grounded, else 2 (pending: kept while held, a jump on the first grounded frame); otherwise -1. The ice block
+    (0x305E) and the rev (0x3252) set it to -1.
   * Floor (0x3BB2..0x429C): same triangle choice; height = high byte x 8 + 0x46C8[byte] (nw x 8 - 8) + floor((T[a +
     2u] + T[b + 2v]) / 4) with 0x4848 T[k x 32 + i] = (k - 3) i and a, b = (corner difference + 3) x 64: so nw +
     floor(((ne - nw) u + (sw - nw) v) / 4) in whole units.
@@ -398,7 +401,10 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   into the list at $CC92 + $0AD2 each frame (passable). Ring doors: SS1 (33..34, 78) 0x8500 until ring 1; SS2
   (61..62, 110) 0x4100 until ring 1, (123..124, 51) 0x6500 until ring 2. Checked in the sim: the SS1 opener (two
   superchargers, loops) runs through as in the emulator.
-- Floor springs (low byte 0x55, end of 0x9974): grounded -> vy 7.875 up (sound 0xB1). Bumpers (0xFF, and tables
+- Floor springs (low byte 0x55, end of 0x9974): grounded -> $16 = $72 = -7.875 (0xFFF82000; set after his move: the
+  next frame's gravity comes first) and $086A = 50 (sound 0xB1). Spring 018 (0x18968): -8.5 (0xFFF78000); 08C
+  (0x189EE): -7.0; both also $086A = 50. The scroll (0x19A4, a6 = $084E) while $086A counts down aims the lead's y
+  at -156; $084A/$084C (if set) replace its target; $083E/$0840 are its speed limits. Bumpers (0xFF, and tables
   0x98DA SS1 / 0x94EA SS2, negative entries a second look): on entering the cell within 12 of the floor, by the
   cell's diagonals: north -> vz -5, west -> vx -5, east -> vx +5, south -> vz +5; $0ACA 20 frames; sound 0xB7.
   The cell is flush (its corner raises bring it to its neighbours' height). Spike fields (0xAA, SS1 only, 0x9D44):

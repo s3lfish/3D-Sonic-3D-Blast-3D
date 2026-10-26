@@ -1506,7 +1506,7 @@ const Sim = (() => {
           if (!Array.isArray(e.cells) || !e.cells.every(c => Array.isArray(c) && inBounds(c[0], c[1])) || (e.type === 'springCells' && !(e.power > 0 && e.power <= 30))) {
             errs.push(`"${e.type}" needs "cells" inside the map${e.type === 'springCells' ? ' and a "power" from 0 to 30 m/s' : ''}.`); break;
           }
-          L.entities.push({ type: e.type, cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]), power: e.power });
+          L.entities.push({ type: e.type, cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]), power: e.power, set: e.set > 0 && e.set <= 30 ? e.set : 0 });
           break;
         }
         // Diamond Dust: ice turns on entering an `on` cell and off entering an `off` cell (the original's $0ACA: its slippery
@@ -2086,7 +2086,8 @@ const Sim = (() => {
       fans: new Set(L.entities.filter(e => e.type === 'fan').flatMap(e => e.cells.map(([cx, cz]) => cz * L.width + cx))),
       slides: new Map(L.entities.filter(e => e.type === 'slide').flatMap(e => e.cells.map(([cx, cz]) => [cz * L.width + cx, e.dir]))),
       flickies: [], delivered: 0, trail: [], seed: 12345, plats: [], tick: 0, spike: 0,
-      springCells: new Map(L.entities.filter(e => e.type === 'springCells').flatMap(e => e.cells.map(([cx, cz]) => [cz * L.width + cx, e.power]))),
+      // (cell -> [power, set]: "set" (optional) the speed the original sets after his move, no gravity taken)
+      springCells: new Map(L.entities.filter(e => e.type === 'springCells').flatMap(e => e.cells.map(([cx, cz]) => [cz * L.width + cx, [e.power, e.set > 0 ? e.set : 0]]))),
       bumpers: new Set(L.entities.filter(e => e.type === 'bumpers').flatMap(e => e.cells.map(([cx, cz]) => cz * L.width + cx))),
       spikeCells: new Set(L.entities.filter(e => e.type === 'spikeField').flatMap(e => e.cells.map(([cx, cz]) => cz * L.width + cx))),
       holds: new Map(L.entities.filter(e => e.type === 'hold').map(e => [Math.floor(e.z) * L.width + Math.floor(e.x), e.t])),
@@ -3158,6 +3159,10 @@ const Sim = (() => {
     p.lastStick = m > 0.3;
     const jumpPress = inp.jump && !p.prevJump, dashPress = inp.dash && !p.prevDash, dashRelease = !inp.dash && p.prevDash;
     p.prevJump = !!inp.jump; p.prevDash = !!inp.dash;
+    // (the original's jump word $46, 0x2E0E, at the start of his frame: let go 0; pressed anew or still pending, 1 (a
+    // jump) if grounded, else 2 (pending while held: he jumps as he lands); held on, -1)
+    if (L.rom && L.phys.orig) p.jb = !inp.jump ? 0 : !p.jb || p.jb === 2 ? (p.grounded ? 1 : 2) : -1;
+    const groundJump = L.rom && L.phys.orig ? p.jb === 1 : jumpPress;
     let speed = Math.hypot(p.vx, p.vz);
     if (p.inv > 0) p.inv -= dt;
     if (p.fast > 0) p.fast -= dt;
@@ -3424,7 +3429,7 @@ const Sim = (() => {
 
     // jump
     let jumpedNow = false;   // (the original jumps after its velocity update: that frame still walks)
-    if (jumpPress && (p.grounded || p.coyote > 0) && !charging) {
+    if (groundJump && (p.grounded || p.coyote > 0) && !charging) {
       jumpedNow = true; p.vy = L.phys.jumpV; p.grounded = false; p.coyote = 0; p.jumping = true; p.ball = true; p.whirl = false; p.whirlHold = 0;
       launchW(p, L, L.phys.jumpV);
       w.events.push('jump');
@@ -3621,7 +3626,9 @@ const Sim = (() => {
     // Spring Stadium's cells (helpers 0x9974, 0x9D44)
     const cell = Math.floor(p.z) * L.width + Math.floor(p.x);
     if (p.grounded && w.springCells.size && w.springCells.has(cell)) {   // a floor spring
-      p.vy = w.springCells.get(cell) - L.phys.gravity * dt; p.grounded = false; p.jumping = false; p.coyote = 0; launchW(p, L, w.springCells.get(cell)); p.anim = 0xD;
+      const [pw, set] = w.springCells.get(cell), orig = set && L.rom && L.phys.orig;
+      p.vy = orig ? set : pw - L.phys.gravity * dt; p.grounded = false; p.jumping = false; p.coyote = 0; launchW(p, L, orig ? set : pw); p.anim = 0xD;
+      if (orig) w.camUp = 50;   // (the scroll looks up for 50 frames: $086A)
       p.ball = false; p.rolling = false; p.sprung = true; p.charge = 0; w.events.push('spring');
     }
     // a bumper: entered near its floor, it pushes the player out across the nearest edge (by the cell's diagonals)
@@ -3951,6 +3958,7 @@ const Sim = (() => {
         p.vy = sp.power - L.phys.gravity * dt; p.grounded = false; p.jumping = false; p.coyote = 0; launchW(p, L, sp.power); p.anim = 0xD;
         p.ball = false; p.rolling = false; p.sprung = true; p.charge = 0;
         sp.cool = 0.3; sp.firedAt = w.time; w.events.push('spring');
+        if (L.rom && L.phys.orig && (sp.skin === '018' || sp.skin === '08C')) w.camUp = 50;   // (their handlers, 0x18968 and 0x189EE, set $086A too)
       }
     }
 
@@ -4635,8 +4643,10 @@ const Sim = (() => {
     const L = w.L, o = L.rom.origin, S = 65536, sin = P.orig.sin;
     const X = Math.round((p.x + o[0]) * 32 * S), Z = Math.round((p.z + o[1]) * 32 * S), yi = Math.floor(p.y * 32 / L.rom.vscale - 8 + 1e-6);
     const s38 = Math.floor((X - Z) / S) + 0x1000, s3a = Math.floor((Math.floor((X + Z) / 2) - yi * S) / S);
-    const a = (-((Math.round(origFace(p)) & 0x7FE) + 0x100)) & 0x7FF, tx = ((sin[a >> 1] >> 8) >> 1) - 0xA0, ty = ((sin[(a >> 1) + 0x100] >> 8) >> 2) - 0x7C;
+    const a = (-((Math.round(origFace(p)) & 0x7FE) + 0x100)) & 0x7FF, tx = ((sin[a >> 1] >> 8) >> 1) - 0xA0;
+    let ty = ((sin[(a >> 1) + 0x100] >> 8) >> 2) - 0x7C;
     let c = w.cam;
+    if (w.camUp > 0) { w.camUp--; ty = -0x9C; }   // (after a spring, $086A frames: the lead's y target is -156)
     if (!c) { c = w.cam = { lx: tx, ly: ty }; c.X = (s38 + tx) & ~7; c.Y = (s3a + ty) & ~7; return; }
     if (c.lx < tx) c.lx = Math.min(tx, c.lx + 2); else if (c.lx > tx) c.lx = Math.max(tx, c.lx - 2);
     if (c.ly < ty) c.ly = Math.min(ty, c.ly + 1); else if (c.ly > ty) c.ly = Math.max(ty, c.ly - 1);
@@ -6205,7 +6215,8 @@ const S3D = (() => {
       for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) { const v = map[z * 128 + x]; if (v && (v & 0xFF) === mark) c.push([x - x0, z - z0]); }
       return c;
     };
-    if (gm.floorSprings !== undefined) { const cells = cellsOf(gm.floorSprings); if (cells.length) ents.push({ type: 'springCells', cells, power: launchFor(vscale, 124) }); }
+    // (floor springs, end of 0x9974: grounded, $16 set to 7.875 units a frame up after his move: `set`)
+    if (gm.floorSprings !== undefined) { const cells = cellsOf(gm.floorSprings); if (cells.length) ents.push({ type: 'springCells', cells, power: launchFor(vscale, 124), set: r6(7.875 * mps * vscale) }); }
     if (gm.bumpers) {
       const [mark, tab, n] = gm.bumpers, cells = cellsOf(mark);
       for (let k = 0; k < n; k++) {

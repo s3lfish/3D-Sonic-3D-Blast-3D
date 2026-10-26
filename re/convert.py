@@ -453,7 +453,7 @@ def convert(rom, level_id, vscale=1.0):
     cells_of = lambda mark: [[x - x0, z - z0] for z in range(z0, z1 + 1) for x in range(x0, x1 + 1) if w[z * 128 + x] and (w[z * 128 + x] & 0xFF) == mark]
     if 'floorSprings' in gm:
         cells = cells_of(gm['floorSprings'])
-        if cells: ents.append({"type": "springCells", "cells": cells, "power": launch_for(vscale, 124)})
+        if cells: ents.append({"type": "springCells", "cells": cells, "power": launch_for(vscale, 124), "set": r6(7.875 * mps * vscale)})
     if 'bumpers' in gm:
         mark, tab, n = gm['bumpers']; cells = cells_of(mark)
         for k in range(n):

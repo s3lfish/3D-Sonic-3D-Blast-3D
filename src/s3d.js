@@ -731,7 +731,8 @@ const S3D = (() => {
       for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) { const v = map[z * 128 + x]; if (v && (v & 0xFF) === mark) c.push([x - x0, z - z0]); }
       return c;
     };
-    if (gm.floorSprings !== undefined) { const cells = cellsOf(gm.floorSprings); if (cells.length) ents.push({ type: 'springCells', cells, power: launchFor(vscale, 124) }); }
+    // (floor springs, end of 0x9974: grounded, $16 set to 7.875 units a frame up after his move: `set`)
+    if (gm.floorSprings !== undefined) { const cells = cellsOf(gm.floorSprings); if (cells.length) ents.push({ type: 'springCells', cells, power: launchFor(vscale, 124), set: r6(7.875 * mps * vscale) }); }
     if (gm.bumpers) {
       const [mark, tab, n] = gm.bumpers, cells = cellsOf(mark);
       for (let k = 0; k < n; k++) {

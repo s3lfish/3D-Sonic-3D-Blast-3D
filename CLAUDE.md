@@ -116,7 +116,7 @@ serves index.html from main.
   chase cam swings behind the player away from a boss and tilts up to it. Notes in re/NOTES.md "Bosses".
 - Spring Stadium (`GIMMICKS[15]`/`[16]`, RunLevel_SSz1 0x95DA, _SSz2 0x8EC2; helpers 0x9974 bumpers + floor springs,
   0x9D44 spike fields, 0x9B40 tubes): cell marks by low byte (geometry stays the map's): `springCells` (0x55, 124
-  units up), `bumpers` (0xFF + table cells: entering one near its floor pushes 5 units a frame across the nearest
+  units up; `set` 7.875 units a frame: the speed set after his move, no gravity taken, on ROM levels), `bumpers` (0xFF + table cells: entering one near its floor pushes 5 units a frame across the nearest
   edge, pad taken 20 frames, `p.bumpCell`), `spikeField` (0xAA, act 1: one count `w.spike` +1 every 4 frames while
   stood on, -1 off; at 5 it hurts; drawn as an InstancedMesh of cones). Rides at cells take `force` [frames, dir]
   (`p.force`: pad held, counted from the move's start, `force.top` keeps the speed); states with bit 15 are mirrored
@@ -266,6 +266,7 @@ serves index.html from main.
     crouch animation shows (`p.anim` 3 played 9 frames: `p.a98`, `p.aLoad`; 14 frames on levels without `rom`), a step every 15 (jump taps hurry it; 'charge' events), let go: 8/12/14/16 x 0x7800 along the facing
     (0x54DA a part on diagonals), not moving that frame.
   * Scroll (`origCamera`, 0x19A4 → `w.cam` {X, Y, lx, ly}): led by the facing, an eighth of the way a frame, at most 8;
+    for 50 frames after a floor spring or spring 018 / 08C (`w.camUp`, $086A) the lead's y target is -156;
     objects with a window (`win` [w, h, x, y, record y] from the type's art header, table 0x280E8; dispatcher 0x1BE72)
     run only while their picture point less the scroll is inside it (`onScreen`); without `win`, round Sonic. The iso
     view on converted levels, unturned, centres on the original's picture (game.js `updateIso`).
@@ -398,8 +399,10 @@ serves index.html from main.
   GG1, GG2, GnG2, RR2, RR1, DD1, DD2, VV1, VV2, PP2, PP1, PP3 (low roofs, DD1 chute and ride, ride snap, enemy fractions).
   VV2 too (its balls' angle at the trace start fitted: 0x348). A hit shows from the next frame (`p.pre` {anim, facing}:
   the original's player ran before it); the knock-back's eighth is taken from the whole facing; 2 s safe is 120
-  frames (the timer snaps to 0). Still off: GnG1 after its reload (51 blank frames, VV1 52: not modelled), the 13
-  frames after a reload when the original shows frame 0, SS1 (466), SS2 (301), bosses. 139 sim tests.
+  frames (the timer snaps to 0). SS1 and SS2 too: the jump word $46 (`p.jb`, 0x2E0E: pressed in the air and held,
+  he jumps as he lands), floor springs' exact speed, the scroll after springs. Still off: GnG1 after its reload (51 blank frames, VV1 52: not modelled), the 13
+  frames after a reload when the original shows frame 0, a fall onto a no-floor cell (the original lands at map
+  height 0; the act never lets him there), bosses. 140 sim tests.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;
   the Jam Flicky body is a flat quad (edge-on from the side).
