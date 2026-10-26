@@ -299,7 +299,9 @@ serves index.html from main.
   monitors, mines and capsules back, Flickies not in a ring gone; `reloadAct`, also after a special stage with the player
   where he was). Act bonuses as the original's. Sonic heads 044 (`head` {y, cell}: taken in its cell from 40 units
   under to 6 over; 39 in all, most over springs; art 0x3E5C8 line 2 or our hero's face): ten make a continue (game.js
-  `heads`, `continues`); out of lives: a continue restarts the act, else game over and the first act.
+  `heads`, `continues`); out of lives: a continue restarts the act, else game over and the first act. Score: Sim
+  `w.score` (hundreds: enemy 1, boss 10, FF 50, Flickies into a ring 1/2/4/8/16; `step` wraps `stepInner` to count
+  events) plus game.js `score` (acts' bonuses, special stages), shown on the results screens.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;
   the Jam Flicky body is a flat quad (edge-on from the side).

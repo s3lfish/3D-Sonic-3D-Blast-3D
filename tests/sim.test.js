@@ -218,6 +218,7 @@ test('jumping onto an enemy defeats it and bounces', () => {
   let bounced = false;
   run(w, 90, (f, ww) => { if (ww.events.includes('enemy') && ww.p.vy > 5) bounced = true; return { mx: 1, mz: 0, jump: f > 5 && f < 30 }; });
   assert.strictEqual(w.enemies[0].alive, false); assert.ok(bounced, 'no bounce');
+  assert.strictEqual(w.score, 1, 'an enemy scores 1 (100 points)');
 });
 test('walking into an enemy with rings throws them out', () => {
   const w = world(arena([{ type: 'enemy', x: 5.5, z: 2.5, radius: 0.01, speed: 0 }]));
@@ -314,6 +315,7 @@ test('Flickies: freed by enemies, follow, scatter when hit, and open the ring wh
   // the line may not have caught every Flicky on one pass; walk back and forth until all are delivered
   for (let pass = 0; pass < 6 && !w.cleared; pass++) { run(w, 120, { mx: -1, mz: 0 }); run(w, 120, { mx: 1, mz: 0 }); }
   assert.ok(w.cleared, `cleared (delivered ${w.delivered}, states ${w.flickies.map(f => f.state).join(',')})`);
+  assert.strictEqual(w.score, 5 + 1 + 2 + 4 + 8 + 16, 'five enemies, then the Flickies 1, 2, 4, 8, 16');
 });
 test('a hit scatters the Flickies following the player', () => {
   const w = world(Object.assign(arena([{ type: 'goal', x: 18.5, z: 2.5 }]), { flickies: 5 }));

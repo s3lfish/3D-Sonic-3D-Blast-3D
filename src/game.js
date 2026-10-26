@@ -2311,7 +2311,7 @@
     const key = shown;
     if (tally.key === key) return;
     tally.key = key;
-    const img = S3D.tallyImage(romArt.d, { kind: tally.kind, act: tally.act, time: tally.time, score: shown, bonus: left, total: shown });
+    const img = S3D.tallyImage(romArt.d, { kind: tally.kind, act: tally.act, time: tally.time, score: tally.score0 + shown, bonus: left, total: shown });
     const c = $('tallyCanvas'); c.getContext('2d').putImageData(new ImageData(img.px, img.width, img.height), 0, 0);
     $('tally').style.background = `rgb(${img.background.join(',')})`;
     if (k > 0 && k < 1 && Math.floor(now * 12) % 2) Sfx.play('tick');
@@ -2324,13 +2324,16 @@
     if (locked) next = null;
     const time = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
     let wait = 5000;
+    // the score so far: earlier acts' (with their bonuses) and this act's own (enemies, bosses, Flickies)
+    const score0 = score + world.score * 100, bonuses = [timeBonus(secs), world.ringCount * 100, Math.floor(world.saved / 5) * 5000, world.friendRings.knuckles * 100, world.friendRings.tails * 100];
+    score = score0 + bonuses.reduce((a, b) => a + b, 0);
     if (romOn() && L.rom) {
       const act = Number((here.match(/(\d)$/) || [0, 1])[1]);
-      tally = { t0: performance.now() / 1000, act, time, bonus: [timeBonus(secs), world.ringCount * 100, Math.floor(world.saved / 5) * 5000, world.friendRings.knuckles * 100, world.friendRings.tails * 100], key: null };
+      tally = { t0: performance.now() / 1000, act, time, score0, bonus: bonuses, key: null };
       $('tally').hidden = false; drawTally(tally.t0); wait = 7000;
     } else {
       $('clearTitle').textContent = `${here} clear`;
-      $('clearInfo').textContent = `Rings ${world.ringCount}   Time ${time}` + (next ? `\nNext: ${next[1]}` : '\nOpen ? to play again or choose another level.');
+      $('clearInfo').textContent = `Rings ${world.ringCount}   Time ${time}   Score ${score}` + (next ? `\nNext: ${next[1]}` : '\nOpen ? to play again or choose another level.');
       $('clearCard').hidden = false;
     }
     clearTimeout(clearTimer);
@@ -2561,6 +2564,7 @@
     B.scene.traverse(o => { if (o.geometry && o.geometry !== spikeGeo.ball && o.geometry !== spikeGeo.spike) o.geometry.dispose(); });
     for (const t of [B.look.deck, B.look.bank, B.look.flow]) t.dispose();
     let title, info = `Ring bonus ${B.b.rings * 100}`;
+    if (won) score += B.b.rings * 100 + (B.noEm ? 0 : 10000);
     if (won && !B.noEm) {
       const n = emeraldCount() + 1; store.set(EM_KEY, String(n));
       title = 'Sonic got a Chaos Emerald'; info += `\nEmerald bonus 10000\n${n} of 7`;
@@ -2570,7 +2574,7 @@
     $('bonusMsg').hidden = true;
     clearTimeout(clearTimer);
     if (won && romOn()) {   // the original's own screen, its bonuses counted down
-      tally = { kind: B.noEm ? 'bonus' : 'emerald', t0: performance.now() / 1000, bonus: [B.b.rings * 100, B.noEm ? 0 : 10000], key: null };
+      tally = { kind: B.noEm ? 'bonus' : 'emerald', t0: performance.now() / 1000, score0: score + world.score * 100, bonus: [B.b.rings * 100, B.noEm ? 0 : 10000], key: null };
       $('tally').hidden = false; drawTally(tally.t0); clearTimer = setTimeout(clearCardOff, 6000);
     } else { $('clearTitle').textContent = title; $('clearInfo').textContent = info; $('clearCard').hidden = false; clearTimer = setTimeout(clearCardOff, 4000); }
     // the original reloads the act with Sonic where he was (0x4FCE): rings, enemies and monitors back
@@ -2586,7 +2590,7 @@
   // original's continue, without the count of continues)
   // Ten Sonic heads make a continue ($06AC, $06AA, nine at most); with lives gone a continue starts the act again with
   // three; without one it is game over, and the game starts again at the first act (ROM levels; others: the act)
-  let lives = 3, heads = 0, continues = 0;
+  let lives = 3, heads = 0, continues = 0, score = 0;   // (score: points of acts finished and special stages)
   function setLives(n) { lives = n; $('livesCount').textContent = String(Math.max(0, n)); }
   function gotHead() {
     if (++heads < 10) { toast(`Head ${heads} of 10 for a continue.`, 1.5); return; }
@@ -2601,6 +2605,7 @@
     clearTimeout(clearTimer); clearTimer = setTimeout(() => {
       clearCardOff(); setLives(3);
       if (cont || !(L.rom && romBytes)) { restart(); return; }
+      score = 0;   // (a new game)
       try { const first = S3D.LEVELS[0], raw = S3D.convert(romBytes, first[0], L.rom.vscale); useLevel(Sim.importLevel(raw), true); store.set(LEVEL_KEY, JSON.stringify(raw)); $('romLevel').value = String(first[0]); toast(first[1], 2.5); }
       catch (err) { restart(); }
     }, 3000);

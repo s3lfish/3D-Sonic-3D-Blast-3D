@@ -694,6 +694,10 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   and his y is from 40 under the record's to 6 over (or by a following Flicky in that cell within 34; not modelled),
   sound 0x68; the tenth (count $06AC) gives a continue (sound 0xAC on both channels), nine at most. 39 in the game,
   most 160 to 256 units over the floor, over springs.
+- Score $06A6 in hundreds (not on the HUD; on the results screens): an enemy 1 (0x192CA, 0x19308), a boss 10
+  (0x6EB8 and the like), the Final Fight 50 (0x15B76), each Flicky taken to a ring $0A8C (1, doubling: 1, 2, 4, 8,
+  16; 0xCD5E), then the act's bonuses and the special stage's (one a frame as they count down). Kept over deaths and
+  continues; cleared by a new game.
 - The return from a special stage goes through the same reload with Sonic at $0686/$0688 (where he was), facing
   0x700, and $0A92 from $068C.
 
