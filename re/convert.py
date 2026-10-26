@@ -18,7 +18,8 @@ RING_TABLE, RING_HOVER = 0x1936, 18
 # object types identified from in-game photos (springs, monitors, the act-end ring, player start, main enemies)
 KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
          0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
-         0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler'}
+         0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
+         0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon'}
 MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']
 
 
@@ -54,6 +55,15 @@ GIMMICKS = {
         'rides': [(98, 96, 0, 0x30, None, None, (0, 0, 0)), (85, 101, 0, 0x2E, None, None, (0, 0, 0), 40),
                   (100, 60, 0, 0x32, None, None, (0, 0, 0)), (91, 71, 0, 0x34, None, None, (0, 0, 0))],
         'cracks': [([(101, 60)], 336, [-1, 0])]},
+    # Spring Stadium 1 and 2 (see s3d.js GIMMICKS)
+    15: {'floorSprings': 0x55, 'bumpers': (0xFF, 0x98DA, 8), 'spikeField': 0xAA,
+         'rides': [(37, 117, 0, 4, None, None, None, None, (140, [1, 0])), (61, 115, 0, 4, None, None, None, None, (200, [1, 0])),
+                   (77, 113, 0, 4, None, None, None, None, (85, [1, 0])), (59, 41, 0, 4, None, None, None, None, (70, None))],
+         'holds': [(55, 115, 100), (53, 41, 100)], 'tubes': (0x98C6, 0x40, 0x42)},
+    16: {'floorSprings': 0x55, 'bumpers': (0xFF, 0x94EA, 30),
+         'rides': [(73, 105, 0, 4, None, None, None, None, (70, None)), (85, 76, 0, 0x8004, None, None, None, None, (84, None)),
+                   (87, 74, 0, 0x8044, None, None, None, None, (84, None))],
+         'holds': [(68, 105, 100)], 'tubes': (0x9480, 0x40, 0x42)},
 }
 DOOR_PUSH = {0: (0, 4), 2: (-4, 0), 4: (0, -4)}
 BOSSES = {3: {'kind': 'gg', 'at': (1152, 350, 1152), 'home': (1088, 1088), 'cruise': 160, 'arena': (800, 1375, 800, 1375), 'hp': 5},
@@ -140,7 +150,13 @@ def convert(rom, level_id, vscale=1.0):
         if kind == 'monitor':
             k2 = struct.unpack('>H', r[0x26:0x28])[0] >> 7
             e["kind"] = MONITOR_KINDS[k2] if k2 < len(MONITOR_KINDS) else 'rings'
-        if kind == 'booster': e["dir"] = [0, 1] if struct.unpack('>H', r[0x16:0x18])[0] & 0x800 else [0, -1]
+        if kind == 'booster':   # routine 0xCA6A: +0x26 set and bit 3 of +0x16 pick the way; taken one cell that way
+            b3 = (r[0x16] >> 3) & 1; w26 = struct.unpack('>H', r[0x26:0x28])[0] != 0
+            e["dir"] = ([1, 0] if b3 else [0, 1]) if w26 else ([-1, 0] if b3 else [0, -1])
+            e["x"] = jround((x + e["dir"][0] * CELL) / CELL - x0, 3); e["z"] = jround((z + e["dir"][1] * CELL) / CELL - z0, 3)
+        if kind == 'balloon':
+            e["y"] = jround((struct.unpack('>h', r[0x26:0x28])[0] + 8) / CELL * vscale, 3); e["phase"] = struct.unpack('>H', r[0x24:0x26])[0] & 0x7FE
+            e["rise"] = launch_for(vscale, 43)
         if kind == 'spring': e["power"] = spring_power(vscale)
         y_obj = struct.unpack('>h', r[0xA:0xC])[0]
         if t == 0x8C: e["power"] = launch_for(vscale, 94); e["absY"] = jround(y_obj / CELL * vscale, 3)
@@ -205,19 +221,46 @@ def convert(rom, level_id, vscale=1.0):
                 ents.append({"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": 0, "exit": [jround(x / CELL - x0, 3), jround(z / CELL - z0, 3)],
                              "exitY": jround(y / CELL * vscale, 3), "push": [jround(vx * mps, 3), jround(vz * mps, 3)], "launch": 0})
     r3, r6 = (lambda v: jround(v, 3)), (lambda v: jround(v, 6))
+    def ride_of(state, frm, facing, vel):   # bit 15 of the state: x and z swapped; no velocity: the last step carries on
+        path, turns, end = ride_script(rom, state & 0x7FFF); mir = bool(state & 0x8000)
+        if mir: path = [[c, b, a] for a, b, c in path]
+        last = path[-1] if path else [0, 0, 0]
+        return ({"start": [r3(frm[0] / CELL - x0), r3(frm[1] / CELL * vscale), r3(frm[2] / CELL - z0)] if frm else None,
+                 "facing": None if facing is None else compass_of(facing),
+                 "vel": [r3(vel[0] * mps), r3(vel[1] * mps * vscale), r3(vel[2] * mps)] if vel else [r3(last[0] * mps), 0, r3(last[2] * mps)],
+                 "path": [[r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)] for dx, dy, dz in path],
+                 "turns": [[i, compass_of((0x600 - f) & 0x7FF if mir else f)] for i, f in turns]}, end)
     for cx, cz, after, state, frm, facing, vel, *rest in gm.get('rides', []):
         if floor_cell(cx, cz) and (frm is None or floor_cell(frm[0] // CELL, frm[2] // CELL)):
-            path, turns, end = ride_script(rom, state)
-            ride = {"start": [r3(frm[0] / CELL - x0), r3(frm[1] / CELL * vscale), r3(frm[2] / CELL - z0)] if frm else None,
-                    "facing": None if facing is None else compass_of(facing),
-                    "vel": [r3(vel[0] * mps), r3(vel[1] * mps * vscale), r3(vel[2] * mps)],
-                    "path": [[r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)] for dx, dy, dz in path],
-                    "turns": [[i, compass_of(f)] for i, f in turns],
-                    "end": {"at": [r3(end[0] / CELL - x0), r3(end[1] / CELL * vscale), r3(end[2] / CELL - z0)], "facing": compass_of(end[3]),
-                            "vel": [r3(end[4] * mps), r3(-end[5] * mps * vscale), r3(end[6] * mps)]} if end else None}
+            ride, end = ride_of(state, frm, facing, vel)
+            ride["end"] = {"at": [r3(end[0] / CELL - x0), r3(end[1] / CELL * vscale), r3(end[2] / CELL - z0)], "facing": compass_of(end[3]),
+                           "vel": [r3(end[4] * mps), r3(-end[5] * mps * vscale), r3(end[6] * mps)]} if end else None
+            if len(rest) > 1 and rest[1]: ride["force"] = {"t": r3(rest[1][0] / 60), "dir": rest[1][1]}
             e = {"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": after, "air": True, "ride": ride}
-            if rest: e["maxY"] = r3(rest[0] / CELL * vscale)
+            if rest and rest[0] is not None: e["maxY"] = r3(rest[0] / CELL * vscale)
             ents.append(e)
+    for cx, cz, frames in gm.get('holds', []):
+        if floor_cell(cx, cz): ents.append({"type": "hold", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "t": r3(frames / 60)})
+    if 'tubes' in gm:   # two mouths (see s3d.js)
+        tab, sa, sb = gm['tubes']; wv = lambda k: struct.unpack('>h', rom[tab + 2 * k:tab + 2 * k + 2])[0]
+        for bx0, bx1, bz0, bz1, at, state in ((wv(0), wv(0) + 32, wv(1), wv(1) + 8, (wv(2), wv(3), wv(4)), sa), (wv(6), wv(6) + 8, wv(5), wv(5) + 32, (wv(7), wv(8), wv(9)), sb)):
+            if not floor_cell(int((bx0 + bx1) / 2 // CELL), int((bz0 + bz1) / 2 // CELL)): continue
+            ride, _ = ride_of(state, at, None, None); ride["end"] = None; ride["wait"] = r3(30 / 60)
+            ents.append({"type": "hole", "x": r3((bx0 + bx1) / 2 / CELL - x0), "z": r3((bz0 + bz1) / 2 / CELL - z0),
+                         "half": [r3((bx1 - bx0) / 2 / CELL), r3((bz1 - bz0) / 2 / CELL)], "opens": 0, "ride": ride})
+    cells_of = lambda mark: [[x - x0, z - z0] for z in range(z0, z1 + 1) for x in range(x0, x1 + 1) if w[z * 128 + x] and (w[z * 128 + x] & 0xFF) == mark]
+    if 'floorSprings' in gm:
+        cells = cells_of(gm['floorSprings'])
+        if cells: ents.append({"type": "springCells", "cells": cells, "power": launch_for(vscale, 124)})
+    if 'bumpers' in gm:
+        mark, tab, n = gm['bumpers']; cells = cells_of(mark)
+        for k in range(n):
+            off = abs(struct.unpack('>h', rom[tab + 2 * k:tab + 2 * k + 2])[0]) >> 1; cx, cz = off & 127, off >> 7
+            if x0 <= cx <= x1 and z0 <= cz <= z1 and w[cz * 128 + cx] and [cx - x0, cz - z0] not in cells: cells.append([cx - x0, cz - z0])
+        if cells: ents.append({"type": "bumpers", "cells": cells})
+    if 'spikeField' in gm:
+        cells = cells_of(gm['spikeField'])
+        if cells: ents.append({"type": "spikeField", "cells": cells})
     bs = BOSSES.get(level_id)
     if bs:
         e = {"type": "boss", "kind": bs['kind'], "x": jround(bs['at'][0] / CELL - x0, 3), "y": jround(bs['at'][1] / CELL * vscale, 3), "z": jround(bs['at'][2] / CELL - z0, 3),

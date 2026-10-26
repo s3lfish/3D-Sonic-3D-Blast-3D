@@ -40,6 +40,20 @@ const S3D = (() => {
       rides: [[98, 96, 0, 0x30, null, null, [0, 0, 0]], [85, 101, 0, 0x2E, null, null, [0, 0, 0], 40],
         [100, 60, 0, 0x32, null, null, [0, 0, 0]], [91, 71, 0, 0x34, null, null, [0, 0, 0]]],
       cracks: [[[[101, 60]], 336, [-1, 0]]] },
+    // Spring Stadium 1 (RunLevel_SSz1 0x95DA) and 2 (_SSz2 0x8EC2), helpers 0x9974 (bumpers, then floor springs),
+    // 0x9D44 (act 1's spike fields), 0x9B40 (tubes): cells by low byte: floor springs (0x55: grounded, thrown up at 7.875
+    // units a frame), bumpers (0xFF and the cells in the table [address, count]; entering one pushes Sonic out across its
+    // nearest edge), spike fields (0xAA). Rides at cells (player state 4: a loop; bit 15: x and z swapped), then the pad
+    // held for n frames (F5: running east; FF: let go); holds: a cell that keeps the pad held n frames. Tubes: table
+    // [address, state in, state out] of two mouths (see the convert loop).
+    15: { floorSprings: 0x55, bumpers: [0xFF, 0x98DA, 8], spikeField: 0xAA,
+      rides: [[37, 117, 0, 4, null, null, null, undefined, [140, [1, 0]]], [61, 115, 0, 4, null, null, null, undefined, [200, [1, 0]]],
+        [77, 113, 0, 4, null, null, null, undefined, [85, [1, 0]]], [59, 41, 0, 4, null, null, null, undefined, [70, null]]],
+      holds: [[55, 115, 100], [53, 41, 100]], tubes: [0x98C6, 0x40, 0x42] },
+    16: { floorSprings: 0x55, bumpers: [0xFF, 0x94EA, 30],
+      rides: [[73, 105, 0, 4, null, null, null, undefined, [70, null]], [85, 76, 0, 0x8004, null, null, null, undefined, [84, null]],
+        [87, 74, 0, 0x8044, null, null, null, undefined, [84, null]]],
+      holds: [[68, 105, 100]], tubes: [0x9480, 0x40, 0x42] },
   };   // units: spike ball circle radius (measured) and height (estimated)
   // Bosses run by the act's own routine. Green Grove 3 (RunLevel_GGz3 0xDDE4): Robotnik's pod starts at [x, y, z],
   // comes down to the cruise height, then loops: follows Sonic (2 units a frame) until close, lets its spiked ball go
@@ -87,7 +101,10 @@ const S3D = (() => {
   // object types, identified by watching the game run: player start, springs, monitors, the act-end ring, main enemies
   const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
-    0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler' };
+    0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
+    0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon' };
+  // Spring Stadium's balloons (150, handler 0x164B0): bob 8 units about word +0x26 (phase +0x24, 16 a frame of 2048);
+  // touched, they pop and throw Sonic about 43 units up (measured), and are back about 70 frames later
   // Rusty Ruin's spiked crawler (0AC), watched in the emulator: it rolls 1 unit a frame along the foot of a wall between
   // words +0x24 and +0x26, turning at each end, and hurts whatever touches it (it cannot be broken). The range holds
   // the record's x when it runs along x, else it runs along z (all three records; the rule is mine).
@@ -275,7 +292,14 @@ const S3D = (() => {
         if (t === 0x0C) { e.orbit = r3(HUNTER_ORBIT / CELL); e.orbitY = r3(HUNTER_BALL_Y / CELL * vscale); }
       }
       if (kind === 'monitor') e.kind = MONITOR_KINDS[u16(ob, o + 0x26) >> 7] || 'rings';
-      if (kind === 'booster') e.dir = (u16(ob, o + 0x16) & 0x800) ? [0, 1] : [0, -1];
+      // superchargers (routine 0xCA6A): word +0x26 set and bit 3 of byte +0x16 pick the way: (0, 0) north, (0, 1) west,
+      // (1, 0) south, (1, 1) east; Sonic is taken standing one cell that way from the record, held 70 frames, and dashes
+      if (kind === 'booster') {
+        const b3 = (ob[o + 0x16] >> 3) & 1, w26 = u16(ob, o + 0x26) !== 0;
+        e.dir = w26 ? (b3 ? [1, 0] : [0, 1]) : (b3 ? [-1, 0] : [0, -1]);
+        e.x = r3((x + e.dir[0] * CELL) / CELL - x0); e.z = r3((z + e.dir[1] * CELL) / CELL - z0);
+      }
+      if (kind === 'balloon') { e.y = r3((s16(ob, o + 0x26) + 8) / CELL * vscale); e.phase = u16(ob, o + 0x24) & 0x7FE; e.rise = launchFor(vscale, 43); }
       if (kind === 'spring') e.power = springPower(vscale);
       if (t === 0x8C) { e.power = launchFor(vscale, 94); e.absY = r3(s16(ob, o + 0xA) / CELL * vscale); }
       if (kind === 'lift') { e.y = r3(s16(ob, o + 0xA) / CELL * vscale); e.drop = r3(84 / CELL * vscale); }
@@ -335,19 +359,52 @@ const S3D = (() => {
         ents.push({ type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: 0, exit: [r3(x / CELL - x0), r3(z / CELL - z0)],
           exitY: r3(y / CELL * vscale), push: [r3(vx * mps), r3(vz * mps)], launch: 0 });
     }
-    for (const [cx, cz, after, state, from, facing, vel, maxY] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
-      const sc = rideScript(d, state), ride = {
-        start: from ? [r3(from[0] / CELL - x0), r3(from[1] / CELL * vscale), r3(from[2] / CELL - z0)] : null, facing: facing === null ? null : compassOf(facing),
-        vel: [r3(vel[0] * mps), r3(vel[1] * mps * vscale), r3(vel[2] * mps)],
-        path: sc.path.map(([dx, dy, dz]) => [r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)]),
-        turns: sc.turns.map(([i, f]) => [i, compassOf(f)]),
+    // a ride's state with bit 15 set plays the script with x and z swapped (facings mirrored to match); with no velocity
+    // given, the move's last step carries on; `force`: [frames, way] the pad is held afterwards (null: let go)
+    const rideOf = (state, from, facing, vel) => {
+      const sc = rideScript(d, state & 0x7FFF), mir = !!(state & 0x8000), path = mir ? sc.path.map(([a, b, c]) => [c, b, a]) : sc.path, last = path[path.length - 1] || [0, 0, 0];
+      return { start: from ? [r3(from[0] / CELL - x0), r3(from[1] / CELL * vscale), r3(from[2] / CELL - z0)] : null, facing: facing === null ? null : compassOf(facing),
+        vel: vel ? [r3(vel[0] * mps), r3(vel[1] * mps * vscale), r3(vel[2] * mps)] : [r3(last[0] * mps), 0, r3(last[2] * mps)],
+        path: path.map(([dx, dy, dz]) => [r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)]),
+        turns: sc.turns.map(([i, f]) => [i, compassOf(mir ? (0x600 - f) & 0x7FF : f)]), sc };
+    };
+    for (const [cx, cz, after, state, from, facing, vel, maxY, force] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
+      const { sc, ...rd } = rideOf(state, from, facing, vel), ride = { ...rd,
         end: sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3(sc.end[1] / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
           vel: [r3(sc.end[4] * mps), r3(-sc.end[5] * mps * vscale), r3(sc.end[6] * mps)] } : null };
+      if (force) ride.force = { t: r3(force[0] / 60), dir: force[1] };
       // the routines look only at the cell (and a height), grounded or not
       const e = { type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: after, air: true, ride };
       if (maxY !== undefined) e.maxY = r3(maxY / CELL * vscale);
       ents.push(e);
     }
+    for (const [cx, cz, frames] of gm.holds || []) if (floorCell(cx, cz)) ents.push({ type: 'hold', x: cx + 0.5 - x0, z: cz + 0.5 - z0, t: r3(frames / 60) });
+    // tubes (helper 0x9B40): two mouths; a grounded Sonic in the first's box (x w0..w0 + 32, z w1..w1 + 8) is pulled to
+    // [w2, w3, w4] and 30 frames later plays the state in (leaving east), in the second's (z w5..w5 + 32, x w6..w6 + 8)
+    // to [w7, w8, w9] and the state out (leaving south)
+    if (gm.tubes) {
+      const [tab, sa, sb] = gm.tubes, w = k => s16(d, tab + 2 * k);
+      for (const [bx0, bx1, bz0, bz1, at, st] of [[w(0), w(0) + 32, w(1), w(1) + 8, [w(2), w(3), w(4)], sa], [w(6), w(6) + 8, w(5), w(5) + 32, [w(7), w(8), w(9)], sb]]) {
+        if (!floorCell(Math.floor((bx0 + bx1) / 2 / CELL), Math.floor((bz0 + bz1) / 2 / CELL))) continue;
+        const { sc, ...rd } = rideOf(st, at, null, null), ride = { ...rd, end: null, wait: r3(30 / 60) };
+        ents.push({ type: 'hole', x: r3((bx0 + bx1) / 2 / CELL - x0), z: r3((bz0 + bz1) / 2 / CELL - z0), half: [r3((bx1 - bx0) / 2 / CELL), r3((bz1 - bz0) / 2 / CELL)], opens: 0, ride });
+      }
+    }
+    const cellsOf = mark => {
+      const c = [];
+      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) { const v = map[z * 128 + x]; if (v && (v & 0xFF) === mark) c.push([x - x0, z - z0]); }
+      return c;
+    };
+    if (gm.floorSprings !== undefined) { const cells = cellsOf(gm.floorSprings); if (cells.length) ents.push({ type: 'springCells', cells, power: launchFor(vscale, 124) }); }
+    if (gm.bumpers) {
+      const [mark, tab, n] = gm.bumpers, cells = cellsOf(mark);
+      for (let k = 0; k < n; k++) {
+        const off = Math.abs(s16(d, tab + 2 * k)) >> 1, cx = off & 127, cz = off >> 7;
+        if (cx >= x0 && cx <= x1 && cz >= z0 && cz <= z1 && map[cz * 128 + cx] && !cells.some(c => c[0] === cx - x0 && c[1] === cz - z0)) cells.push([cx - x0, cz - z0]);
+      }
+      if (cells.length) ents.push({ type: 'bumpers', cells });
+    }
+    if (gm.spikeField !== undefined) { const cells = cellsOf(gm.spikeField); if (cells.length) ents.push({ type: 'spikeField', cells }); }
     const bs = BOSSES[id];
     if (bs) {
       const e = { type: 'boss', kind: bs.kind, x: r3(bs.at[0] / CELL - x0), y: r3(bs.at[1] / CELL * vscale), z: r3(bs.at[2] / CELL - z0),
@@ -571,7 +628,8 @@ const S3D = (() => {
       shieldLost: [0xB9], section: [0xAC] /* near the big ring routine */,
       cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */,
       bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */,
-      bossSlam: [0x5F], bossCap: [0x9E] /* RR3's routine */ },
+      bossSlam: [0x5F], bossCap: [0x9E] /* RR3's routine */,
+      bumper: [0xB7], balloon: [0x77], spikesUp: [0x52] /* Spring Stadium's routines */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {

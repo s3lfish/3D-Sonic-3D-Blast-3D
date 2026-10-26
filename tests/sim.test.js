@@ -644,13 +644,38 @@ test('invincibility: enemies and mines do not hurt, enemies pop on touch', () =>
   place(w, 6.5, 2.5); run(w, 90, { mx: 1, mz: 0 });
   assert.strictEqual(w.ringCount, 5); assert.ok(!w.enemies[0].alive);
 });
-test('supercharger: jump on it, held a second, fired along its direction', () => {
+test('supercharger: standing on its spot is enough; held 70 frames, then dashed off along its way', () => {
   const w = FLAT([{ type: 'booster', x: 4.5, z: 2.5, dir: [1, 0] }]); place(w, 4.5, 2.5);
-  run(w, 2, { jump: true });
+  run(w, 2, {});
   assert.ok(w.p.boost, 'taken in');
-  run(w, 30, {}); near(w.p.x, 4.5, 1e-9, 'held');
-  run(w, 40, {});
-  assert.ok(w.p.x > 8 && !w.p.boost, `fired to x ${w.p.x}`);
+  run(w, 60, {}); near(w.p.x, 4.5, 1e-9, 'held');
+  run(w, 30, {});
+  assert.ok(w.p.x > 7 && !w.p.boost && w.p.rolling, `dashed to x ${w.p.x}`);
+});
+test('Spring Stadium cells: a floor spring, a bumper push, spikes after 18 frames, a loop ride with the pad held after', () => {
+  const rows = Array.from({ length: 8 }, () => '4'.repeat(16));
+  const ride = { start: null, facing: null, vel: [13, 0, 0], path: Array.from({ length: 10 }, () => [0.2, 0, 0]), turns: [], end: null, force: { t: 1, dir: [1, 0] } };
+  const lvl = grid(rows, { entities: [{ type: 'start', x: 1.5, z: 1.5 }, { type: 'springCells', cells: [[3, 1]], power: 9 },
+    { type: 'bumpers', cells: [[6, 1]] }, { type: 'spikeField', cells: [[9, 1]] }, { type: 'hole', x: 2.5, z: 5.5, size: 0.5, air: true, ride }] });
+  let w = world(lvl); place(w, 3.5, 1.5); run(w, 2, {});
+  assert.ok(w.p.vy > 5 && !w.p.grounded, 'sprung');
+  w = world(lvl); place(w, 5.5, 1.5); let bumped = -1;
+  run(w, 30, (f, ww) => { if (bumped < 0 && ww.events.includes('bumper')) bumped = f; return { mx: 1 }; });
+  assert.ok(bumped >= 0 && w.p.x < 6.6, `bumped back west (x ${w.p.x})`);
+  w = world(lvl); w.ringCount = 5; place(w, 9.5, 1.5); let hurtAt = -1;
+  run(w, 40, (f, ww) => { if (hurtAt < 0 && ww.events.includes('hurt')) hurtAt = f; return {}; });
+  assert.ok(hurtAt >= 16 && hurtAt <= 22, `spikes out at frame ${hurtAt}`);
+  w = world(lvl); place(w, 2.5, 5.5); run(w, 1, {});
+  assert.ok(w.p.ride, 'ride taken'); run(w, 11, {});
+  assert.ok(!w.p.ride && w.p.force, 'pad held after'); run(w, 30, {});
+  assert.ok(Math.hypot(w.p.vx, w.p.vz) > 12, `running on at ${Math.hypot(w.p.vx, w.p.vz)}`);
+});
+test('a balloon pops under a player, throws them up, and comes back', () => {
+  const w = FLAT([{ type: 'balloon', x: 4.5, y: 2.2, z: 2.5, rise: 5.3 }]); place(w, 4.5, 2.5);
+  Object.assign(w.p, { y: 3.4, grounded: false, vy: 0 });
+  let popped = -1; run(w, 40, (f, ww) => { if (popped < 0 && ww.events.includes('balloon')) popped = f; return {}; });
+  assert.ok(popped >= 0, 'popped'); assert.ok(w.balloons[0].pop > 0, 'gone a while');
+  run(w, 80, {}); assert.ok(w.balloons[0].pop <= 0, 'back');
 });
 test('a chasing enemy comes after a nearby player and a still one stays put', () => {
   const w = FLAT([{ type: 'enemy', x: 9.5, z: 2.5, radius: 1, chase: 1 }, { type: 'enemy', x: 14.5, z: 2.5, radius: 0 }]);

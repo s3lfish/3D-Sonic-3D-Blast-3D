@@ -168,10 +168,10 @@
     return romArt.objs.get(key);
   }
   // a boss's own frames (object art by type) in the level's sprite palette (line 3)
-  function romBossMat(type, frame, size, oy) {
-    const key = 'boss' + type + '/' + frame + (L.palettes || []).join(',');
+  function romBossMat(type, frame, size, oy, line = 3) {
+    const key = 'boss' + type + '/' + frame + '/' + line + (L.palettes || []).join(',');
     if (!romArt.objs.has(key)) {
-      const pal = S3D.paletteRGB(romArt.d, (L.palettes || romArt.fallbackPals)[3]);
+      const pal = S3D.paletteRGB(romArt.d, (L.palettes || romArt.fallbackPals)[line]);
       romArt.objs.set(key, new THREE.SpriteMaterial({ map: pixTex(pixCanvas(S3D.objImage(romArt.d, S3D.typeArt(romArt.d, type), frame, pal, size, size / 2, oy), size)), alphaTest: 0.5 }));
     }
     return romArt.objs.get(key);
@@ -278,6 +278,13 @@
     for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; g.beginPath(); g.moveTo(32 + Math.cos(a) * 14, 34 + Math.sin(a) * 14); g.lineTo(32 + Math.cos(a) * 27, 34 + Math.sin(a) * 27); g.stroke(); }
     g.beginPath(); g.arc(32, 34, 15, 0, 7); g.fill(); g.stroke(); g.fillStyle = '#ff5a4a'; g.beginPath(); g.arc(32, 34, 5, 0, 7); g.fill();
   });
+  const balloonMat = crudeMat(64, 64, g => {   // a balloon of our own: round, a shine, a knot and a bit of string
+    g.strokeStyle = '#1c1830'; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(32, 50); g.quadraticCurveTo(28, 56, 33, 63); g.stroke();
+    g.fillStyle = '#2f6fe0'; g.beginPath(); g.ellipse(32, 26, 18, 21, 0, 0, 7); g.fill(); g.stroke();
+    g.fillStyle = '#2f6fe0'; g.beginPath(); g.moveTo(28, 49); g.lineTo(36, 49); g.lineTo(32, 44); g.fill(); g.stroke();
+    g.fillStyle = 'rgba(255,255,255,0.75)'; g.beginPath(); g.ellipse(25, 18, 5, 7, -0.5, 0, 7); g.fill();
+  });
   const turretMat = crudeMat(64, 64, g => {
     g.fillStyle = '#7a3fb0'; g.strokeStyle = '#1c1830'; g.lineWidth = 3;
     g.beginPath(); g.rect(14, 34, 36, 26); g.fill(); g.stroke();
@@ -343,6 +350,9 @@
       bossGrab: () => tone('square', 150, 600, 0.25, 0.15),
       bossDown: () => { noise(1.2, 0.9, 500); tone('sine', 90, 30, 1.2, 0.6); },
       bossSlam: () => { noise(0.5, 0.9, 300); tone('sine', 70, 35, 0.4, 0.5); },
+      bumper: () => { tone('square', 500, 900, 0.12, 0.2); tone('square', 750, 1300, 0.12, 0.12); },
+      balloon: () => { noise(0.15, 0.9, 3000); tone('sine', 300, 700, 0.15, 0.2); },
+      spikesUp: () => tone('sawtooth', 180, 420, 0.25, 0.15),
       bossCap: () => { noise(0.3, 0.6, 600); tone('square', 120, 90, 0.2, 0.2); },
       padOut: () => { tone('triangle', 180, 1400, 0.32, 0.4); noise(0.2, 0.3, 2000); },
       boost: () => { noise(0.35, 0.6, 2500); tone('square', 700, 120, 0.4, 0.25); },
@@ -726,7 +736,7 @@
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
-  let mineSprites = [], crawlerSprites = [], turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
+  let mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
   let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
   // spiked ball on a chain, and a burst of fireballs when beaten
@@ -749,6 +759,28 @@
     for (let i = 0; i < 6; i++) { g.beginPath(); let x = rnd() * 64, y = rnd() * 64; g.moveTo(x, y); for (let k = 0; k < 4; k++) { x += rnd() * 12 - 6; y += rnd() * 12 - 6; g.lineTo(x, y); } g.stroke(); }
     stoneTexture = new THREE.CanvasTexture(c); stoneTexture.wrapS = stoneTexture.wrapT = THREE.RepeatWrapping;
     return stoneTexture;
+  }
+  // Spring Stadium 1's spike fields: five spikes a cell, all rising together with the sim's count (0 to 5)
+  function buildSpikes() {
+    const parts = [];
+    for (const [ox, oz] of [[0.25, 0.25], [0.75, 0.25], [0.5, 0.5], [0.25, 0.75], [0.75, 0.75]]) {
+      const c = new THREE.ConeGeometry(0.09, 1, 6).toNonIndexed(); c.translate(ox - 0.5, 0.5, oz - 0.5); parts.push(c);
+    }
+    const pos = [], nrm = [];
+    for (const c of parts) { pos.push(...c.attributes.position.array); nrm.push(...c.attributes.normal.array); c.dispose(); }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+    const cells = [...world.spikeCells], m = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({ color: 0xd8c890 }), cells.length);
+    m.userData.cells = cells.map(t => { const cx = t % L.width, cz = (t - cx) / L.width; return [cx + 0.5, Sim.floorAt(L, cx + 0.5, cz + 0.5), cz + 0.5]; });
+    m.userData.level = -1; levelGroup.add(m); spikeMesh = m; setSpikes(world.spike);
+    return m;
+  }
+  const _spM = new THREE.Matrix4();
+  function setSpikes(level) {
+    const m = spikeMesh, h = Math.max(0.001, level / 5 * 0.42 * (L.rom ? L.rom.vscale : 1));
+    m.visible = level > 0; m.userData.level = level;
+    m.userData.cells.forEach(([x, y, z], i) => { _spM.makeScale(1, h, 1); _spM.setPosition(x, y - 0.02, z); m.setMatrixAt(i, _spM); });
+    m.instanceMatrix.needsUpdate = true;
   }
   function buildRrStatue(b) {
     const stone = new THREE.MeshLambertMaterial({ map: stoneTex(), color: 0xd0cab4 }), seam = new THREE.MeshLambertMaterial({ color: 0x77735f });
@@ -973,6 +1005,14 @@
       const s = bottomSprite(mm, mo.x, mo.y, mo.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); s.userData.size = ROM_SIZE; s.userData.rom = [mm, mm]; return s;
     });
     mineSprites = world.mines.map(mi => objSprite('mine', mi, mineMat, 0.7, 0.04));
+    // Spring Stadium's balloons: the original's frames (type art 0x150, palette line 2: whole 0, popping 3 and 4) standing
+    // on the sim's height; otherwise a balloon of our own
+    balloonSprites = world.balloons.map(b => {
+      const sp = new THREE.Sprite(rom ? romBossMat(0x150, 0, 64, 48, 2) : balloonMat);
+      if (rom) { sp.center.set(0.5, 1 - 48 / 64); sp.scale.set(64 * 0.025, 64 * 0.025, 1); } else { sp.center.set(0.5, 0.05); sp.scale.set(0.9, 0.9, 1); }
+      sp.userData.rom = rom; levelGroup.add(sp); return sp;
+    });
+    spikeMesh = world.spikeCells.size ? buildSpikes() : null;
     // Rusty Ruin's spiked crawlers: the original's eight turning frames (object art by type), centred on the sim's height
     crawlerSprites = world.crawlers.map(c => {
       const sp = new THREE.Sprite(rom ? romBossMat(0xAC, 0, 64, 40) : mineMat);
@@ -1915,6 +1955,13 @@
       const k = (world.time - mi.diedAt) / 0.3;
       s.visible = k < 1; if (k < 1) s.scale.set(s.userData.size * (1 + 2 * k), s.userData.size * (1 + 2 * k), 1);
     }
+    for (let q = 0; q < balloonSprites.length; q++) {
+      const s = balloonSprites[q], b = world.balloons[q], k = b.pop > 0 ? 1 - b.pop / Sim.P.balloonBack : -1;
+      s.position.set(b.x, b.by, b.z); s.visible = k < 0 || k < 0.12;
+      if (s.userData.rom) s.material = romBossMat(0x150, k < 0 ? 0 : k < 0.06 ? 3 : 4, 64, 48, 2);
+      else s.scale.set(k < 0 ? 0.9 : 1.3, k < 0 ? 0.9 : 1.3, 1);
+    }
+    if (spikeMesh && spikeMesh.userData.level !== world.spike) setSpikes(world.spike);
     for (let q = 0; q < crawlerSprites.length; q++) {
       const s = crawlerSprites[q], c = world.crawlers[q];
       s.position.set(c.x, c.y, c.z);

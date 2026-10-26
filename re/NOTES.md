@@ -292,3 +292,29 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - Rolls 1 unit a frame between words +0x24 and +0x26 and back (RR2 (3017, 546, 1135) along x 2969..3062; RR1 two
   along z). It wakes once on screen. A Sonic dropped onto it is hurt ($3E = -2). Art: type art 0xAC, eight turning
   frames. Axis rule (the range holds x: along x) is inferred from three records.
+
+## Spring Stadium (2026-10-27; objshots.py, boost2.py, balloon2.py, runlog.py, simrun.js, mapview.py)
+- Object handlers: `bra.w` table at 0x1BF42 + type (024 0x18896, 038 0x18006, 044 0x18086, 05C 0x17E80, 13C 0x1704C,
+  140 0x16FFE, 14C 0x17CB6, 150 0x164B0, 154 0x160CA, 15C 0x161C4, 160 0x1626A, 0AC 0x16F80, 01C 0x18AFE, 090 0x18BD0).
+- SS1 uses InitLevel_SSz1/RunLevel_SSz1 (labels not swapped). Sonic's word +0x8C is his cell's map offset
+  (z << 8 | x << 1); routines compare it with fixed cells. Teleporting Sonic needs +0x8C set too.
+- Superchargers (0xCA6A): (word +0x26 != 0, bit 3 of +0x16): (0,0) north, (0,1) west, (1,0) south, (1,1) east;
+  grounded, no pad lock, object at a ready frame, Sonic within 12 units of the cell one step that way: held 70
+  frames (pad 0xEF: spin dash rev), then off at 7.4 units a frame; pad let go 30 frames. Measured in SS1.
+- SS1 opener (emulator): supercharger -> loop at (37, 117) (state 4; pad F5 = run east held 140 frames from the
+  loop's start) -> floor spring (46, 115) up onto 0x31 -> supercharger (1632, 384, 3680) -> loop (61, 115) -> loop
+  (77, 113) -> downhill. Init raises gate cells by 0x20 (closed); boosters' mode 15 opens them. Not modelled: gates.
+- Floor springs (low byte 0x55, end of 0x9974): grounded -> vy 7.875 up (sound 0xB1). Bumpers (0xFF, and tables
+  0x98DA SS1 / 0x94EA SS2, negative entries a second look): on entering the cell within 12 of the floor, by the
+  cell's diagonals: north -> vz -5, west -> vx -5, east -> vx +5, south -> vz +5; $0ACA 20 frames; sound 0xB7.
+  The cell is flush (its corner raises bring it to its neighbours' height). Spike fields (0xAA, SS1 only, 0x9D44):
+  shared count $2(a4) +0x200 every 4 frames ($0AF8) while grounded on one, -0x200 off; at 0xA00 a hit (18 frames).
+- Tubes (0x9B40; tables 0x98C6 / 0x9480): [x, z, to x, y, z] in x boxes of 32 x 8, then [z, x, to ...] in z: held 30
+  frames (pad locked 120, sound 0x3C), then states 0x40 / 0x42 (twisted tunnel down / up between the two mouths).
+- Balloons (150): y = word +0x26 + 8 sin (phase +0x24, +16 a frame of 2048); touched (from above at its top, 26 over
+  its base) they pop (frames 8..16 then gone ~70 frames, sound 0x77) and throw Sonic ~43 units up. A jump from the
+  floor (51-60 units) under SS2's first does not reach it; floor springs beside it do.
+- Not used yet: triangle bumper zones (SS1 0x9818 box x 0x980..0x9C0; SS2 0x925C several), SS2 spears (cells at
+  0x9494, rising object at $D422, hurts), SS2 spike wall cells (x 0xF40, z rows 0x16..0x1E), 044 (Sonic head pickups:
+  ten add one to $06AA), 13C (a red button), 140, 154 (spear-like posts, animated when a ring opens a gate), 15C/160
+  Tails and Knuckles.

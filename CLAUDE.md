@@ -103,6 +103,18 @@ serves index.html from main.
   x -4..+20, z -2..+36 units) that carries him; any pod touch is a hit (knock-back locks the pad 30 frames, `p.lock`).
   Drawn as a stone statue of our own (`buildRrStatue`; ROM pod sprite). Start faces the boss in boss arenas; the
   chase cam swings behind the player away from a boss and tilts up to it. Notes in re/NOTES.md "Bosses".
+- Spring Stadium (`GIMMICKS[15]`/`[16]`, RunLevel_SSz1 0x95DA, _SSz2 0x8EC2; helpers 0x9974 bumpers + floor springs,
+  0x9D44 spike fields, 0x9B40 tubes): cell marks by low byte (geometry stays the map's): `springCells` (0x55, 124
+  units up), `bumpers` (0xFF + table cells: entering one near its floor pushes 5 units a frame across the nearest
+  edge, pad taken 20 frames, `p.bumpCell`), `spikeField` (0xAA, act 1: one count `w.spike` +1 every 4 frames while
+  stood on, -1 off; at 5 it hurts; drawn as an InstancedMesh of cones). Rides at cells take `force` [frames, dir]
+  (`p.force`: pad held, counted from the move's start, `force.top` keeps the speed) and states with bit 15 swap x/z;
+  `hold` cells extend a held pad; tubes = holes with `half` [hx, hz] and ride `wait`. `balloon` (150): bobs 8 units,
+  pops (43 units up), back after 70 frames; ROM art type 0x150 palette line 2 (`romBossMat(..., line)`).
+  Superchargers (routine 0xCA6A, all zones): way from word +0x26 and bit 3 of byte +0x16 (N/W/S/E), taken standing
+  one cell that way (`boostSpot` 12 units, no button), held 70 frames, dash at 7.4 units a frame, pad let go 30 frames.
+  Holes are half-open squares (a 0.5 hole is exactly its cell). Rides ending at the floor land on it.
+- Object handlers: the table at 0x1BF42 + type (bra.w per type); `re/NOTES.md` lists the ones read.
 - Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
   ROM look draws springs as 3D drums coloured from the ROM sprite (`romSpringMats`).
 - Act end: the `goal` event shows `#clearCard`, flashes, and after 5 s converts the next act in `S3D.LEVELS` order.
@@ -165,6 +177,10 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
+- 2026-10-27: Spring Stadium 1 and 2: superchargers fixed (way and spot from the routine), loops and held runs,
+  floor springs, bumpers, spike fields, tubes, balloons; SS enemies 05C/14C; 87 sim tests; private flow.py says
+  SS1 and SS2 can be finished. Open in SS: triangle bumper zones (0x9818, 0x925C), SS2 spears (0x9494) and spike
+  wall, gates (038, raised cells), cannons/13C/140, Tails and Knuckles, SS3 boss.
 - 2026-10-27: RR3 boss (statue arms, slams, fist rides; checked in the emulator and the page); spiked crawler 0AC
   (`crawler` {y, axis, range}: 1 unit a frame, hurts, ROM look draws type art 0xAC frames 0-7); 82 sim tests.
 - 2026-10-27 early: RR2 gimmicks; pads with the original sequence (GG too); maces (`mace`: tables 0x75C2/0x80B8, ball 64
