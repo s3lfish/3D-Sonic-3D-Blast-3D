@@ -47,10 +47,11 @@ untested.
 - Mines, Turrets, chasing and standing enemies, and superchargers (stand on one and press jump).
 - The original's act results screen, then the next act.
 - A Saturn screen option: low resolution, wobbly textures, and checkerboard see-through effects.
-- Sound effects (made in the browser, not the original's). M turns sound off.
+- With your ROM: the original music and sound effects, played by an emulated Mega Drive sound chip running the
+  game's own sound program from your ROM. Without a ROM: simple sound effects made in the browser. M turns sound off.
 
 Not done yet: section gimmicks outside Green Grove (lifts, tubes, objects that change the map), cracked walls and the
-cannon, bosses, music. See `re/NOTES.md` for what is known and what is not.
+cannon, bosses. See `re/NOTES.md` for what is known and what is not.
 
 ## Working on it
 
@@ -59,6 +60,9 @@ The page is one self-contained file, `index.html`, built from `src/`:
 - `src/s3d.js`: reads the ROM (decompression, level maps, level art bake, sprites). Rules only, never ROM bytes.
 - `src/game.js`: rendering, camera, input, HUD (Three.js r128 from a CDN).
 - `src/art.js`: the scribbled fallback art, drawn in code.
+- `sound/md_sound.c`: the Mega Drive's sound hardware (Z80, YM2612, SN76489) for WebAssembly, built with
+  `sh sound/build.sh` (needs clang with the wasm32 target) into `src/md_sound.wasm`, which `tools/build.py` embeds.
+  Third-party parts and their licences are listed in `third_party/README.md`.
 - The simulation lives in the `#sim` script inside `index.html` and is edited there.
 
 ```sh
@@ -90,7 +94,8 @@ Pull requests welcome. Two hard rules:
 
 ## Licence and disclaimer
 
-GPL-3.0 (see `LICENSE`). Copyright 2026 Bill Page and contributors.
+GPL-3.0 (see `LICENSE`). Copyright 2026 Bill Page and contributors. The sound emulation includes a Z80 core
+(zlib licence) and Nuked-OPN2 (LGPL-2.1); see `third_party/README.md`.
 
 This is an unofficial fan project, not affiliated with or endorsed by Sega or Sonic Team. Sonic the Hedgehog and
 Sonic 3D Blast are trademarks of Sega. You need your own legally obtained copy of the game to use the ROM features.

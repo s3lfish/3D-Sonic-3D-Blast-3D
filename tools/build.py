@@ -1,4 +1,5 @@
-"""Assembles index.html: fills the #art and #game script tags from src/, and #level from tools/scribble_isle.json."""
+"""Assembles index.html: fills the #s3d, #art and #game script tags from src/, #mdsound with src/md_sound.wasm (base64;
+build it with sound/build.sh), and #level from tools/scribble_isle.json."""
 import re, pathlib
 root = pathlib.Path(__file__).resolve().parent.parent
 html = (root / 'index.html').read_text()
@@ -10,6 +11,8 @@ def fill(tag_open, body):
 fill('<script id="s3d">', (root / 'src/s3d.js').read_text())
 fill('<script id="art">', (root / 'src/art.js').read_text())
 fill('<script id="game">', (root / 'src/game.js').read_text())
+import base64
+fill('<script type="text/plain" id="mdsound">', base64.b64encode((root / 'src/md_sound.wasm').read_bytes()).decode())
 fill('<script type="application/json" id="level">', (root / 'tools/scribble_isle.json').read_text())
 (root / 'index.html').write_text(html)
 print('built index.html', len(html), 'bytes')

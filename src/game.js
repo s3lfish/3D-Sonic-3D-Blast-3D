@@ -306,14 +306,109 @@
       tick: () => tone('square', 2200, 2200, 0.03, 0.12),
     };
     function play(name) {
-      if (muted || !SOUNDS[name] || !ready()) return;
+      if (muted) return;
+      if (MdSound.on && MdSound.sfx(name)) return;
+      if (!SOUNDS[name] || !ready()) return;
       const now = ctx.currentTime;
       if (now - (lastPlay[name] || -1) < 0.05) return;   // several in one frame (rings in a line) sound once
       lastPlay[name] = now; SOUNDS[name]();
     }
     for (const ev of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(ev, unlock, { passive: true });
-    return { play, unlock, toggle() { muted = !muted; store.set(MUTE_KEY, muted ? '1' : '0'); return muted; }, get muted() { return muted; } };
+    return { play, unlock, toggle() { muted = !muted; store.set(MUTE_KEY, muted ? '1' : '0'); MdSound.pause(muted); return muted; }, get muted() { return muted; } };
   })();
+  // ---- Mega Drive sound from the player's ROM: the Z80, YM2612 and PSG emulated (md_sound.wasm, built from sound/),
+  // running the game's own sound program in an AudioWorklet; the page plays the 68000's part by writing requests ----
+  const MdSound = (() => {
+    const WORKLET = `
+      class MdSound extends AudioWorkletProcessor {
+        constructor() {
+          super(); this.ready = false; this.q = []; this.t = 0; this.frac = 0; this.pl = 0; this.pr = 0; this.gain = 1 / 32768;
+          this.port.onmessage = e => this.msg(e.data);
+        }
+        async msg(d) {
+          if (d.init) {
+            try {
+              const { instance } = await WebAssembly.instantiate(d.wasm, {});   // bytes: a compiled Module may not cross
+              this.m = instance.exports; this.boot(d); this.step = 53267 / sampleRate; this.ready = true; this.port.postMessage({ ready: true });
+            } catch (e) { this.port.postMessage({ error: String(e) }); }
+            return;
+          }
+          if (d.req !== undefined) { if (this.q.length < 6) this.q.push(d.req); }
+          if (d.reboot && this.m) this.boot(this.last);
+          if (d.volume !== undefined) this.gain = d.volume / 32768;
+        }
+        boot(d) {
+          const m = this.m, mem = new Uint8Array(m.memory.buffer);
+          m.md_reset(); mem.set(new Uint8Array(d.rom), m.md_rom()); m.md_set_rom_size(d.rom.byteLength);
+          this.z = m.md_zram();
+          for (const [src, dst, n] of d.driver) mem.set(new Uint8Array(d.rom, src, n), this.z + dst);
+          this.mailbox = d.mailbox; m.md_start(); this.last = d;
+          this.t = -0.25;   // let the sound program set itself up before the first request
+        }
+        process(inputs, outputs) {
+          const L = outputs[0][0], R = outputs[0][1] || L, n = L.length;
+          if (!this.ready) return true;
+          const m = this.m, mem = new Uint8Array(m.memory.buffer);
+          this.t += n / sampleRate;
+          if (this.t >= 1 / 60) { this.t -= 1 / 60; if (this.q.length && mem[this.z + this.mailbox] === 0) mem[this.z + this.mailbox] = this.q.shift(); }
+          const need = Math.floor(this.frac + n * this.step) + 1, got = m.md_render(need);
+          const buf = new Int16Array(m.memory.buffer, m.md_out(), got * 2);
+          const at = k => k === 0 ? [this.pl, this.pr] : [buf[(k - 1) * 2], buf[(k - 1) * 2 + 1]];
+          for (let i = 0; i < n; i++) {
+            const p = this.frac + i * this.step, k = Math.floor(p), f = p - k, a = at(Math.min(k, got)), b = at(Math.min(k + 1, got));
+            L[i] = (a[0] + (b[0] - a[0]) * f) * this.gain; R[i] = (a[1] + (b[1] - a[1]) * f) * this.gain;
+          }
+          // report the output level about once a second (for the page's checks)
+          this.acc = (this.acc || 0) + n; this.sq = (this.sq || 0) + L.reduce((a, v) => a + v * v, 0);
+          if (this.acc >= sampleRate) { this.port.postMessage({ rms: Math.sqrt(this.sq / this.acc) }); this.acc = 0; this.sq = 0; }
+          const used = Math.min(got, Math.floor(this.frac + n * this.step));
+          this.frac = this.frac + n * this.step - used; [this.pl, this.pr] = at(used);
+          return true;
+        }
+      }
+      registerProcessor('md-sound', MdSound);`;
+    let ctx = null, node = null, starting = null, romUsed = null, musicNow = 0, level = 0, ready = false;
+    const B64 = (document.getElementById('mdsound').textContent || '').trim();
+    async function start(rom) {
+      if (!B64 || !window.AudioWorkletNode) return false;
+      if (node && romUsed === rom) return true;
+      if (starting) return starting;
+      starting = (async () => {
+        try {
+          ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+          if (!ctx.audioWorklet) return false;   // only on secure pages (https, localhost, files)
+          if (!node) {
+            const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
+            await ctx.audioWorklet.addModule(url); URL.revokeObjectURL(url);
+            node = new AudioWorkletNode(ctx, 'md-sound', { numberOfInputs: 0, outputChannelCount: [2] });
+            node.connect(ctx.destination);
+            node.port.onmessage = e => { if (e.data.rms !== undefined) level = e.data.rms; if (e.data.error) console.warn('Mega Drive sound:', e.data.error); if (e.data.ready) ready = true; };
+          }
+          const wasm = Uint8Array.from(atob(B64), c => c.charCodeAt(0)).buffer, copy = rom.slice().buffer;
+          node.port.postMessage({ init: true, wasm, rom: copy, driver: S3D.SOUND.driver, mailbox: S3D.SOUND.mailbox }, [wasm, copy]);
+          romUsed = rom; musicNow = 0;
+          return true;
+        } catch (e) { console.warn('Mega Drive sound could not start:', e); node = null; return false; } finally { starting = null; }
+      })();
+      return starting;
+    }
+    const send = id => { if (node && id) node.port.postMessage({ req: id }); };
+    return {
+      start, get level() { return level; }, get music() { return musicNow; }, get state() { return ctx ? ctx.state + (ready ? '/ready' : '') : 'none'; }, get on() { return !!node && romUsed === romBytes && !!romBytes; },
+      sfx(name) { const ids = S3D.SOUND.sfx[name]; if (!ids) return false; ids.forEach(send); return true; },
+      power(kind) { send(S3D.SOUND.power[kind]); },
+      playMusic(id) { if (id && id !== musicNow) { musicNow = id; send(id); } },
+
+      pause(p) { if (ctx) (p ? ctx.suspend() : ctx.resume()).catch(() => {}); },
+      volume(v) { if (node) node.port.postMessage({ volume: v }); },
+    };
+  })();
+  // the level's music: its own for converted levels, Green Grove's for the built-in level
+  function levelMusic() {
+    if (!MdSound.on || Sfx.muted) return;
+    MdSound.playMusic(S3D.SOUND.musicFor(romBytes, L.rom ? L.rom.level : 1));
+  }
+
   const POWER_TEXT = { rings: 'Ten rings.', shield: 'Shield: it takes one hit for you.', gold: 'Gold shield: press jump again in the air to dash.',
     invincible: 'Invincible for a while.', speed: 'Speed shoes: faster for a while.', oneup: 'One up.', fire: 'Shield: it takes one hit for you.' };
 
@@ -860,7 +955,7 @@
     else if (e.code === 'KeyQ' && !e.repeat) rotateCam(-1);
     else if (e.code === 'KeyE' && !e.repeat) rotateCam(1);
     else if (e.code === 'KeyR' && !e.repeat) restart();
-    else if (e.code === 'KeyM' && !e.repeat) toast(Sfx.toggle() ? 'Sound off. M turns it back on.' : 'Sound on.', 1.6);
+    else if (e.code === 'KeyM' && !e.repeat) { const off = Sfx.toggle(); toast(off ? 'Sound off. M turns it back on.' : 'Sound on.', 1.6); if (!off) startSound(); }
     else if (e.code === 'KeyV' && !e.repeat) setMode(view.mode === 'iso' ? 'chase' : 'iso');
   });
   window.addEventListener('keyup', e => { if (e.code in KEYMAP) keys.delete(KEYMAP[e.code]); });
@@ -978,8 +1073,13 @@
     : [['WASD / arrows', 'Move'], ['Mouse drag', 'Look around'], ['Space or J', 'Jump; hold for height'], ['Shift or K', 'Hold to stop and rev a spin dash, let go to launch. Tap while running to roll.'], ['Q / E', 'Swing the camera 45 degrees'], ['Wheel', 'Camera distance'], ['V', 'Switch to the isometric view and back'], ['R', 'Restart'], ['M', 'Sound on or off'], ['Controller', 'Left stick moves, right stick looks, A jump, B or X dash, LB/RB swing, Y or Back switches view, right stick click recentres, Start pauses']];
   for (const [k, v] of rows) { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; $('keysList').append(dt, dd); }
   let started = false;
-  function start() { Sfx.unlock(); started = true; $('helpOverlay').hidden = true; canvas.focus(); }
-  function openHelp() { started = false; $('playBtn').textContent = 'Resume'; $('restartBtn').hidden = false; $('helpOverlay').hidden = false; }
+  function startSound() {
+    Sfx.unlock();
+    if (!romBytes || Sfx.muted) return;
+    MdSound.start(romBytes).then(ok => { if (ok) { MdSound.pause(false); levelMusic(); } });
+  }
+  function start() { startSound(); started = true; $('helpOverlay').hidden = true; canvas.focus(); }
+  function openHelp() { MdSound.pause(true); started = false; $('playBtn').textContent = 'Resume'; $('restartBtn').hidden = false; $('helpOverlay').hidden = false; }
   $('playBtn').addEventListener('click', start);
   $('helpBtn').addEventListener('click', openHelp);
   $('restartBtn').addEventListener('click', () => { restart(); start(); });
@@ -1003,7 +1103,7 @@
     L = newL; customLoaded = custom;
     world = Sim.createWorld(L);
     buildLevelObjects(); resetCamera(); restart();
-    showLevelName();
+    showLevelName(); levelMusic();
   }
   $('levelFile').addEventListener('change', e => {
     const file = e.target.files && e.target.files[0];
@@ -1055,7 +1155,7 @@
   }
   $('lookSel').addEventListener('change', () => { artLook = $('lookSel').value === 'scribble' ? 'scribble' : 'rom'; store.set(LOOK_KEY, artLook); buildLevelObjects(); });
   $('romForget').addEventListener('click', () => {
-    romStore.del(); romBytes = null; romArt = null; $('romPick').hidden = true;
+    romStore.del(); romBytes = null; romArt = null; $('romPick').hidden = true; MdSound.pause(true);
     buildLevelObjects(); setLoadMsg(['Forgotten: this browser no longer keeps your ROM.'], 'romMsg');
   });
   romStore.get().then(v => { if (v && !romBytes) { const b = new Uint8Array(v); if (!S3D.check(b)) useRom(b); } });
@@ -1088,7 +1188,7 @@
   $('builtInBtn').addEventListener('click', () => { store.del(LEVEL_KEY); useLevel(Sim.importLevel(JSON.parse(builtInRaw)), false); setLoadMsg([]); });
   showLevelName();
 
-  let cleared = false, clearTimer = 0;
+  let cleared = false, clearTimer = 0, wasCharging = false;
   // a white flash when a big ring is used, as in the original
   function flash() { const f = $('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
   function clearCardOff() { $('clearCard').hidden = true; $('tally').hidden = true; tally = null; clearTimeout(clearTimer); clearTimer = 0; }
@@ -1186,6 +1286,9 @@
       Sim.step(world, inp);
       if (world.events.includes('respawn')) { prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z; toast('Back to the start.', 1.4); }
       for (const ev of world.events) Sfx.play(ev);
+      if (world.p.charge > 0 && !wasCharging) Sfx.play('charge');
+      wasCharging = world.p.charge > 0;
+      if (world.events.includes('monitor') && MdSound.on && !Sfx.muted) MdSound.power(world.power);
       if (world.events.includes('section') || world.events.includes('goal')) {
         const used = goalSprites[world.events.includes('goal') ? world.goals.length - 1 : world.section - 1];
         if (used) { const s = used.clone(); if (!used.userData.rom) s.material = used.material.clone(), s.material.transparent = true; levelGroup.add(s); goalFx = { sprite: s, t0: now / 1000, rom: !!used.userData.rom }; }
@@ -1368,7 +1471,7 @@
   }
   satReady = true; setSaturn(saturn);
   $('screenSel').addEventListener('change', () => setSaturn($('screenSel').value === 'saturn'));
-  window.__game = { Sim, view, setMode, start, get world() { return world; }, get level() { return L; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
+  window.__game = { MdSound, Sim, view, setMode, start, get world() { return world; }, get level() { return L; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
   setMode(view.mode);
   requestAnimationFrame(frame);
 })();

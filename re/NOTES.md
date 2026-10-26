@@ -152,6 +152,18 @@ original art. The browser code carries reading rules only.
 - Layout (screen = plane, no scroll): title letters 16 px apart from (88, 16) and (64, 36), act digit at (244, 22);
   small text rows 8, 12 to 20 (every other row) and 23. The bonus tables themselves are not decoded.
 
+## Sound
+
+- Loader at 0x24FD8: clears Z80 RAM, copies 0x11BF bytes from 0xD1D18 to Z80 0x0000 and 0x7BD bytes from 0xD2ED7 to
+  0x1300, clears 0x1C00 to 0x1C0F, sets 0x1C02 = 1 on PAL consoles, then releases the Z80.
+- Every request goes through one routine (0x24FA6): music queue $0AC6 first, else effects queue $0AC4, written to Z80
+  RAM 0x1C0A; the driver clears it once read. Level music: word at 0x24F78 + 2 x level id (0x24F4E): GG1 1, GG2 2, ...
+- Effect numbers, read from $0AC4 in the emulator while Sonic did each thing (`sfxlog.py`, `sfxlog2.py`, with a private
+  ROM copy whose two clears at 0x24FAE and 0x24FBE are NOPs): jump 62, spin dash rev AB and launch B6, ring 33, spring
+  68 (then B1), monitor or enemy pop 3D, Flicky freed 38, rings lost B9, turret shot 4D and 9A, act end B6 then 6A.
+  Monitors also queue on $0AC6: blue shield 3A, gold shield 3F (others in code at 0xC190 to 0xC210: 33, 19, 3E, 1B).
+- Emulated in the page (sound/md_sound.c) and checked against the reference emulator: Green Grove's music matches.
+
 ## Open questions
 
 - Section gimmicks per zone; objects that write the map.

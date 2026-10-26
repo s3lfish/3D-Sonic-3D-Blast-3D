@@ -371,6 +371,19 @@ const S3D = (() => {
     small('TOTAL', 12, 23, white); right(info.total, 27, 23);
     return { px, width: W, height: H, background: white[0] };
   }
+  // Sound: the game's own Z80 sound program, copied into Z80 RAM by the loader at 0x24FD8 (0x11BF bytes from 0xD1D18 to
+  // 0x0000, 0x7BD bytes from 0xD2ED7 to 0x1300); every sound and song is requested by writing its number to Z80 RAM
+  // 0x1C0A (0x24FC8), one per frame. Level music: word at 0x24F78 + 2 x level id (0x24F4E). Effect numbers were read
+  // from the game's request queue ($0AC4) in the emulator while Sonic did each thing; those marked "near" were only
+  // seen next to the routine and are less certain.
+  const SOUND = {
+    driver: [[0xD1D18, 0x0000, 0x11BF], [0xD2ED7, 0x1300, 0x7BD]], mailbox: 0x1C0A,
+    musicFor: (d, level) => u16(d, 0x24F78 + 2 * level),
+    sfx: { jump: [0x62], charge: [0xAB], dash: [0xB6], ring: [0x33], spring: [0x68], enemy: [0x3D, 0x38], monitor: [0x3D],
+      hurt: [0xB9], shot: [0x4D], boom: [0x9A], goal: [0x6A], boostIn: [0xAB], boost: [0xB6], goldDash: [0xB6],
+      shieldLost: [0xB9], section: [0xAC] /* near the big ring routine */ },
+    power: { shield: 0x3A, gold: 0x3F },
+  };
   function ringImage(d, k, pal, size = 16) {
     const px = new Uint8ClampedArray(size * size * 4);
     blit(px, size, d.subarray(RING_ART + k * 0x80, RING_ART + k * 0x80 + 128), 2, 2, 0, 0, false, false, pal);
@@ -798,5 +811,5 @@ const S3D = (() => {
     return { top, wall, atlas, foliage, rejects, get count() { return slots.length; } };
   }
 
-  return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, ringImage, levelPalettes, OCTANT, HERO };
+  return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, levelPalettes, OCTANT, HERO };
 })();

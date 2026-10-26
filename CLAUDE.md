@@ -64,7 +64,13 @@ serves index.html from main.
 - Saturn screen (`#screenSel`, `blastgrid.screen`): scene into a 224-line target, 15-bit colour, nearest filtering;
   `satPatch` adds affine texture mapping (vAffUv/vAffW) to meshes and checkerboard mesh transparency to all materials.
   Texture userData does not exist in r128: original filters live in the `satMin` WeakMap.
-- Sound: `Sfx` in game.js, Web Audio blips per sim event (original, nothing from the ROM); M mutes (`blastgrid.mute`).
+- Sound: with a ROM, `MdSound` runs `src/md_sound.wasm` (sound/md_sound.c: Z80 + Nuked-OPN2 + own PSG, NTSC master
+  clock) in an AudioWorklet built from a string; JS uploads the driver (`S3D.SOUND.driver`) and writes request numbers
+  to Z80 RAM 0x1C0A (one per 1/60 s, queue of 6). Music per level `S3D.SOUND.musicFor`; effects `S3D.SOUND.sfx`.
+  AudioWorklet needs a secure page (https or file); otherwise, and without a ROM, `Sfx` synthesises blips. M mutes
+  (`blastgrid.mute`); the help card pauses the audio context. Rebuild the wasm with `sh sound/build.sh`, then build.py.
+- Scar: a compiled WebAssembly.Module posted to the AudioWorklet never arrived (no error); post the bytes instead.
+  Requests sent before the worklet's async start were wiped by boot(): boot no longer clears the queue.
 - Big ring in ROM look: object art 0x3D068 frame 0, floating 56 units up, squeezed in x to turn.
 - ROM files: `S3D.openRomFile` takes a plain ROM, an .smd dump (de-interleaved) or either inside a .zip (stored or
   deflate via DecompressionStream).
@@ -93,6 +99,8 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
+- 2026-10-26: ROM results screen, Saturn screen option, ROM music and effects by emulation (GG1 music checked against
+  the reference emulator: same notes at the same tempo, top-note agreement 0.53 vs 0.14 chance). Sonic Jam model waits for Bill's disc rip.
 - 2026-10-26: Springs measured (140 units), monitors with ROM icons and effects, mines, turrets, superchargers, Scouters
   chase, Hunters stand, Flickies coloured in turn, act end moves to the next act, sound effects, spin dash on hold. 64 sim tests.
   Bill asked about music: offered own audio files, VGM rips, or full emulation; awaiting his choice.
