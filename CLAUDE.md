@@ -250,6 +250,10 @@ serves index.html from main.
   * Dash button (0x31C8): grounded with any speed, rolls; standing, held, crouches (no move, no jump), revs once the
     crouch animation shows (`p.anim` 3 played 9 frames: `p.a98`, `p.aLoad`; 14 frames on levels without `rom`), a step every 15 (jump taps hurry it; 'charge' events), let go: 8/12/14/16 x 0x7800 along the facing
     (0x54DA a part on diagonals), not moving that frame.
+  * Scroll (`origCamera`, 0x19A4 → `w.cam` {X, Y, lx, ly}): led by the facing, an eighth of the way a frame, at most 8;
+    objects with a window (`win` [w, h, x, y, record y] from the type's art header, table 0x280E8; dispatcher 0x1BE72)
+    run only while their picture point less the scroll is inside it (`onScreen`); without `win`, round Sonic. The iso
+    view on converted levels, unturned, centres on the original's picture (game.js `updateIso`).
   * Screen speed (0x3BB2, after the diagonal pieces): a frame's move of more than 8 whole units in x - z gives back one
     unit in x and z. After a reload the pad is read again 33 frames after the 52 blank ones (`w.padWait`).
   * Animation (`origAnim`, 0x1492 → `p.anim`): kept states (hurt 8, dying 0x11), spring 0xD rising, rev 7, ball 2
@@ -368,7 +372,9 @@ serves index.html from main.
   (above): turn, velocity, dash button and roll, floors and slopes by triangle, point walls, diagonal pieces, roll
   bounces, landing; the hit, lost rings, dying and reloading; bumpers, monitors as boxes; roamers, aimers, sprinklers
   on the original's counts and screen; 058 bursts; freed and following Flickies as the original's (and his bored
-  turn); Sonic's sprite animation from the ROM's scripts; screen speed limit; pad after a reload. Sine table entry
+  turn); Sonic's sprite animation from the ROM's scripts; screen speed limit; pad after a reload; the original's
+  scroll (exact over a GG1 trace) wakes objects and drives the iso view. PP1's trace still parts at frame 308: a
+  sprinkler shot touches him there (touch boxes are not the original's: screen boxes from the depth-sorted list). Sine table entry
   0x400 is 0 (the formula gave -1). 135 sim tests.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;

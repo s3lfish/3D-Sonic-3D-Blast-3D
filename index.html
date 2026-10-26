@@ -1128,6 +1128,8 @@ const Sim = (() => {
   const DECOR = new Set(['palm', 'flower', 'bush']);
   // optional art hint from a converted level (the original object type, in hex); ignored when malformed
   const skinOf = e => (typeof e.skin === 'string' && /^[0-9A-F]{3}$/.test(e.skin) ? e.skin : undefined);
+  // (converted levels: "win" [width, height, x, y, record y]: the original's screen window, see Sim's onScreen)
+  const winOf = e => (Array.isArray(e.win) && e.win.length === 5 && e.win.every(Number.isInteger) ? e.win.slice() : null);
   const RAMP_DIRS = { n: [0, -1, 0, 1], s: [0, 1, 2, 3], e: [1, 0, 1, 2], w: [-1, 0, 0, 3] }; // dx, dz, corner a, corner b
   // F floor, P pit (fall in), H hazard floor, W void the player cannot enter (the original's cells without floor)
   const COLL = new Set(['F', 'P', 'H', 'W']);
@@ -1266,7 +1268,7 @@ const Sim = (() => {
             wander: Array.isArray(e.wander) && e.wander.length === 3 && e.wander.every(Number.isFinite) ? e.wander : null,
             // converted levels: "roam" {box [x, z] in the original's units, a} and "aim" {a} (see origRoam, origAim)
             roam: e.roam && Array.isArray(e.roam.box) && e.roam.box.length === 2 && e.roam.box.every(Number.isFinite) && Number.isFinite(e.roam.a) ? { box: e.roam.box, a: e.roam.a & 0x7FE } : null,
-            aim: e.aim && Number.isFinite(e.aim.a) ? { a: e.aim.a & 0x7FE } : null, burst: e.burst ? 1 : 0 });
+            aim: e.aim && Number.isFinite(e.aim.a) ? { a: e.aim.a & 0x7FE } : null, burst: e.burst ? 1 : 0, win: winOf(e) });
           break;
         }
         // a spiked crawler (Rusty Ruin): rolls along "axis" ('x' or 'z') between the two values of "range" at height "y"
@@ -1491,7 +1493,7 @@ const Sim = (() => {
         }
         case 'sprinkler': case 'pylon': case 'prop': {
           if (!inBounds(e.x, e.z) || !Number.isFinite(e.y)) { errs.push(`A ${e.type} at (${e.x}, ${e.z}) needs a place on the map and a height "y".`); break; }
-          L.entities.push({ type: e.type, x: e.x, y: e.y, z: e.z, phase: (e.phase | 0) & 0x7FE, opens: e.opens | 0, frame: e.frame | 0, key: e.key ?? null, skin: skinOf(e) });
+          L.entities.push({ type: e.type, x: e.x, y: e.y, z: e.z, phase: (e.phase | 0) & 0x7FE, opens: e.opens | 0, frame: e.frame | 0, key: e.key ?? null, skin: skinOf(e), win: winOf(e) });
           break;
         }
         // Spring Stadium's cells: floor springs (a grounded player is thrown up at "power" m/s), bumpers, spike fields
@@ -2089,7 +2091,7 @@ const Sim = (() => {
       orbit: e.orbit || 0, orbitY: e.orbitY || 0, phase: i * 1.7, ball: e.orbit ? { x: e.x, y: e.y, z: e.z } : null, flicky: e.flicky ?? -1, shoot: e.shoot ?? -1, line: e.line ?? 3,
       wander: e.wander || null, wt: 0, wd: [0, 0],
       roam: e.roam ? { box: e.roam.box, A: e.roam.a, T: e.roam.a, chase: false } : null, aim: e.aim ? { A: e.aim.a, cnt: 30 } : null,
-      burst: e.burst ? 0 : -1 }));
+      burst: e.burst ? 0 : -1, win: e.win || null }));
     w.capsules = L.entities.filter(e => e.type === 'capsule').map(e => ({ ...e, alive: true, diedAt: -9 }));
     w.monitors = L.entities.filter(e => e.type === 'monitor').map(e => ({ x: e.x, z: e.z, y: e.y, broken: false, skin: e.skin, kind: e.kind || 'rings' }));
     w.mines = L.entities.filter(e => e.type === 'mine').map(e => ({ x: e.x, z: e.z, y: e.y, alive: true, diedAt: -9, skin: e.skin }));
@@ -3019,7 +3021,7 @@ const Sim = (() => {
   // back to the start, or to the last big ring used (the original restarts a section there)
   function respawn(w) {
     if (w.flickies) scatterFlickies(w);
-    w.hist = null; w.fStand = false; w.flyOut = 0;
+    w.hist = null; w.fStand = false; w.flyOut = 0; w.cam = null;
     const s = w.spawn || w.L.start;
     w.p = { x: s.x, y: floorAt(w.L, s.x, s.z), z: s.z, vx: 0, vy: 0, vz: 0, grounded: true, coyote: 0,
       rolling: false, ball: false, sprung: false, charge: 0, facing: s.facing, jumping: false, prevJump: false, prevDash: false, invuln: 0,
@@ -3560,6 +3562,7 @@ const Sim = (() => {
     if (p.y < L.killY) { death(w); return w; }
     // (thrown back: its movement ran on the speed as usual; the hit routine sets the knock speed again after, 0x1B7FC)
     if (p.knockT > 0 && !p.grounded) { p.vx = p.knock[0]; p.vz = p.knock[1]; }
+    if (O && L.rom) origCamera(w, p);
 
     // lifts (Rusty Ruin 2's slabs): stood on, they wait a second, then sink (the original: about 40 frames for 84 units)
     for (const f of w.lifts) {
@@ -3643,7 +3646,7 @@ const Sim = (() => {
     if (w.sprinklers.length) {
       const U = 1 / 32, vs = L.rom ? L.rom.vscale : 1;
       for (const s of w.sprinklers) {
-        if (L.rom && !onScreen(L, p, s.x, s.y, s.z)) continue;   // (it turns only while on screen)
+        if (L.rom && !onScreen(L, p, s.x, s.y, s.z, s.win, w)) continue;   // (it turns only while on screen)
         if (!s.on && Math.hypot(p.x - s.x, p.z - s.z) <= P.sprinkleR) s.on = true;
         if (s.on && L.rom && gZero(w, 16)) {   // (handler 0x174B4 on $0B02: from 16 out (+1 in x), 17 up, 2 a frame, its words)
           const S = 65536, o = L.rom.origin, i = s.a >> 1, sn = P.orig.sin[i], cs = P.orig.sin[i + 0x100];
@@ -3936,7 +3939,7 @@ const Sim = (() => {
       if (!en.alive) continue;
       const ex = p.x - en.x, ez = p.z - en.z, near = en.chase && ex * ex + ez * ez < P.chaseRange * P.chaseRange && Math.abs(p.y - en.y) < 1.5;
       let nx, nz;
-      const awake = !L.rom || onScreen(L, p, en.x, en.y, en.z);
+      const awake = !L.rom || onScreen(L, p, en.x, en.y, en.z, en.win, w);
       if (!awake) { nx = en.x; nz = en.z; }
       else if (en.burst >= 0) {   // 058 (handler 0x183FE)
         nx = en.x; nz = en.z;
@@ -4441,7 +4444,32 @@ const Sim = (() => {
   }
   // converted levels: an object runs only while on the original's screen round Sonic (its picture: x - z across,
   // (x + z) / 2 - height down; 320 x 224 with a margin)
-  const onScreen = (L, p, x, y, z) => { const ex = p.x - x, ez = p.z - z; return Math.abs((ex - ez) * 32) <= 176 && Math.abs(((ex + ez) / 2 - (p.y - y) / L.rom.vscale) * 32) <= 128; };
+  // (with its window, `win` from the converter, against the original's scroll `w.cam`: exact; else round Sonic)
+  const onScreen = (L, p, x, y, z, win, w) => {
+    if (win && w && w.cam) {
+      const o = L.rom.origin, X = Math.round((x + o[0]) * 32), Z = Math.round((z + o[1]) * 32);   // (positions kept to 1/1000 m)
+      const sx = X - Z + 0x1000 + win[2], sy = ((X + Z) >> 1) - win[4] + win[3];
+      return ((sx - w.cam.X) & 0xFFFF) <= win[0] && ((sy - w.cam.Y) & 0xFFFF) <= win[1];
+    }
+    const ex = p.x - x, ez = p.z - z; return Math.abs((ex - ez) * 32) <= 176 && Math.abs(((ex + ez) / 2 - (p.y - y) / L.rom.vscale) * 32) <= 128;
+  };
+  // The original's scroll (0x19A4, each frame after Sonic moves): a lead ($0866, $0868) from his facing ((sin, cos)
+  // high bytes of -(facing + 0x100): x / 2 - 160 stepping 2 a frame, y / 4 - 124 stepping 1) added to his picture point
+  // ($38 = x - z + 0x1000, $3A = (x + z) / 2 - y); the scroll moves an eighth of the way there (arithmetic shift), at
+  // most 8 a frame, kept in 0..0x1EA0 x 0..0xF20 (the defaults; bosses and rides change them, not modelled).
+  // It starts at the lead's target, rounded down to 8. `w.cam` {X, Y, lx, ly}.
+  function origCamera(w, p) {
+    const L = w.L, o = L.rom.origin, S = 65536, sin = P.orig.sin;
+    const X = Math.round((p.x + o[0]) * 32 * S), Z = Math.round((p.z + o[1]) * 32 * S), yi = Math.floor(p.y * 32 / L.rom.vscale - 8 + 1e-6);
+    const s38 = Math.floor((X - Z) / S) + 0x1000, s3a = Math.floor((Math.floor((X + Z) / 2) - yi * S) / S);
+    const a = (-((Math.round(origFace(p)) & 0x7FE) + 0x100)) & 0x7FF, tx = ((sin[a >> 1] >> 8) >> 1) - 0xA0, ty = ((sin[(a >> 1) + 0x100] >> 8) >> 2) - 0x7C;
+    let c = w.cam;
+    if (!c) { c = w.cam = { lx: tx, ly: ty }; c.X = (s38 + tx) & ~7; c.Y = (s3a + ty) & ~7; return; }
+    if (c.lx < tx) c.lx = Math.min(tx, c.lx + 2); else if (c.lx > tx) c.lx = Math.max(tx, c.lx - 2);
+    if (c.ly < ty) c.ly = Math.min(ty, c.ly + 1); else if (c.ly > ty) c.ly = Math.max(ty, c.ly - 1);
+    const dx = Math.max(-8, Math.min(8, (s38 + c.lx - c.X) >> 3)), dy = Math.max(-8, Math.min(8, (s3a + c.ly - c.Y) >> 3));
+    c.X = Math.max(0, Math.min(0x1EA0, c.X + dx)); c.Y = Math.max(0, Math.min(0xF20, c.Y + dy));
+  }
   // The original's way to Sonic from (x, z) (0xDBAE): one of eight, by octant (table 0xDBEE); object angles point
   // (sin a, cos a)
   const OCTANT = [0, 0x100, 0x100, 0x200, 0x400, 0x300, 0x300, 0x200, 0, 0x700, 0x700, 0x600, 0x400, 0x500, 0x500, 0x600];
@@ -5853,6 +5881,13 @@ const S3D = (() => {
         if (t === 0x184) for (const [cells, , , , key] of gm.gates || []) if (key && cells.some(([cx, cz]) => Math.hypot(cx + 0.5 - x / CELL, cz + 0.5 - z / CELL) < 2)) e.key = key;
       }
       if (kind === 'sprinkler') { e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); e.phase = u16(ob, o + 0x24) & 0x7FE; }
+      // the screen window it runs in (dispatcher 0x1BE72): its type's art header (table 0x280E8) [width, height, x and y
+      // from its picture point (x - z + 0x1000, (x + z) / 2 - y)] and its record's y; it runs while that point less the
+      // scroll is within 0..width and 0..height
+      if (kind === 'enemy' || kind === 'sprinkler') {
+        const art = typeArt(d, t);
+        if (art > 0 && art + 8 <= d.length) e.win = [u16(d, art), u16(d, art + 2), s16(d, art + 4), s16(d, art + 6), s16(ob, o + 0xA)];
+      }
       if (kind === 'pylon') {   // the barrier whose zap cells are nearest turns it off
         e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
         let best = 4;
@@ -9394,7 +9429,12 @@ const Art = (() => {
     const k = 1 - Math.exp(-dt * 7);
     const ahead = window.innerHeight > window.innerWidth ? 3.5 / view.zoom : 0;
     const tx = rp.x - Math.sin(view.yaw) * ahead, tz = rp.z - Math.cos(view.yaw) * ahead;
-    view.target.x += (tx - view.target.x) * k; view.target.y += (rp.y + 0.4 - view.target.y) * k; view.target.z += (tz - view.target.z) * k;
+    const c = world.cam, turned = Math.abs(((view.yawTarget - Math.PI / 4) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI)) > 1e-3;
+    if (c && world.L.rom && world.L.phys.orig && !turned) {
+      // the original's own scroll (Sim's origCamera): the middle of its 320 x 224 picture, at his height
+      const o = world.L.rom.origin, vs = world.L.rom.vscale, Ys = rp.y * 32 / vs - 8, u = c.X + 160 - 0x1000, v = 2 * (c.Y + 112 + Ys);
+      view.target.set((u + v) / 64 - o[0], rp.y, (v - u) / 64 - o[1]);
+    } else { view.target.x += (tx - view.target.x) * k; view.target.y += (rp.y + 0.4 - view.target.y) * k; view.target.z += (tz - view.target.z) * k; }
     const d = 40, t = view.target;
     isoCam.position.set(t.x + Math.sin(view.yaw) * Math.cos(PITCH_ISO) * d, t.y + Math.sin(PITCH_ISO) * d, t.z + Math.cos(view.yaw) * Math.cos(PITCH_ISO) * d);
     isoCam.lookAt(t);

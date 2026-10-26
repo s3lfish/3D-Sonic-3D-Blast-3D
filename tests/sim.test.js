@@ -920,6 +920,17 @@ test('the original\'s following Flickies: 3 + 4k frames behind, circling him whe
   assert.deepStrictEqual(out, [3, 2, 1, 0], `followers left (before each step): ${out}`);
   assert.ok(fol.every(f => f.state === 'free' && f.o), 'all free particles');
 });
+test('the original\'s scroll: led by his facing, an eighth of the way a frame; objects with a window run only inside it', () => {
+  const w = ROMLV(0, 0, [{ type: 'enemy', x: 6.5, z: 4.5, radius: 1, roam: { box: [200, 140], a: 0 }, win: [352, 256, 16, 12, 0] }]); place(w, 1.5, 4.5);
+  run(w, 120, {});
+  const X = Math.round(w.p.x * 32), Z = Math.round(w.p.z * 32), Y = Math.floor(w.p.y * 32 - 8 + 1e-6), F = Math.round(((-w.p.facing / (2 * Math.PI) * 0x800) % 0x800 + 0x800) % 0x800);
+  const sin = Sim.P.orig.sin, a = (-(F + 0x100)) & 0x7FF, lx = ((sin[a >> 1] >> 8) >> 1) - 0xA0, ly = ((sin[(a >> 1) + 0x100] >> 8) >> 2) - 0x7C;
+  assert.deepStrictEqual([w.cam.lx, w.cam.ly], [lx, ly], 'the lead');
+  assert.ok(Math.abs(w.cam.X - (X - Z + 0x1000 + lx)) < 8 && Math.abs(w.cam.Y - Math.max(0, ((X + Z) >> 1) - Y + ly)) < 8, `settled: ${w.cam.X}, ${w.cam.Y}`);
+  // a window entirely off to the right: the roamer does not move
+  w.enemies[0].win = [352, 256, -400, 12, 0]; const x0 = w.enemies[0].x; run(w, 30, {}); near(w.enemies[0].x, x0, 1e-9, 'asleep off screen');
+  w.enemies[0].win = [352, 256, 16, 12, 0]; run(w, 30, {}); assert.ok(w.enemies[0].X !== undefined, 'awake on screen');
+});
 test('the original\'s monitors are solid boxes: walking stops at a side, a roll or the ball onto it breaks it', () => {
   const mon = [{ type: 'monitor', x: 4.5, z: 4.5, kind: 'rings' }];
   let w = ROMLV(0, 0, mon); place(w, 3.2, 4.5); w.p.facing = Math.PI / 2;

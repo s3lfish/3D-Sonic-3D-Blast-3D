@@ -315,6 +315,9 @@ def convert(rom, level_id, vscale=1.0):
                 for cells, _hb, _ring, _pss, *ky in gm.get('gates', []):
                     if ky and ky[0] and any(math.hypot(cx + 0.5 - x / CELL, cz + 0.5 - z / CELL) < 2 for cx, cz in cells): e["key"] = ky[0]
         if kind == 'sprinkler': e["y"] = jround((y_obj + 8) / CELL * vscale, 3); e["phase"] = struct.unpack('>H', r[0x24:0x26])[0] & 0x7FE
+        if kind in ('enemy', 'sprinkler'):   # its screen window: the type's art header (table 0x280E8) and the record's y (see s3d.js)
+            art = struct.unpack('>I', rom[0x280E8 + t:0x280EC + t])[0]
+            if 0 < art and art + 8 <= len(rom): e["win"] = list(struct.unpack('>HHhh', rom[art:art + 8])) + [y_obj]
         if kind == 'pylon':   # the barrier whose zap cells are nearest turns it off
             e["y"] = jround((y_obj + 8) / CELL * vscale, 3); best = 4
             for _w, _h, zap, _half, ring, _a in gm.get('barriers', []):

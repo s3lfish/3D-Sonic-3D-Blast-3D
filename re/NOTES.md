@@ -694,6 +694,15 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - Screen speed (0x3BB2, every frame after the diagonal pieces): (x - $4E) + ($52 - z) in whole units over 8: x - 1,
   z + 1; under -8: x + 1, z - 1.
 - After a reload the pad reads as nothing until 33 frames after Sonic reappears (85 after the reload).
+- Scroll (0x19A4 on $084E, after the Flickies): lead $0866 toward (high byte of sin word at byte offset
+  -(facing + 0x100) & 0x7FF) asr 1 - 0xA0, 2 a frame; $0868 toward (high byte of the word 0x200 on) asr 2 - 0x7C, 1 a
+  frame ($086A > 0: -0x9C, counting down); target = Sonic's $38 / $3A + lead (or $084A / $084C when set); the scroll
+  adds (target - it) asr 3, at most $083E / $0840 (8) each way (0 when $0A36), then kept in $0842..$0846 (0..0x1EA0)
+  and $0844..$0848 (0..0xF20). Act start: lead at its target, scroll = (point + lead) & ~7. Exact over a 729-frame
+  GG1 trace. Sonic's $38 = high word of (x - z) + 0x1000, $3A = high word of ((x + z) asr 1 - y's whole part).
+- Object dispatcher 0x1BE72: records from $CCD2 (0x34 each; +0x12/+0x14 its picture point = x - z + 0x1000 + ox and
+  (x + z) / 2 - y + oy, ox/oy from its art header at +0x30 = table 0x280E8 by type: [width, height, ox, oy]); it runs
+  the handler only while (point - scroll) unsigned is at most width (x) and height (y).
 - Palette line of an object's sprite: bits 13-14 of word +0x16 (178, 194, 19C: line 0).
 - Ring used: $0A18 = 0x5A, camera to (0xA94, 0x634) (not modelled). Fans: 16 tiles 0xDD8FE at tile 125, speed
   $0ACE up to 0x40 while hovering (here steady).

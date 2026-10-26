@@ -1929,7 +1929,12 @@
     const k = 1 - Math.exp(-dt * 7);
     const ahead = window.innerHeight > window.innerWidth ? 3.5 / view.zoom : 0;
     const tx = rp.x - Math.sin(view.yaw) * ahead, tz = rp.z - Math.cos(view.yaw) * ahead;
-    view.target.x += (tx - view.target.x) * k; view.target.y += (rp.y + 0.4 - view.target.y) * k; view.target.z += (tz - view.target.z) * k;
+    const c = world.cam, turned = Math.abs(((view.yawTarget - Math.PI / 4) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI)) > 1e-3;
+    if (c && world.L.rom && world.L.phys.orig && !turned) {
+      // the original's own scroll (Sim's origCamera): the middle of its 320 x 224 picture, at his height
+      const o = world.L.rom.origin, vs = world.L.rom.vscale, Ys = rp.y * 32 / vs - 8, u = c.X + 160 - 0x1000, v = 2 * (c.Y + 112 + Ys);
+      view.target.set((u + v) / 64 - o[0], rp.y, (v - u) / 64 - o[1]);
+    } else { view.target.x += (tx - view.target.x) * k; view.target.y += (rp.y + 0.4 - view.target.y) * k; view.target.z += (tz - view.target.z) * k; }
     const d = 40, t = view.target;
     isoCam.position.set(t.x + Math.sin(view.yaw) * Math.cos(PITCH_ISO) * d, t.y + Math.sin(PITCH_ISO) * d, t.z + Math.cos(view.yaw) * Math.cos(PITCH_ISO) * d);
     isoCam.lookAt(t);

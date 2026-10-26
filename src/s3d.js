@@ -589,6 +589,13 @@ const S3D = (() => {
         if (t === 0x184) for (const [cells, , , , key] of gm.gates || []) if (key && cells.some(([cx, cz]) => Math.hypot(cx + 0.5 - x / CELL, cz + 0.5 - z / CELL) < 2)) e.key = key;
       }
       if (kind === 'sprinkler') { e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); e.phase = u16(ob, o + 0x24) & 0x7FE; }
+      // the screen window it runs in (dispatcher 0x1BE72): its type's art header (table 0x280E8) [width, height, x and y
+      // from its picture point (x - z + 0x1000, (x + z) / 2 - y)] and its record's y; it runs while that point less the
+      // scroll is within 0..width and 0..height
+      if (kind === 'enemy' || kind === 'sprinkler') {
+        const art = typeArt(d, t);
+        if (art > 0 && art + 8 <= d.length) e.win = [u16(d, art), u16(d, art + 2), s16(d, art + 4), s16(d, art + 6), s16(ob, o + 0xA)];
+      }
       if (kind === 'pylon') {   // the barrier whose zap cells are nearest turns it off
         e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
         let best = 4;
