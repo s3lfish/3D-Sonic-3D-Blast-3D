@@ -14,6 +14,7 @@ def jround(v, n):
     return math.floor(v * k + 0.5) / k
 
 HEADERS, HSIZE, CELL, STEP = 0x1AB62, 0x2A, 32, 8
+SPLIT = 0x4A08   # per corner byte: the cell is split north-east to south-west (see s3d.js)
 RING_TABLE, RING_HOVER = 0x1936, 18
 # object types identified from in-game photos (springs, monitors, the act-end ring, player start, main enemies)
 KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
@@ -34,7 +35,7 @@ def physics_for(vscale):
     r4 = lambda v: jround(v * vscale, 4)
     g = 900 / CELL
     jump = 5.625 * 60 / CELL   # the original's 0x5A000 (see s3d.js)
-    return {"gravity": r4(g), "jumpV": r4(jump), "jumpCut": r4(jump * 0.4), "maxFall": r4(420 / CELL), "stepUp": r4(12 / CELL), "snapDown": r4(12 / CELL), "orig": 1}
+    return {"gravity": r4(g), "jumpV": r4(jump), "jumpCut": r4(jump * 0.4), "maxFall": r4(420 / CELL), "stepUp": r4(8 / CELL), "snapDown": r4(2 / CELL), "orig": 1}
 
 
 def launch_for(vscale, rise):
@@ -213,7 +214,10 @@ def convert(rom, level_id, vscale=1.0):
             hb = v >> 8
             cs = [(v >> 6) & 3, (v >> 4) & 3, (v >> 2) & 3, v & 3]
             spike = gm.get('spikes') is not None and (v & 0xFF) == gm['spikes']
-            tiles.append({"c": [jround((hb + c) * unit, 4) for c in cs], "t": "H" if spike else "F"})
+            tile = {"c": [jround((hb + c) * unit, 4) for c in cs], "t": "H" if spike else "F"}
+            s = (1 if rom[SPLIT + (v & 0xFF)] else 0) | (2 if (v & 0x55) == 0x55 else 0)
+            if s: tile["s"] = s
+            tiles.append(tile)
     ents = []
     floor_cell = lambda cx, cz: 0 <= cx < 128 and 0 <= cz < 128 and w[cz * 128 + cx] != 0
     # objects: 52-byte records in the RNC block at header +0x00; type at +0x22, x/y/z at +6/+0xA/+0xE

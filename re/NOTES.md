@@ -110,14 +110,37 @@ original art. The browser code carries reading rules only.
   Some springs stand on a raised cell, so they are jumped onto.
 - Cells with no floor (map word 0) are walls: Sonic stops at the edge walking and jumping (18 of 18 edges in GG1,
   GG2, DD1). The map has no bottomless pits.
-- Frame by frame (2026-10-27; movetrace.py, move_parity.js; GG1 from the start: right 60, up 40, left 30, jump,
-  right with jump): Sonic is a point against cell walls (routine 0x39DC). Crossing into a cell too high stops him at
-  his own cell's edge on that axis (x 2975.99997 against a wall at 2976), that axis's speed zeroed and the other kept,
-  so he slides on at full speed; x is met before z, so a corner stops both. The jump is 5.625 units a frame (0x5A000);
-  letting go while rising: a speed over 3.125 loses 1.5, then it halves, and that frame skips gravity. A half turn
-  (stick exactly opposite the facing) turns the facing angle up (0x100 to 0x500 by 0x200, 0x300, 0x400), in the air
-  too. Accelerating at 45 degrees gains 0x180 an axis (0x220 forward, rounded down). With these the sim stays within
-  1.8 units over 385 frames, heights exact.
+- Frame by frame (2026-10-27; movetrace.py records $6/$A/$E, velocities, $1E forward word, $32 facing, $56 state;
+  move_parity.js replays the pad in the sim). Three traces (GG1 walk, wall slide, corner, turns, jumps; GG1 spin dash,
+  rolls, bounces; GG2 slopes, roll jump, air wall) now match to 1/100 unit with these rules:
+  * Turn (0x3134): pad direction from table 0x44A8 into $34; facing $32 moves 0x40 a frame: (facing - target) & 0x7FE
+    under 0x400 down, over up, exactly 0x400 against the last turn ($36 = facing before it; none: down). Pad let go:
+    the turn goes on while (facing - $34) & 0xFE is not 0, so it ends on an eighth from the target.
+  * Velocity (0x342C): $12/$1A (16.16) >> 4, times sin/cos words from 0x276E8 (= floor(sin(i / 0x400 turn) x 0x7FFF),
+    0x500 words), >> 15: side and forward at 1/0x1000. Forward + $22 with any direction; side - $2A, forward - $26 toward
+    0; a part over the top $2E loses $22 (capped 0x7F00); forward stored in $1E; turned back (x = side cos - fwd sin,
+    z = fwd cos + side sin, >> 11). Tables: walk 480/260/380 (top 0x5000, shoes 0x6800), ball ($56 = 1) 300/160/200,
+    ice 100/20/20, $5C 200/80/80, roll ($56 = 2) 0/10/200 with $2E left as it was. A roll with $1E under 0x1000 ends
+    before the update ($56 = 0, walk table that frame).
+  * Dash button (0x31C8, grounded): moving (any of $12/$1A not 0) with B: $56 = 2. Standing with B: $60 = 1, no move
+    and no jump (exit 0x3744); once the crouch shows ($94 = 3, $A2 = 0x24: 14 frames) the rev starts ($56 = 3, $58 = 3,
+    $5A = 15, sound 0xAB); every 15 frames $58 - 1 (sound); a new C press zeroes $5A. B let go with $56 = 3: launch
+    from table 0x3312 by facing >> 8 ([0, 0x7800], [-0x54DA, 0x54DA], ... 8 ways) x (16 - 2^$58, or 16 at 0), $2E =
+    0x7800, $1E = 0x4000, sound 0xB6, no move that frame.
+  * Slope (0x3540): the cell's corner byte (all corners odd: flat) picks a triangle (flag 0x4A08: split NE-SW, NW
+    triangle when x + z <= 31 within the cell; else split NW-SE) turned to the north-west one (ror 4 / ror 2 / rol 2)
+    and reads 0x263574 + 0x44C8[byte] = the triangle's normal at 1/8 a step x 0x5A00, cut toward 0 (checked, all 256).
+    Grounded, with a part 0x1000+ or a velocity 0x800+: velocity += g + g/4 (rolling: g/4 first). A jump (0x3660) adds
+    g x 32 and leaves at the normal's upright word (0x5A00 on flat), then $56 = 1.
+  * Floor (0x3BB2..0x429C): same triangle choice; height = high byte x 8 + 0x46C8[byte] (nw x 8 - 8) + floor((T[a +
+    2u] + T[b + 2v]) / 4) with 0x4848 T[k x 32 + i] = (k - 3) i and a, b = (corner difference + 3) x 64: so nw +
+    floor(((ne - nw) u + (sw - nw) v) / 4) in whole units.
+  * Walls (0x40D6): the new cell's floor at his new place 9+ units over his height ($A, whole units) is a wall, walking
+    or in the air: x (or z) put back to his old cell's edge, that velocity cleared; rolling ($56 = 2): reversed and
+    0x4000 off it (crossing zero clears it, and both clear ends the roll), facing 0x800 - f (x) or 0x400 - f (z) when
+    it comes back. Not a wall: in the air, under that floor and falling: lands; rising: put on it, still in the air.
+    Grounded: a floor more than 2 under him leaves the ground.
+  * Jump 0x5A000; letting go while rising: a speed over 3.125 loses 1.5, then halves, and that frame skips gravity.
 
 ## Sections, rings and holes
 
@@ -379,8 +402,8 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   Sonic 4.5 up and lists (57, 50) and (59, 72) as open for good ($1C); falling into (57, 50) under 0x320 puts him at
   (0x770, 0x1E0, 0x910) under (59, 72), into (59, 72) under 0x1C0 at (0x730, 0x340, 0x650); held while the camera pans
   (about 105 frames), then thrown (-2, 8.5 up, -2) in a ball; he lands at (1872, 544, 2288). The sim lands there too.
-- In the air the original keeps Sonic's speed against a wall (only his place is stopped): thrown out of the warp hole
-  against its edge, he goes on once over it; his speed fades 1/16 a frame with no input.
+- Thrown out of the warp hole against its edge, he goes on once over it (the wall rule in Movement: rising within 8
+  units of a floor puts him on it); the sim, with the original's walls, lands where the original does.
 - (86, 74) after the sled run (0x1064E): $18(a4) and the ice flag cleared, Sonic's states reset, sound 0x59 and a
   burst of ten pieces at (0xAF0, 0x1D0, 0x950) ($A(a4) frames; drawn by 0x10E00). The sim plays the sound.
 

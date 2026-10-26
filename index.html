@@ -1104,7 +1104,12 @@ const Sim = (() => {
     // Spin dash: held 14, 29, 44, 59 frames launches at 3.75, 5.625, 6.5625, 7.5 units a frame (shorter: no dash).
     orig: (() => {
       const t = v => v / 0x1000 * 3600 / 32, u = v => v * 60 / 32;
-      return { walk: [t(0x480), t(0x260), t(0x380)], ball: [t(0x300), t(0x160), t(0x200)], ice: [t(0x100), t(0x20), t(0x20)],
+      // raw: the same in the original's own units, for the frame-exact routine (Sim origVelocity); sin: its table
+      // 0x276E8 is floor(sin(i / 0x400 turn) x 0x7FFF), 0x500 words (cos 0x100 on); dashDir: launch table 0x3312
+      const sin = new Int16Array(0x500); for (let i = 0; i < 0x500; i++) sin[i] = Math.floor(Math.sin(i * 2 * Math.PI / 0x400) * 0x7FFF);
+      return { raw: { walk: [0x480, 0x260, 0x380], ball: [0x300, 0x160, 0x200], ice: [0x100, 0x20, 0x20], roll: [0, 0x10, 0x200], top: 0x5000, shoes: 0x6800, dashTop: 0x7800 },
+        sin, dashDir: [0x7800, 0x54DA],
+        walk: [t(0x480), t(0x260), t(0x380)], ball: [t(0x300), t(0x160), t(0x200)], ice: [t(0x100), t(0x20), t(0x20)],
         roll: [0, t(0x10), t(0x200)], rollMin: u(1), run: u(5), shoes: 6.5 / 5, cap: u(0x7F00 / 0x1000), turn: 0x40 / 0x800 * 2 * Math.PI * 60,
         dash: [[14 / 60, u(3.75)], [29 / 60, u(5.625)], [44 / 60, u(6.5625)], [59 / 60, u(7.5)]] };
     })(),
@@ -1195,6 +1200,7 @@ const Sim = (() => {
       const ct = t.t ?? 'F';
       if (!COLL.has(ct)) { errs.push(`Tile at column ${x}, row ${z} has unknown collision "${ct}". Use F, P, H or W.`); return; }
       L.corners.set(t.c, k * 4); L.coll[k] = ct; L.mat[k] = t.m || (ct === 'H' ? 'hazard' : 'grass');
+      if (t.s) (L.split || (L.split = new Uint8Array(W * D)))[k] = t.s;   // (converted levels: see origTri)
     });
     return L;
   }
@@ -1744,8 +1750,43 @@ const Sim = (() => {
     if (L.coll[t] === 'P' || L.coll[t] === 'W') return -Infinity;
     if (L.up && L.up.has(t)) return L.up.get(t);
     if (L.diag && L.diag.has(t)) return L.diag.get(t).low;
+    if (L.rom && L.phys && L.phys.orig) { const T = origTri(L, i, j, x, z); return T[0] + Math.floor((T[1] * T[3] + T[2] * T[4]) / 4) / 32 * L.rom.vscale; }
     return bilerp(L.corners, t * 4, x - i, z - j);
   }
+  // The original's floor (routine 0x3BB2 on; its tables 0x46C8 and 0x4848 are these formulas): a cell is two triangles,
+  // split north-east to south-west where its flag (0x4A08, carried as `s` bit 0) is set, else north-west to south-east.
+  // The cell is turned so the triangle holding the point is its north-west one: (u, v) whole units into it, the floor
+  // is nw + floor(((ne - nw) u + (sw - nw) v) / 4) units, corners in steps of 8. Returns [nw (m), ne - nw, sw - nw
+  // (steps), U, V, turn (0 as is, 1 half, 2 a quarter one way (v >= u), 3 the other)].
+  const _tri = [0, 0, 0, 0, 0, 0];
+  function origTri(L, i, j, x, z) {
+    const t = j * L.width + i, k = t * 4, c = L.corners, unit = STEP_M * L.rom.vscale;
+    const u = Math.min(31, Math.floor((x - i) * 32)), v = Math.min(31, Math.floor((z - j) * 32));
+    let nw, ne, sw, U, V, f;
+    if (L.split && (L.split[t] & 1)) {
+      if (u + v <= 31) { nw = c[k]; ne = c[k + 1]; sw = c[k + 3]; U = u; V = v; f = 0; }
+      else { nw = c[k + 2]; ne = c[k + 3]; sw = c[k + 1]; U = 31 - u; V = 31 - v; f = 1; }
+    } else if (v >= u) { nw = c[k + 3]; ne = c[k]; sw = c[k + 2]; U = 31 - v; V = u; f = 2; }
+    else { nw = c[k + 1]; ne = c[k + 2]; sw = c[k]; U = v; V = 31 - u; f = 3; }
+    _tri[0] = nw; _tri[1] = Math.round((ne - nw) / unit); _tri[2] = Math.round((sw - nw) / unit); _tri[3] = U; _tri[4] = V; _tri[5] = f;
+    return _tri;
+  }
+  const STEP_M = 8 / 32;
+  // Its slope (0x3540; table 0x263574 = this formula): the triangle's normal at 1/8 a step, scaled to 0x5A00 and cut
+  // toward 0: [x, z] downhill and the upright part (a jump's speed there). Cells whose corners are all odd read as flat.
+  function origPull(L, x, z, out) {
+    const i = Math.floor(x), j = Math.floor(z), t = j * L.width + i;
+    out[0] = out[1] = 0; out[2] = 0x5A00;
+    if (i < 0 || j < 0 || i >= L.width || j >= L.depth || L.coll[t] === 'W' || L.coll[t] === 'P' || (L.up && L.up.has(t)) || (L.diag && L.diag.has(t))) return out;
+    if (L.split && (L.split[t] & 2)) return out;
+    const T = origTri(L, i, j, x, z), a = -T[1] / 8, b = -T[2] / 8, n = Math.sqrt(1 + a * a + b * b);
+    const w0 = Math.trunc(0x5A00 * a / n), w1 = Math.trunc(0x5A00 * b / n);
+    out[2] = Math.trunc(0x5A00 / n);
+    if (T[5] === 0) { out[0] = w0; out[1] = w1; } else if (T[5] === 1) { out[0] = -w0; out[1] = -w1; }
+    else if (T[5] === 2) { out[0] = w1; out[1] = -w0; } else { out[0] = -w1; out[1] = w0; }
+    return out;
+  }
+  const _pull = [0, 0, 0];
   function gradientAt(L, x, z, out) {
     const i = Math.floor(x), j = Math.floor(z);
     out[0] = 0; out[1] = 0;
@@ -1764,6 +1805,7 @@ const Sim = (() => {
     if (L.up && L.up.has(t)) return L.up.get(t);
     if (L.diag && L.diag.has(t)) return L.diag.get(t).low;   // (its solid half: see resolveWalls)
     const u = Math.min(1, Math.max(0, px - i)), v = Math.min(1, Math.max(0, pz - j));
+    if (L.rom && L.phys && L.phys.orig) { const T = origTri(L, i, j, i + Math.min(u, 0.999999), j + Math.min(v, 0.999999)); return T[0] + Math.floor((T[1] * T[3] + T[2] * T[4]) / 4) / 32 * L.rom.vscale; }
     return bilerp(L.corners, t * 4, u, v);
   }
 
@@ -1817,9 +1859,13 @@ const Sim = (() => {
   // second), and the speed into it is gone (the caller's response), the other kept: he slides along at full speed.
   // Corner pieces as in resolveWalls.
   const _ax = [0, 0, 0];   // the axes resolveWallsOrig stopped ([2] set when any)
+  // the highest floor Sonic at height y (m) goes onto: 8 whole units over his (his height cut to whole units, 0x40D0)
+  const origLim = (L, y) => { const vs = L.rom.vscale; return (Math.floor(y * 32 / vs - 8 + 1e-6) + 8 + 8 + 0.5) / 32 * vs; };
   function resolveWallsOrig(L, p, ox, oz) {
     _dn[2] = 0; _ax[0] = _ax[1] = _ax[2] = 0;
-    const lim = p.y + L.phys.stepUp, air = p.flyT > 0, E = 1 / (32 * 65536), ci = Math.floor(ox), cj = Math.floor(oz);
+    const air = p.flyT > 0, E = 1 / (32 * 65536), ci = Math.floor(ox), cj = Math.floor(oz);
+    // (0x40D6: a wall where the floor there is 9 or more whole units over Sonic's, in the air too; converted levels)
+    const lim = L.rom ? origLim(L, p.y) : p.y + L.phys.stepUp;
     let i = Math.floor(p.x), j = Math.floor(p.z), nx = 0, nz = 0, hit = false;
     if (i !== ci && tileTopNear(L, i, cj, p.x, oz, air) > lim) { p.x = i > ci ? ci + 1 - E : ci; nx = _ax[0] = i > ci ? -1 : 1; hit = true; i = ci; _ax[2] = 1; }
     if (j !== cj && tileTopNear(L, i, j, p.x, p.z, air) > lim) { p.z = j > cj ? cj + 1 - E : cj; nz = _ax[1] = j > cj ? -1 : 1; hit = true; _ax[2] = 1; }
@@ -1838,6 +1884,64 @@ const Sim = (() => {
     const m = Math.hypot(nx, nz) || 1;
     _n[0] = nx / m; _n[1] = nz / m;
     return _n;
+  }
+
+  // The original's facing and velocity (routine 0x3134 and 0x342C, ported to its own fixed point; checked frame by
+  // frame against the emulator). Facing in its units: 0x800 a turn, angle up = our p.facing down.
+  const origFace = p => { const f = (-(Number.isFinite(p.facing) ? p.facing : 0) / (2 * Math.PI) * 0x800) % 0x800; return f < 0 ? f + 0x800 : f; };
+  function origTurn(p, mx, mz, m) {
+    let face = origFace(p), tgt;
+    if (p.facing !== p.turnFace) p.turnTgt = undefined;   // (something else turned him: a ride, a bounce; no turn to finish)
+    if (m > 0.3) { const t = (-Math.atan2(mx, mz) / (2 * Math.PI) * 0x800) % 0x800; tgt = p.turnTgt = t < 0 ? t + 0x800 : t; }
+    else if (p.turnTgt === undefined) return;
+    else tgt = p.turnTgt;
+    const d = ((face - tgt) % 0x800 + 0x800) % 0x800, r = d % 0x100;
+    if (d < 1e-6 || d > 0x800 - 1e-6) { p.turnFace = p.facing; return; }
+    // with the stick let go a turn goes on to the next eighth from its target ($34), then stops
+    if (!(m > 0.3) && (r < 1e-6 || r > 0x100 - 1e-6)) { p.turnFace = p.facing; return; }
+    // 0x40 a frame the short way; a half turn goes against the last turn (its $36), down when there was none
+    const s = Math.abs(d - 0x400) < 1e-6 ? (p.lastTurn < 0 ? 1 : -1) : d > 0x400 ? 1 : -1;
+    const room = m > 0.3 ? (s > 0 ? 0x800 - d : d) : s > 0 ? 0x100 - r : r;
+    face += s * Math.min(0x40, room); p.lastTurn = s;
+    let a = -face / 0x800 * 2 * Math.PI; if (a <= -Math.PI) a += 2 * Math.PI;
+    p.facing = p.turnFace = a;
+  }
+  // Velocity: 16.16 units a frame, turned into the facing frame at 1/0x1000 (words, 16-bit products, arithmetic
+  // shifts), forward gains A with any direction held, each part loses its loss toward 0, a part over the top loses A,
+  // capped at 0x7F00; turned back. Tables in P.orig.raw; the top stays as set while rolling (0x7800 after a dash).
+  function origVelocity(w, L, p, m, minTop, walkNow) {
+    const O = P.orig, R = O.raw, S = 65536, U = 60 / 32 * (L.rom ? L.rom.vscale : 1), sin = O.sin;
+    const onGround = p.grounded || walkNow;   // (a jump this frame comes after: it still counts as grounded)
+    if (p.rolling && onGround && (p.fwdWord === undefined ? 0x1000 : p.fwdWord) < 0x1000) p.rolling = false;   // (0x3406: walking this frame)
+    const roll = p.rolling && onGround;
+    const tab = p.frozen > 0 ? R.ice : roll ? R.roll : (p.ball || p.hover) && !p.grounded && !walkNow ? R.ball : w.ice ? R.ice : R.walk;
+    if (!roll || p.topW === undefined) p.topW = p.fast > 0 ? R.shoes : R.top;
+    const k = Math.min(1, m), A = m > 0.3 ? Math.round(tab[0] * k) : tab[0];
+    const top = Math.max(m > 0.3 ? Math.round(p.topW * k) : p.topW, Math.round(minTop / U * 0x1000));   // (a forced run keeps its speed)
+    // (clamped, not wrapped as a word: only forced moves the original handles elsewhere, a chute's 8.19, reach 8 units)
+    const word = v => Math.max(-0x8000, Math.min(0x7FFF, v));
+    const vx = Math.round(p.vx / U * S), vz = Math.round(p.vz / U * S), x4 = word(vx >> 4), z4 = word(vz >> 4);
+    const i = (Math.round(origFace(p)) & 0x7FE) >> 1, sn = sin[i], cs = sin[i + 0x100];
+    let side = Math.floor((x4 * cs + z4 * sn) / 32768), fwd = Math.floor((z4 * cs - x4 * sn) / 32768);
+    if (m > 0.3) fwd += A;
+    side = side > 0 ? Math.max(0, side - tab[2]) : side < 0 ? Math.min(0, side + tab[2]) : 0;
+    fwd = fwd > 0 ? Math.max(0, fwd - tab[1]) : fwd < 0 ? Math.min(0, fwd + tab[1]) : 0;
+    const over = v => v > top ? (v > 0x7F00 ? 0x7F00 : v - A) : v < -top ? (v < -0x7F00 ? -0x7F00 : v + A) : v;
+    side = over(side); fwd = over(fwd);
+    p.fwdWord = word(fwd);
+    let X = Math.floor((side * cs - fwd * sn) / 2048), Z = Math.floor((fwd * cs + side * sn) / 2048);
+    // grounded: the slope pulls (g + g/4; rolling a quarter of that) once it is steep (0x1000) or he moves (0x800);
+    // a jump this frame also takes 32 g and leaves at the slope's upright part (0x3660)
+    if (L.rom && (p.grounded || walkNow)) {
+      const g = origPull(L, p.x, p.z, _pull);
+      if (Math.abs(g[0]) >= 0x1000 || Math.abs(g[1]) >= 0x1000 || Math.abs(X) >= 0x800 || Math.abs(Z) >= 0x800) {
+        let a = g[0], b = g[1]; if (p.rolling) { a >>= 2; b >>= 2; }
+        X += a + (a >> 2); Z += b + (b >> 2);
+      }
+      if (walkNow) { X += g[0] * 32; Z += g[1] * 32; p.vy = g[2] * 16 / S * 60 / 32 * L.rom.vscale; }
+    }
+    if (walkNow) p.rolling = false;   // (the jump ball: $56 = 1)
+    p.vx = X / S * U; p.vz = Z / S * U;
   }
 
   // A sled (Diamond Dust 1's icy loop, watched frame by frame): Sonic is a point going one of four ways. Where the next
@@ -3112,9 +3216,42 @@ const Sim = (() => {
       p.vx = (Math.floor(p.x) + 0.5 - p.x) * 6; p.vz = (Math.floor(p.z) + 0.5 - p.z) * 6; mx = mz = m = 0;
     }
 
-    // spin dash (as in the original, the dash button does it): hold to brake and rev up, release to launch.
-    // A quick tap while running rolls instead.
-    if (p.grounded && !p.whirl) {
+    // The original's dash button (routine 0x31C8, watched frame by frame): grounded with any speed it rolls; standing,
+    // held, Sonic crouches and after 14 frames revs (sound 0xAB; jump taps hurry the next step), a step every 15 frames;
+    // let go, he is launched along his facing at 8, 12, 14 or 16 x 0x7800 (0x54DA a part on diagonals) and stays put
+    // that frame. While the button is held standing he neither moves nor jumps (that routine's early exit).
+    let holdO = false;
+    if (O) {
+      if (!p.whirl && !(p.flyT > 0)) origTurn(p, mx, mz, m);   // (the turn comes first there)
+      if (p.grounded && !p.whirl) {
+        const U = 60 / 32 * (L.rom ? L.rom.vscale : 1);
+        if (Math.round(p.vx / U * 65536) !== 0 || Math.round(p.vz / U * 65536) !== 0) {
+          if (inp.dash) p.rolling = true;
+          p.crouch = 0; p.revN = -1;
+        } else {
+          p.rolling = false;
+          if (inp.dash) {
+            holdO = true; p.crouch = (p.crouch || 0) + 1;
+            if (!(p.revN >= 0)) { if (p.crouch >= 14) { p.revN = 3; p.revWait = 15; w.events.push('charge'); } }
+            else {
+              if (jumpPress) { p.revWait = 0; w.events.push('charge'); }
+              if (p.revN > 0 && --p.revWait <= 0) { p.revN--; p.revWait = 15; w.events.push('charge'); }
+            }
+          } else if (p.revN >= 0) {
+            const D = O.dashDir, face = origFace(p), q = face / 0x100, k = Math.round(q) & 7, mult = p.revN ? 16 - (1 << p.revN) : 16;
+            let dx, dz;
+            if (Math.abs(q - Math.round(q)) < 1e-6) { const c = k & 1 ? D[1] : D[0], sx = [0, -1, -1, -1, 0, 1, 1, 1][k], sz = [1, 1, 0, -1, -1, -1, 0, 1][k]; dx = sx * c; dz = sz * c; }
+            else { const a = face / 0x800 * 2 * Math.PI; dx = -Math.sin(a) * D[0]; dz = Math.cos(a) * D[0]; }
+            p.vx = dx * mult / 65536 * U; p.vz = dz * mult / 65536 * U;
+            p.rolling = true; p.fwdWord = 0x4000; p.topW = O.raw.dashTop; holdO = true; p.revN = -1;
+            w.events.push('dash');
+          }
+          if (!inp.dash) p.crouch = 0;
+        }
+      } else { p.crouch = 0; p.revN = -1; }
+      p.charge = p.revN >= 0 ? p.crouch / 60 : 0;
+    }
+    else if (p.grounded && !p.whirl) {
       if (dashPress) p.dashHeld = 0;
       if (inp.dash) {
         p.dashHeld += dt;
@@ -3137,11 +3274,12 @@ const Sim = (() => {
       }
       if (!inp.dash) p.charge = 0;
     } else p.charge = 0;
-    const charging = p.charge > 0;
+    const charging = O ? holdO : p.charge > 0;
 
     // jump
+    let jumpedNow = false;   // (the original jumps after its velocity update: that frame still walks)
     if (jumpPress && (p.grounded || p.coyote > 0) && !charging) {
-      p.vy = L.phys.jumpV; p.grounded = false; p.coyote = 0; p.jumping = true; p.ball = true; p.whirl = false; p.whirlHold = 0;
+      jumpedNow = true; p.vy = L.phys.jumpV; p.grounded = false; p.coyote = 0; p.jumping = true; p.ball = true; p.whirl = false; p.whirlHold = 0;
       w.events.push('jump');
     }
     else if (jumpPress && !p.grounded && p.shield === 'gold' && !p.goldUsed) {
@@ -3162,23 +3300,7 @@ const Sim = (() => {
     if (p.skid && !wasSkid) w.events.push('skid');
     if (charging) { /* braking handled above */ }
     else if (O && !p.whirl && !(p.flyT > 0)) {   // (a cannon's flight keeps its speed: no steering, no drag)
-      // the original's tables (see P.orig): facing turns toward the stick; velocity split along it
-      const tab = p.frozen > 0 ? O.ice : p.rolling && p.grounded ? O.roll : (p.ball || p.hover) && !p.grounded ? O.ball : w.ice ? O.ice : O.walk;
-      if (!Number.isFinite(p.facing)) p.facing = 0;
-      if (m > 0.3) {
-        let da = Math.atan2(mx, mz) - p.facing; da = Math.atan2(Math.sin(da), Math.cos(da));
-        if (da > Math.PI - 1e-6) da -= 2 * Math.PI;   // (a half turn goes the original's way: its angle up, ours down; watched)
-        p.facing += Math.max(-O.turn * dt, Math.min(O.turn * dt, da));
-      }
-      const hx = Math.sin(p.facing), hz = Math.cos(p.facing);
-      let f = p.vx * hx + p.vz * hz, sd = p.vx * hz - p.vz * hx;
-      if (m > 0.01 && f < runTop * m) f += tab[0] * m * dt;   // (a part-pushed stick stops gaining at its share of the top)
-      const fr = tab[1] * dt, gr = tab[2] * dt;
-      f = f > fr ? f - fr : f < -fr ? f + fr : 0; sd = sd > gr ? sd - gr : sd < -gr ? sd + gr : 0;
-      const top = runTop, over = v => v > top ? (v > O.cap ? O.cap : v - tab[0] * dt) : v < -top ? (v < -O.cap ? -O.cap : v + tab[0] * dt) : v;
-      f = over(f); sd = over(sd);
-      p.vx = f * hx + sd * hz; p.vz = f * hz - sd * hx;
-      if (p.rolling && p.grounded && f < O.rollMin) p.rolling = false;
+      if (!holdO) origVelocity(w, L, p, m, p.force && p.force.dir ? p.force.top : 0, jumpedNow);
     }
     else if (p.whirl) {
       if (m > 0.01) {
@@ -3224,7 +3346,7 @@ const Sim = (() => {
       }
     }
     // slope pull and gravity
-    if (p.grounded) { gradientAt(L, p.x, p.z, _g); const k = O ? P.slopeOrig / (L.rom ? L.rom.vscale : 1) : P.slope; p.vx -= _g[0] * k * dt; p.vz -= _g[1] * k * dt; }   // (orig: per gradient at true height)
+    if (p.grounded && !(O && L.rom && !p.whirl && !(p.flyT > 0))) { gradientAt(L, p.x, p.z, _g); const k = O ? P.slopeOrig / (L.rom ? L.rom.vscale : 1) : P.slope; p.vx -= _g[0] * k * dt; p.vz -= _g[1] * k * dt; }   // (converted levels: origVelocity)
     else if (p.hover) {   // pulled up under the line, down over it; rising through it halves the climb (measured)
       const vs = L.rom ? L.rom.vscale : 1, line = floorAt(L, p.x, p.z) + P.hoverLine / 32 * vs, a = P.hoverAcc * 3600 / 32 * vs;
       if (p.y < line) p.vy += a * dt;
@@ -3265,11 +3387,13 @@ const Sim = (() => {
     }
 
     // move in substeps no longer than half the radius
-    const n = Math.max(1, Math.ceil(Math.max(speed, Math.abs(p.vy)) * dt / (P.r * 0.5)));
+    // (converted levels move once a frame, as the original: its point walls never need finer steps)
+    const n = O && L.rom ? 1 : Math.max(1, Math.ceil(Math.max(speed, Math.abs(p.vy)) * dt / (P.r * 0.5)));
     const sdt = dt / n;
+    let bouncedO = false;
     for (let s = 0; s < n; s++) {
       const ox = p.x, oz = p.z;
-      const nrm = p.sled && p.grounded ? sledMove(L, p, sdt) : (p.x += p.vx * sdt, p.z += p.vz * sdt, O ? resolveWallsOrig(L, p, ox, oz) : resolveWalls(L, p));
+      const nrm = p.sled && p.grounded ? sledMove(L, p, sdt) : holdO || bouncedO ? null : (p.x += p.vx * sdt, p.z += p.vz * sdt, O ? resolveWallsOrig(L, p, ox, oz) : resolveWalls(L, p));
       if (nrm) {
         // a whirl bounces off; so does a roll in the original's movement (watched: Green Grove 1's first wall, Gene
         // Gadget 1's corridor), turning to its new way
@@ -3277,13 +3401,17 @@ const Sim = (() => {
         if (bounce && _dn[2]) { nrm[0] = _dn[0]; nrm[1] = _dn[1]; }   // (a point in the original: the diagonal alone turns it)
         // (in the air the original only stops him at the wall: his speed is kept, so he goes on once over the ledge;
         // watched: thrown out of Diamond Dust 1's warp hole against its edge)
-        const keep = O && !p.grounded && !p.whirl;
+        const keep = false;   // (0x40D6: the same wall in the air; watched in Green Grove 2)
         if (O && _ax[2] && !_dn[2] && !p.whirl) {   // (a cell wall in the original: each axis met on its own, the other kept)
           if (!keep) {
+            // (0x42A0: a roll comes back 0x4000 slower, stopping on that axis if that crosses zero, the roll over once both
+            // are; coming back, the facing is mirrored: 0x800 - f off an x wall, 0x400 - f off a z wall)
+            const back = v => { const l = 0.25 * 60 / 32 * (L.rom ? L.rom.vscale : 1); return v < 0 ? Math.max(0, -v - l) : Math.min(0, -v + l); };
+            const turn = a => Math.atan2(Math.sin(a), Math.cos(a));
             let met = false;
-            if (_ax[0] && p.vx * _ax[0] < 0) { p.vx = bounce ? -p.vx : 0; met = true; }
-            if (_ax[1] && p.vz * _ax[1] < 0) { p.vz = bounce ? -p.vz : 0; met = true; }
-            if (met && bounce) { p.facing = Math.atan2(p.vx, p.vz); w.events.push('rollBounce'); }
+            if (_ax[0] && p.vx * _ax[0] < 0) { if (bounce) { p.vx = back(p.vx); if (p.vx) p.facing = turn(-p.facing); } else p.vx = 0; met = true; }
+            if (_ax[1] && p.vz * _ax[1] < 0) { if (bounce) { p.vz = back(p.vz); if (p.vz) p.facing = turn(-Math.PI - p.facing); } else p.vz = 0; met = true; }
+            if (met && bounce) { if (!p.vx && !p.vz) p.rolling = false; w.events.push('rollBounce'); bouncedO = true; }   // (it moves once a frame: no more this frame)
           }
         } else {
           const dot = p.vx * nrm[0] + p.vz * nrm[1], kb = p.whirl ? 1 + P.whirlBounce : bounce ? 2 : 1;
@@ -3297,7 +3425,7 @@ const Sim = (() => {
         else p.y = f;
       } else {
         p.y += p.vy * sdt;
-        if (L.rom && Number.isFinite(f) && p.y < f && f - p.y <= L.phys.stepUp) p.y = f;
+        if (L.rom && Number.isFinite(f) && p.y < f && f <= (O ? origLim(L, p.y) : p.y + L.phys.stepUp)) p.y = f;
         if (p.vy <= 0 && Number.isFinite(f) && p.y <= f) {
           const wasBall = p.ball;
           p.y = f; p.vy = 0; p.grounded = true; p.jumping = false; p.coyote = 0; p.ball = p.rolling; p.sprung = false; p.goldUsed = false;
@@ -4647,6 +4775,8 @@ const Jam = (() => {
 const S3D = (() => {
   'use strict';
   const HEADERS = 0x1AB62, HSIZE = 0x2A, CELL = 32, STEP = 8, RING_TABLE = 0x1936, RING_HOVER = 18;
+  // per corner byte: 1 = the cell is split north-east to south-west for its floor and slope (routines 0x3540, 0x3BB2)
+  const SPLIT = 0x4A08;
   const HUNTER_ORBIT = 23.5, HUNTER_BALL_Y = 20;
   // Green Grove gimmicks that the act's own routine runs (RunLevel_GGz1 0xE59E, RunLevel_GGz2 0xE9C2, cannon 0xF0B0):
   // cannons [cell x, cell z, mouth height, launch up and launch south in units a frame (emulator: the routine asks 9 and
@@ -5089,7 +5219,8 @@ const S3D = (() => {
   function physicsFor(vscale) {
     const r4 = v => Math.round(v * vscale * 1e4) / 1e4, g = 900 / CELL;
     const jump = 5.625 * 60 / CELL;   // (checked frame by frame against the original: the rise matches to the unit)
-    return { gravity: r4(g), jumpV: r4(jump), jumpCut: r4(jump * 0.4), maxFall: r4(420 / CELL), stepUp: r4(12 / CELL), snapDown: r4(12 / CELL), orig: 1 };
+    // (steps: 8 units walked up (the sim's walls use the exact rule), a drop of more than 2 leaves the ground: 0x40D0, 0x414A)
+    return { gravity: r4(g), jumpV: r4(jump), jumpCut: r4(jump * 0.4), maxFall: r4(420 / CELL), stepUp: r4(8 / CELL), snapDown: r4(2 / CELL), orig: 1 };
   }
   const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };
   const springPower = vscale => launchFor(vscale, 140);   // measured: a spring throws Sonic 140 units up
@@ -5114,7 +5245,9 @@ const S3D = (() => {
       if (!v) { tiles.push({ c: [0, 0, 0, 0], t: 'W' }); continue; }
       const hb = v >> 8, c = [(v >> 6) & 3, (v >> 4) & 3, (v >> 2) & 3, v & 3].map(k => Math.round((hb + k) * unit * 1e4) / 1e4);
       minTop = Math.min(minTop, ...c); sumX += x; sumZ += z; nFloor++;
-      tiles.push({ c, t: gm.spikes !== undefined && (v & 0xFF) === gm.spikes ? 'H' : 'F' });
+      // s: bit 0 the cell's split flag; bit 1 all four corners odd, which the slope routine reads as flat (0x3560)
+      const s = (d[SPLIT + (v & 0xFF)] ? 1 : 0) | ((v & 0x55) === 0x55 ? 2 : 0);
+      tiles.push(Object.assign({ c, t: gm.spikes !== undefined && (v & 0xFF) === gm.spikes ? 'H' : 'F' }, s ? { s } : {}));
     }
     const floorCell = (cx, cz) => cx >= 0 && cz >= 0 && cx < 128 && cz < 128 && map[cz * 128 + cx] !== 0;
     const r3 = v => Math.round(v * 1000) / 1000, r6 = v => Math.round(v * 1e6) / 1e6;
@@ -9495,7 +9628,7 @@ const Art = (() => {
       if (world.events.includes('monitor') && world.power === 'oneup') setLives(Math.min(9, lives + 1));
       if (world.events.includes('head')) gotHead();
       for (const ev of world.events) Sfx.play(ev);
-      if (world.p.charge > 0 && !wasCharging) Sfx.play('charge');
+      if (world.p.charge > 0 && !wasCharging && !(L.phys && L.phys.orig)) Sfx.play('charge');   // (converted levels: the sim's 'charge' events, as the original's)
       wasCharging = world.p.charge > 0;
       if (world.events.includes('monitor') && MdSound.on && !Sfx.muted) MdSound.power(world.power);
       if (world.events.includes('section') || world.events.includes('goal')) {

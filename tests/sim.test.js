@@ -98,7 +98,7 @@ test('cannot jump onto a 1.5 m ledge', () => {
   near(w.p.y, 1.0, 1e-6, 'still on the ground'); assert.ok(w.p.x < 5);
 });
 // the physics a converted level brings at true shape (see S3D physicsFor): jump peak 1.875 m, step limit 0.375 m
-const ORIG = { physics: { gravity: 28.125, jumpV: 10.5469, jumpCut: 4.2188, maxFall: 13.125, stepUp: 0.375, snapDown: 0.375 } };
+const ORIG = { physics: { gravity: 28.125, jumpV: 10.5469, jumpCut: 4.2188, maxFall: 13.125, stepUp: 0.25, snapDown: 0.0625 } };
 test('level physics: jump peaks near 1.875 m', () => {
   const w = world(grid(W12(row('4', 12)), Object.assign({ entities: [{ type: 'start', x: 5.5, z: 2.5 }] }, ORIG)));
   let top = 0;
@@ -798,7 +798,7 @@ test('original movement: a jump without the stick loses 0.086 a frame per frame;
   w = ORIGM([{ type: 'ice', on: [[3, 2]], off: [] }]); place(w, 3.5, 2.5); w.p.facing = Math.PI / 2;
   run(w, 2, {}); assert.ok(w.ice, 'ice on');
   run(w, 30, { mx: 1 }); near(w.p.vx, UF(30 * (0x100 - 0x20) / 0x1000), UF(0.02), 'slow start on ice');
-  const v1 = w.p.vx; run(w, 30, {}); near(v1 - w.p.vx, UF(30 * 0x20 / 0x1000), UF(0.01), 'long slide');
+  const v1 = w.p.vx; run(w, 30, {}); near(v1 - w.p.vx, UF(30 * 0x21 / 0x1000), UF(0.01), 'long slide (its fixed point loses a little more)');
 });
 test('original movement: a wall stops a point at its cell edge and keeps the other part; letting go of jump cuts the rise; a half turn goes its way', () => {
   const box = () => world(grid(['cccccc', 'c4444c', 'c4444c', 'c4444c', 'cccccc'], { entities: [{ type: 'start', x: 2.5, z: 2.5, facing: 90 }],
@@ -811,8 +811,43 @@ test('original movement: a wall stops a point at its cell edge and keeps the oth
     run(ww, 60, f => { top = Math.max(top, ww.p.y - y0); return { jump: f < jump }; }); return top * 32; };
   near(peak(40), 60, 3, 'a held jump rises about 60 units');
   assert.ok(peak(2) < 20, `a tapped jump rises ${peak(2).toFixed(1)} units`);
-  w = box(); place(w, 2.5, 2.5); w.p.facing = -Math.PI / 2; run(w, 1, { mx: 1 });
-  near(w.p.facing, -Math.PI / 2 - Sim.P.orig.turn / 60, 1e-6, 'a half turn turns our angle down (the original\'s up)');
+  const half = last => { const ww = box(); place(ww, 2.5, 2.5); ww.p.facing = -Math.PI / 2; ww.p.lastTurn = last; run(ww, 1, { mx: 1 }); return ww.p.facing + Math.PI / 2; };
+  near(half(undefined), Sim.P.orig.turn / 60, 1e-6, 'with no turn before, its angle goes down (ours up)');
+  near(half(-1), -Sim.P.orig.turn / 60, 1e-6, 'after a turn down, a half turn goes up (ours down)');
+});
+// a converted-style level (rom set): flat at 1 m with walls round, and a ramp row z 3 (north edge `up` steps higher)
+const ROMLV = (up = 1, split = 0) => {
+  const W = 8, D = 6, tiles = [];
+  for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
+    if (x === 0 || z === 0 || x === W - 1 || z === D - 1) { tiles.push({ c: [3, 3, 3, 3], t: 'F' }); continue; }
+    const t = { c: z === 3 ? [1 + up / 4, 1 + up / 4, 1, 1] : z < 3 ? [1 + up / 4, 1 + up / 4, 1 + up / 4, 1 + up / 4] : [1, 1, 1, 1], t: 'F' };
+    if (split && z === 3) t.s = split;
+    tiles.push(t);
+  }
+  return world({ version: 1, format: 'tiles', width: W, depth: D, tiles, entities: [{ type: 'start', x: 1.5, z: 4.5, facing: 90 }],
+    physics: Object.assign({}, ORIG.physics, { orig: 1 }), rom: { level: 1, origin: [0, 0], vscale: 1 } });
+};
+test('the original\'s floor and slopes: triangles in whole units, the pull on steep ones, a jump thrown downhill', () => {
+  let w = ROMLV(1);
+  near(Sim.floorAt(w.L, 3.5, 3.5), 1 + 3 / 32, 1e-9, 'a one-step ramp: whole units on its triangle (bilinear would be 1.125)');
+  near(Sim.floorAt(ROMLV(1, 1).L, 3.25, 3.25), 1.25 - 2 / 32, 1e-9, 'split the other way: its north-west triangle');
+  place(w, 3.5, 3.5); run(w, 20, {}); near(w.p.vz, 0, 1e-9, 'one step: standing still is not pulled');
+  w = ROMLV(2); place(w, 3.5, 3.5); run(w, 1, {});
+  near(w.p.vz / UF(1) * 65536, 5588 + 1397, 1, 'two steps: pulled g + g/4 a frame (5588 there)');
+  w = ROMLV(1); place(w, 3.5, 3.5); run(w, 1, { jump: true });
+  near(w.p.vz / UF(1) * 65536, 2857 * 32, 1, 'a jump there takes 32 g downhill');
+  near(w.p.vy / UF(1) * 65536, 22862 * 16 - 0x4000, 1, 'and rises at the upright part (less that frame\'s gravity)');
+});
+test('the original\'s dash button: a roll with any speed, the launch frame stands, a roll bounces 0x4000 slower', () => {
+  let w = ROMLV(0); place(w, 2.5, 4.5); w.p.facing = Math.PI / 2;
+  run(w, 10, { mx: 1 }); const v = w.p.vx; run(w, 1, { dash: true });
+  assert.ok(w.p.rolling && w.p.vx > v * 0.95, `rolled at ${w.p.vx / UF(1)}`);
+  w = ROMLV(0); place(w, 2.5, 4.5); w.p.facing = Math.PI / 2; run(w, 20, { dash: true }); const x0 = w.p.x; run(w, 1, {});
+  assert.ok(w.p.x === x0 && w.p.vx > 0 && w.p.rolling, 'launched, not moved that frame');
+  w = ROMLV(0); place(w, 6.5, 4.5); w.p.facing = Math.PI / 2; w.p.vx = UF(3); w.p.rolling = true; w.p.fwdWord = 0x3000;
+  let before = 0; for (let f = 0; f < 20 && w.p.vx > 0; f++) { before = w.p.vx; run(w, 1, {}); }
+  assert.ok(w.p.vx < 0, 'came back');
+  near(-w.p.vx / UF(1), before / UF(1) - 0x11 / 0x1000 - 0.25, 0.002, 'a quarter unit slower');
 });
 test('Diamond Dust: ice spikes hurt until a roll breaks them; a low roof stops a jump', () => {
   let w = ORIGM([{ type: 'iceSpikes', cells: [[5, 2]] }]); w.ringCount = 5; place(w, 3.5, 2.5); w.p.facing = Math.PI / 2;

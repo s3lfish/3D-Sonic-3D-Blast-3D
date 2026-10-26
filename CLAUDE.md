@@ -67,8 +67,8 @@ serves index.html from main.
   `orbit`/`orbitY`: spike ball circling at 23.5 units, one turn per 256 frames, `P.ballR`, hurts, cannot be broken;
   ROM sprite recipe 'SPK', Hunter recipe 00C without the ball). Player: `shield`, `inv`, `fast`
   timers; shields take a hit without losing rings; gold shield dashes on a second jump press in the air.
-- Spin dash: hold dash to brake and rev (any speed), release to launch; a tap under 0.12 s while running rolls.
-  Converted levels launch at the original's steps (P.orig.dash).
+- Spin dash (built-in level): hold dash to brake and rev (any speed), release to launch; a tap under 0.12 s while running
+  rolls. Converted levels use the original's button (see Original movement).
 - Monitors in the ROM look: a 0.56 m box (`romMonitorBox`) in the sprite's commonest colour, the ROM icon
   (`S3D.monitorIcon`) on a dark screen on each side; geometry and materials shared (`userData.shared`, never disposed).
 - Scattered (free) Flickies never step onto a ledge above or off a drop of more than 1 m.
@@ -213,23 +213,36 @@ serves index.html from main.
   or has stopped; 4 hits an arm. Beaten arenas 1 and 2: a pad cell lifts the player (`b.lift`: held 16 frames, put at
   `to`, falls; 55 frames). Arena 3 beaten: 360 frames, then 'goal'. Converters: `mapSet`/`mapClear` (InitLevel's map
   writes: PP3's start cell, and its first 370 bytes, the serpent's path buffer); the art baker applies them too.
-- Converted levels, all zones (watched in GnG1 and GG1): a roll bounces off walls (`rollBounce`, facing turned); corner
-  pieces (one corner two steps over three level ones, both neighbours by it without floor; `L.diag`, findDiagonals) are
-  diagonal walls (that half solid, rest flat), met as a point (`P.rDiag`); cell walls meet a point too (`resolveWallsOrig`: stopped at his own cell's edge, x
-  then z, the speed into the wall gone and the other kept; game.js draws him `WALL_SKIN` 0.15 m off tall faces); slope pull
-  `P.slopeOrig` (0.045 units a frame per frame per gradient, measured rolling).
+- Converted levels, all zones: corner pieces (one corner two steps over three level ones, both neighbours by it without
+  floor; `L.diag`, findDiagonals) are diagonal walls (that half solid, rest flat), met as a point (`P.rDiag`). Walls,
+  floors, slopes and bounces are the original's: see Original movement.
 - VV3 boss `vv` (`vvStep`, 0x9EBA): pod down to `low` (feet frame) in the crater; a falling ball inside `hitBox` is a hit
   (bounce 5, pad 30, 60 frames apart), grounded there hurts; `spikes` cells round the mouth hurt; every 510 frames a fire
   serpent rises at frame 270 at `rise` and chases 240 frames (octant heading, random turn 16..79, 2 units a frame, height
   toward Sonic + 16, not under `minY`), nine segments along its path (`b.segs`); drawn with object 138's frames (line 3).
   `GIMMICKS[14]` lava. Not modelled: the vents' fire ball hopping (0xA0A8) and its fight with the serpent.
-- Original movement (`physics.orig` = 1 on converted levels, `P.orig`, routine 0x3330): velocity split along
-  `p.facing` (which is the heading there, turned 0x40/0x800 a frame toward the stick); tables [A, F, G] walk, ball,
-  ice, roll; top 5 units a frame; spin dash steps by held frames 14/29/44/59; a half turn turns the original's angle
-  up. Jump 5.625 units a frame; letting go of jump while rising: over 3.125 loses 1.5, then halves, and the next frame
-  has no gravity. A 385-frame GG1 trace (walk, wall slide into a corner, turn, jump, air turn; private movetrace.py +
-  move_parity.js) stays within 1.8 units, heights exact; the rest is the original's fixed-point rounding. A cannon's flight skips it. `runRef()` in game.js scales animation
-  and camera thresholds.
+- Original movement (`physics.orig` = 1; converted levels, `L.rom` set), ported to the original's own fixed point and
+  matched exactly (to 1/100 unit, heights too) over three emulator traces (GG1 walk/walls/jumps, GG1 spin dash/rolls/
+  bounces, GG2 slopes/roll jumps/air walls; private movetrace.py + move_parity.js):
+  * `origTurn` (0x3134): facing in 0x800 a turn, 0x40 a frame the short way; a half turn goes against the last turn
+    (`p.lastTurn`); stick let go, a turn finishes to the next eighth from its target (`p.turnTgt`).
+  * `origVelocity` (0x342C): 16.16 velocity turned into the facing frame at 1/0x1000 with the sine table
+    (`P.orig.sin` = floor(sin x 0x7FFF)), forward gains A with any direction held, losses toward 0, over the top
+    loses A, cap 0x7F00, turned back; tables `P.orig.raw` (walk, ball, ice, roll); a roll ends under forward 0x1000
+    (`p.fwdWord`, checked first: walks that frame); the top stays while rolling (0x7800 after a dash, `p.topW`).
+    The jump frame still uses the ground table and takes the slope's 32 g; the jump ends a roll.
+  * Dash button (0x31C8): grounded with any speed, rolls; standing, held, crouches (no move, no jump), revs at 14
+    frames, a step every 15 (jump taps hurry it; 'charge' events), let go: 8/12/14/16 x 0x7800 along the facing
+    (0x54DA a part on diagonals), not moving that frame.
+  * Floor (`origTri`, 0x3BB2): each cell two triangles, split by its 0x4A08 flag (converters emit `s`: bit 0 the
+    flag, bit 1 all corners odd), height in whole units; slope pull (`origPull`, 0x3540): the triangle's normal
+    (1/8 a step, x 0x5A00, cut toward 0), g + g/4 (rolling a quarter) when steep (0x1000) or moving (0x800).
+  * Walls (`resolveWallsOrig`, 0x40D6): a point; a cell 9+ whole units over him is a wall, in the air too; stopped at
+    his own cell's edge, x then z, that speed gone, the other kept; a roll comes back 0x4000 slower (stopping if that
+    crosses zero) with its facing mirrored. Rising into a cell within 8 lifts him onto it; a drop over 2 units leaves
+    the ground (stepUp 8, snapDown 2 units). One move a frame. game.js draws him `WALL_SKIN` 0.15 m off tall faces.
+  * Jump 5.625 units a frame; let go while rising: over 3.125 loses 1.5, then halves, no gravity that frame.
+  A cannon's flight skips it. `runRef()` in game.js scales animation and camera thresholds.
 - Object handlers: the table at 0x1BF42 + type (bra.w per type); `re/NOTES.md` lists the ones read.
 - Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
   ROM look draws springs as 3D drums coloured from the ROM sprite (`romSpringMats`).
@@ -305,8 +318,8 @@ serves index.html from main.
   `heads`, `continues`); out of lives: a continue restarts the act, else game over and the first act. Score: Sim
   `w.score` (hundreds: enemy 1, boss 10, FF 50, Flickies into a ring 1/2/4/8/16; `step` wraps `stepInner` to count
   events) plus game.js `score` (acts' bonuses, special stages), shown on the results screens.
-- 2026-10-27: movement checked frame by frame against the original (above): point walls, the jump and its let-go,
-  the half turn. 126 sim tests.
+- 2026-10-27: movement ported to the original's fixed point and matched exactly over three emulator traces (above):
+  turn, velocity, dash button and roll, floors and slopes by triangle, point walls, roll bounces. 128 sim tests.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;
   the Jam Flicky body is a flat quad (edge-on from the side).

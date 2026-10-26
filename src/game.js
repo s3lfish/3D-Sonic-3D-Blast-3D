@@ -2715,7 +2715,7 @@
       if (world.events.includes('monitor') && world.power === 'oneup') setLives(Math.min(9, lives + 1));
       if (world.events.includes('head')) gotHead();
       for (const ev of world.events) Sfx.play(ev);
-      if (world.p.charge > 0 && !wasCharging) Sfx.play('charge');
+      if (world.p.charge > 0 && !wasCharging && !(L.phys && L.phys.orig)) Sfx.play('charge');   // (converted levels: the sim's 'charge' events, as the original's)
       wasCharging = world.p.charge > 0;
       if (world.events.includes('monitor') && MdSound.on && !Sfx.muted) MdSound.power(world.power);
       if (world.events.includes('section') || world.events.includes('goal')) {
