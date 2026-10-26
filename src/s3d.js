@@ -84,7 +84,10 @@ const S3D = (() => {
       // state 0xF; cleared at (91, 46)); and (86..87, 75), (78..79, 67): open from the sled's start to (86, 74); stepping
       // on (38, 76) raises (37..38, 75) to 0x7D00 for good
       gates: [[[[88, 54], [89, 54]], 0x6D, 0, 1], [[[90, 47], [91, 47]], 0x6D, 0, 1], [[[86, 75], [87, 75]], 0x59, 0, 2], [[[78, 67], [79, 67]], 0x65, 0, 2]],
-      passOff: [[91, 46], [86, 74, 2]], shuts: [[[[38, 76]], [[37, 75], [38, 75]], 0x7D]] },
+      passOff: [[91, 46], [86, 74, 2]], shuts: [[[[38, 76]], [[37, 75], [38, 75]], 0x7D]],
+      // warp holes: standing two frames on (57, 50) hops Sonic 4.5 up and opens it and (59, 72); falling into (57, 50)
+      // under 0x320 puts him under (59, 72), into (59, 72) under 0x1C0 under (57, 50); thrown out once the camera is there
+      warps: [[57, 50, 0x770, 0x1E0, 0x910, 0x320], [59, 72, 0x730, 0x340, 0x650, 0x1C0]] },
     // Diamond Dust 2 (RunLevel_DDz2 0xFA06): pads as in act 1 (tables 0xFC82..); the supercharger (record 9) opens gate cells
     // into a ride (state 0x803E at (78, 95), pad let go 400 frames); a dash east at (50, 45) under 608 (7.5 units a frame,
     // pad held 10 frames); a current east over x 96-117, z 88-95 (0.375 a frame per frame up to 3.5, 3.5 on jumping off)
@@ -788,6 +791,13 @@ const S3D = (() => {
     for (const [cx, cz, key, regs] of gm.keyOff || []) if (floorCell(cx, cz)) { const e = { type: 'keyOff', x: cx - x0, z: cz - z0, key }; if (regs) e.regs = regs; ents.push(e); }
     // switch cells (Panic Puppet 1's routine): standing on one sets a named value; carriers read them
     if (gm.switches) { const cells = gm.switches.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz, reg, v]) => [cx - x0, cz - z0, reg, v]); if (cells.length) ents.push({ type: 'switchCells', cells }); }
+    // a pair of warp holes (Diamond Dust 1's routine): [cell x, z, then the exit x, y, z (units) and the depth under which
+    // falling into this cell puts Sonic at that exit]; out: how he is thrown up from it (2 a frame west and north, 8.5 up)
+    if (gm.warps) {
+      const [[ax, az, ...ae], [bx, bz, ...be]] = gm.warps, Y = v => r3((v + 8) / CELL * vscale), mps = 60 / CELL;
+      if (floorCell(ax, az) && floorCell(bx, bz)) ents.push({ type: 'warpHole', cells: [[ax - x0, az - z0], [bx - x0, bz - z0]],
+        exits: [ae, be].map(q => [r3(q[0] / CELL - x0), Y(q[1]), r3(q[2] / CELL - z0)]), below: [Y(ae[3]), Y(be[3])], out: [r3(-2 * mps), r3(8.5 * mps * vscale), r3(-2 * mps)] });
+    }
     // carriers (Panic Puppet 1's belts): a grounded Sonic in the box (at height y when given) is held and carried a unit
     // a frame along x on the line z, east when the value picked by `way` is 1 ([flag, then, else]: the flag's value
     // picks which), let go past lo or hi; `launch` instead at hi: the ride, with the key, and where it puts him

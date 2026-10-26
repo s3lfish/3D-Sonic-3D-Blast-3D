@@ -94,7 +94,8 @@ GIMMICKS = {
         'hops': ([(94, 39), (90, 39), (80, 39)], 40), 'flames': (0x10976, 7), 'freeze': 1,
         'spikes': 0xFF, 'ice': (0x10B24, 21, 0x10B4E, 25, [(89, 50)], [(86, 74)]), 'iceSpikes': (0x10B80, 27), 'roofs': 0x10AF2, 'bumpers': (0x55, 0, 0),
         'gates': [([(88, 54), (89, 54)], 0x6D, 0, 1), ([(90, 47), (91, 47)], 0x6D, 0, 1), ([(86, 75), (87, 75)], 0x59, 0, 2), ([(78, 67), (79, 67)], 0x65, 0, 2)],
-        'passOff': [(91, 46), (86, 74, 2)], 'shuts': [([(38, 76)], [(37, 75), (38, 75)], 0x7D)]},   # Diamond Dust 1 (see s3d.js)
+        'passOff': [(91, 46), (86, 74, 2)], 'shuts': [([(38, 76)], [(37, 75), (38, 75)], 0x7D)],
+        'warps': [(57, 50, 0x770, 0x1E0, 0x910, 0x320), (59, 72, 0x730, 0x340, 0x650, 0x1C0)]},   # Diamond Dust 1 (see s3d.js)
     12: {'pads': [(0, 1, 1)], 'lava': 0x55, 'rocks': (0xB484, 27), 'roofs': 0xB386, 'vents': (0xB394, 8), 'spouts': (0xB286, 16), 'fireRuns': (0xB194, 5),
          'cracks': [([(55, 61)], 744, [0, -1]), ([(94, 114)], 424, [-1, 0])], 'balls': (0xE80, 56, 8)},
     13: {'pads': [(0, 1, 1), (2, 3, 2)], 'lava': 0x55, 'rocks': (0xAB42, 42), 'roofs': 0xAA4A, 'vents': (0xA8F6, 6), 'spouts': (0xA9AA, 10), 'fireRuns': (0xAA5E, 5),
@@ -542,6 +543,13 @@ def convert(rom, level_id, vscale=1.0):
     if 'switches' in gm:   # switch cells and carriers (Panic Puppet 1; see s3d.js)
         cells = [[cx - x0, cz - z0, reg, v] for cx, cz, reg, v in gm['switches'] if floor_cell(cx, cz)]
         if cells: ents.append({"type": "switchCells", "cells": cells})
+    if gm.get('warps'):   # a pair of warp holes (see s3d.js)
+        (ax, az, *ae), (bx, bz, *be) = gm['warps']
+        if floor_cell(ax, az) and floor_cell(bx, bz):
+            Y = lambda v: r3((v + 8) / CELL * vscale)
+            ents.append({"type": "warpHole", "cells": [[ax - x0, az - z0], [bx - x0, bz - z0]],
+                         "exits": [[r3(q[0] / CELL - x0), Y(q[1]), r3(q[2] / CELL - z0)] for q in (ae, be)], "below": [Y(ae[3]), Y(be[3])],
+                         "out": [r3(-2 * mps), r3(8.5 * mps * vscale), r3(-2 * mps)]})
     for ax, bx, az, bz, y, lz, lo, hi, hide, launch, *aw in gm.get('carriers', []):
         axis = aw[0] if aw else 'x'; way = aw[1] if len(aw) > 1 else gm['carryWay']
         A, B = (z0, x0) if axis == 'z' else (x0, z0)

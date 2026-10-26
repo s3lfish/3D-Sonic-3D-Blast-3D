@@ -1412,6 +1412,15 @@ const Sim = (() => {
           L.entities.push({ type: 'passOff', cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]), flag: e.flag > 1 ? Math.floor(e.flag) : 1 });
           break;
         }
+        // a pair of warp holes (Diamond Dust 1): two cells, the exits [x, y, z] under the other, the depths [y, y] that
+        // send Sonic there and how he is thrown out [vx, vy, vz]
+        case 'warpHole': {
+          const v2 = c => Array.isArray(c) && c.length === 2 && inBounds(c[0], c[1]), v3 = c => Array.isArray(c) && c.length === 3 && c.every(Number.isFinite);
+          if (!Array.isArray(e.cells) || e.cells.length !== 2 || !e.cells.every(v2) || !Array.isArray(e.exits) || e.exits.length !== 2 || !e.exits.every(v3)
+            || !Array.isArray(e.below) || e.below.length !== 2 || !e.below.every(Number.isFinite) || !v3(e.out)) { errs.push('A warpHole needs two "cells", two "exits", two "below" depths and "out".'); break; }
+          L.entities.push({ type: 'warpHole', cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]), exits: e.exits, below: e.below, out: e.out });
+          break;
+        }
         case 'keyOff': {
           if (!inBounds(e.x, e.z) || e.key === undefined) { errs.push(`A keyOff at (${e.x}, ${e.z}) needs a place on the map and a "key".`); break; }
           // "regs": values set as it takes the key back (Panic Puppet 1's flag); only while the key is held
@@ -1872,6 +1881,8 @@ const Sim = (() => {
     // gates stand (raised for the sim only) until their section or a supercharged run opens them
     w.gates = L.entities.filter(e => e.type === 'gate').map(e => ({ ...e, open: !!e.shut, closed: false }));
     for (const g of w.gates) if (!g.shut) for (const [cx, cz] of g.cells) L.up.set(cz * L.width + cx, g.top);
+    const wh = L.entities.find(e => e.type === 'warpHole');
+    w.warpHole = wh ? { ...wh, open: false, on: 0, hold: 0 } : null;
     w.passOn = new Set(); w.passOff = new Map(L.entities.filter(e => e.type === 'passOff').flatMap(e => e.cells.map(([cx, cz]) => [cz * L.width + cx, e.flag || 1])));
     w.keys = new Set(); w.keyOff = new Map(L.entities.filter(e => e.type === 'keyOff').map(e => [e.z * L.width + e.x, e]));
     w.zaps = []; w.zapLast = -1;
@@ -2757,6 +2768,7 @@ const Sim = (() => {
     if (w.boss) initBoss(w);
     for (const g of w.gates || []) if (g.shut) g.closed = false;   // (the cells that shut behind the player open again)
     w.passOn.clear();
+    if (w.warpHole) { for (const [cx, cz] of w.warpHole.cells) w.L.up.delete(cz * w.L.width + cx); Object.assign(w.warpHole, { open: false, on: 0, hold: 0 }); }
     // starting again on a pad (a ring stands over one) does not set it off until the player steps off it
     w.padOff = (w.holes || []).find(h => h.pad && Math.abs(h.x - s.x) < h.size && Math.abs(h.z - s.z) < h.size) || null;
   }
@@ -2829,6 +2841,32 @@ const Sim = (() => {
       if (g.shut && !g.closed && g.shut.includes(gcell)) { g.closed = true; if (g.ev) w.events.push(g.ev); }
       const open = g.shut ? !g.closed : (g.opens > 0 && w.section >= g.opens) || (g.pass && (w.passOn.has(g.pass) || (g.pass === 1 && !!(p.force && p.force.pass)))) || (g.key !== null && w.keys.has(g.key));
       if (open !== g.open) { g.open = open; for (const [cx, cz] of g.cells) { const t = cz * L.width + cx; if (open) L.up.delete(t); else L.up.set(t, g.top); } }
+    }
+    // warp holes (Diamond Dust 1's routine 0x10350, watched): landing on the first cell from the air hops Sonic 4.5 up and
+    // opens both cells (no floor, for good); falling into one under its depth puts him under the other, held while the
+    // camera pans there (about 105 frames), then thrown out in a ball
+    const wh = w.warpHole;
+    if (wh) {
+      if (wh.hold > 0) {
+        p.vx = p.vy = p.vz = 0; p.grounded = false; p.lock = Math.max(p.lock, 2 / 60);
+        if (--wh.hold === 0) { [p.vx, p.vy, p.vz] = wh.out; p.ball = true; p.jumping = false; p.facing = Math.atan2(p.vx, p.vz); w.events.push('blast'); }
+        else return w;
+      } else {
+        const cx = Math.floor(p.x), cz = Math.floor(p.z);
+        if (!wh.open) {
+          if (cx === wh.cells[0][0] && cz === wh.cells[0][1]) {
+            if (!p.grounded) wh.on = 1;
+            else if (wh.on) {
+              wh.open = true; for (const [hx, hz] of wh.cells) L.up.set(hz * L.width + hx, -1e3);
+              p.vy = 4.5 * 60 / 32 * (L.rom ? L.rom.vscale : 1); p.grounded = false; p.jumping = false; w.events.push('blast');
+            }
+          } else wh.on = 0;
+        } else for (let k = 0; k < 2; k++) {
+          if (cx !== wh.cells[k][0] || cz !== wh.cells[k][1] || p.y >= wh.below[k]) continue;
+          [p.x, p.y, p.z] = wh.exits[k]; p.vx = p.vy = p.vz = 0; wh.hold = 105; w.warpedAt = w.time; w.events.push('warp');
+          return w;
+        }
+      }
     }
     // a pad: held on its middle, sinking, then out of the other pad (or into the ring's pocket) and thrown up
     if (p.pad) {
@@ -3125,8 +3163,10 @@ const Sim = (() => {
         // Gadget 1's corridor), turning to its new way
         const bounce = O && p.rolling && p.grounded;
         if (bounce && _dn[2]) { nrm[0] = _dn[0]; nrm[1] = _dn[1]; }   // (a point in the original: the diagonal alone turns it)
-        const dot = p.vx * nrm[0] + p.vz * nrm[1], kb = p.whirl ? 1 + P.whirlBounce : bounce ? 2 : 1;
-        if (dot < 0) { p.vx -= nrm[0] * dot * kb; p.vz -= nrm[1] * dot * kb; if (bounce) { p.facing = Math.atan2(p.vx, p.vz); w.events.push('rollBounce'); } }
+        // (in the air the original only stops him at the wall: his speed is kept, so he goes on once over the ledge;
+        // watched: thrown out of Diamond Dust 1's warp hole against its edge)
+        const dot = p.vx * nrm[0] + p.vz * nrm[1], kb = p.whirl ? 1 + P.whirlBounce : bounce ? 2 : 1, keep = O && !p.grounded && !p.whirl;
+        if (dot < 0 && !keep) { p.vx -= nrm[0] * dot * kb; p.vz -= nrm[1] * dot * kb; if (bounce) { p.facing = Math.atan2(p.vx, p.vz); w.events.push('rollBounce'); } }
       }
       let f = floorAt(L, p.x, p.z);
       if (w.plats.length || w.jets.length || w.movers.length) f = platFloor(w, p, f, p.grounded ? L.phys.stepUp : 0.02);
@@ -4392,7 +4432,10 @@ const S3D = (() => {
       // state 0xF; cleared at (91, 46)); and (86..87, 75), (78..79, 67): open from the sled's start to (86, 74); stepping
       // on (38, 76) raises (37..38, 75) to 0x7D00 for good
       gates: [[[[88, 54], [89, 54]], 0x6D, 0, 1], [[[90, 47], [91, 47]], 0x6D, 0, 1], [[[86, 75], [87, 75]], 0x59, 0, 2], [[[78, 67], [79, 67]], 0x65, 0, 2]],
-      passOff: [[91, 46], [86, 74, 2]], shuts: [[[[38, 76]], [[37, 75], [38, 75]], 0x7D]] },
+      passOff: [[91, 46], [86, 74, 2]], shuts: [[[[38, 76]], [[37, 75], [38, 75]], 0x7D]],
+      // warp holes: standing two frames on (57, 50) hops Sonic 4.5 up and opens it and (59, 72); falling into (57, 50)
+      // under 0x320 puts him under (59, 72), into (59, 72) under 0x1C0 under (57, 50); thrown out once the camera is there
+      warps: [[57, 50, 0x770, 0x1E0, 0x910, 0x320], [59, 72, 0x730, 0x340, 0x650, 0x1C0]] },
     // Diamond Dust 2 (RunLevel_DDz2 0xFA06): pads as in act 1 (tables 0xFC82..); the supercharger (record 9) opens gate cells
     // into a ride (state 0x803E at (78, 95), pad let go 400 frames); a dash east at (50, 45) under 608 (7.5 units a frame,
     // pad held 10 frames); a current east over x 96-117, z 88-95 (0.375 a frame per frame up to 3.5, 3.5 on jumping off)
@@ -5096,6 +5139,13 @@ const S3D = (() => {
     for (const [cx, cz, key, regs] of gm.keyOff || []) if (floorCell(cx, cz)) { const e = { type: 'keyOff', x: cx - x0, z: cz - z0, key }; if (regs) e.regs = regs; ents.push(e); }
     // switch cells (Panic Puppet 1's routine): standing on one sets a named value; carriers read them
     if (gm.switches) { const cells = gm.switches.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz, reg, v]) => [cx - x0, cz - z0, reg, v]); if (cells.length) ents.push({ type: 'switchCells', cells }); }
+    // a pair of warp holes (Diamond Dust 1's routine): [cell x, z, then the exit x, y, z (units) and the depth under which
+    // falling into this cell puts Sonic at that exit]; out: how he is thrown up from it (2 a frame west and north, 8.5 up)
+    if (gm.warps) {
+      const [[ax, az, ...ae], [bx, bz, ...be]] = gm.warps, Y = v => r3((v + 8) / CELL * vscale), mps = 60 / CELL;
+      if (floorCell(ax, az) && floorCell(bx, bz)) ents.push({ type: 'warpHole', cells: [[ax - x0, az - z0], [bx - x0, bz - z0]],
+        exits: [ae, be].map(q => [r3(q[0] / CELL - x0), Y(q[1]), r3(q[2] / CELL - z0)]), below: [Y(ae[3]), Y(be[3])], out: [r3(-2 * mps), r3(8.5 * mps * vscale), r3(-2 * mps)] });
+    }
     // carriers (Panic Puppet 1's belts): a grounded Sonic in the box (at height y when given) is held and carried a unit
     // a frame along x on the line z, east when the value picked by `way` is 1 ([flag, then, else]: the flag's value
     // picks which), let go past lo or hi; `launch` instead at hi: the ride, with the key, and where it puts him
@@ -7122,7 +7172,7 @@ const Art = (() => {
   // Panic Puppet 2's beam posts (180): the frame shown in each of the 24 animation steps (list 0x16030, frame offsets / 4)
   const BEAM_FRAMES = [4, 4, 4, 4, 3, 3, 3, 2, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3];
   let rockObjs = [], jetObjs = [], moverObjs = [], spikeBallObjs = [], fireObjs = [], fireballObjs = [], iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
-  let doorMeshes = [], jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
+  let warpHoleMarks = [], doorMeshes = [], jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
   // spiked ball on a chain, and a burst of fireballs when beaten
   function buildBoss() {
@@ -7618,6 +7668,12 @@ const Art = (() => {
     }
     // cracked walls: a column of plain rock (from the level's own cliffs in the ROM look) on each cell until broken;
     // pillars (broken by a whirl): a stone column on a pink base, about the original sprite's height
+    // Diamond Dust 1's warp holes: a dark well on each cell once they are open
+    warpHoleMarks = world.warpHole ? world.warpHole.cells.map(([cx, cz]) => {
+      const k = (cz * L.width + cx) * 4, y = Math.max(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]);
+      const m = new THREE.Mesh(new THREE.CircleGeometry(0.45, 24), new THREE.MeshBasicMaterial({ color: 0x05070c }));
+      m.rotation.x = -Math.PI / 2; m.position.set(cx + 0.5, y + 0.02, cz + 0.5); m.visible = false; levelGroup.add(m); return m;
+    }) : [];
     crackMeshes = world.cracks.map(c => {
       const g = new THREE.Group(), art = mesh.userData.art && levelArtFor(L), vs = L.rom ? L.rom.vscale : 1;
       const floorOf = (cx, cz) => { const k = (cz * L.width + cx) * 4; return Math.min(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]); };
@@ -8874,6 +8930,7 @@ const Art = (() => {
       u.f = f;
       if (u.rom) o.material = romBossMat(0x180, f, ROM_CANVAS, 80, b.line); else u.tip.material.color.setHex(f === 0 ? 0xfff27a : 0x5a5030);
     });
+    for (const m of warpHoleMarks) m.visible = !!(world.warpHole && world.warpHole.open);
     for (const d of doorMeshes) {
       if (d.userData.field) { d.userData.field.visible = !d.userData.gate.open; continue; }
       const to = d.userData.gate.open ? -d.userData.h - 0.05 : 0;

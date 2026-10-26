@@ -365,9 +365,13 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   piece, turns a right angle off its diagonal (e.g. south at x 2528 to z 2751, then west; west to x 2464, then south).
   The loop: south down x 78-79, the south-west stairs, south on x 74-75, south-east stairs, east, north-east stairs,
   north-west stairs, north on x 86 to the jump. In the sim the turns land within a few units of these.
-- Not modelled: warp holes (57, 50) <-> (59, 72) (standing on (57, 50) two frames: hop 4.5 up, the two cells listed
-  open, below y 0x320 put at (0x770, 0x1E0, 0x910) under (59, 72) and thrown (-2, 8.5 up, -2) once the camera is
-  there; the same from (59, 72) below 0x1C0 to (0x730, 0x340, 0x650)); what (86, 74) does after the sled ($A(a4) 10).
+- Warp holes (routine 0x10350, watched): landing on (57, 50) from the air ($1A(a4) set while airborne over it) hops
+  Sonic 4.5 up and lists (57, 50) and (59, 72) as open for good ($1C); falling into (57, 50) under 0x320 puts him at
+  (0x770, 0x1E0, 0x910) under (59, 72), into (59, 72) under 0x1C0 at (0x730, 0x340, 0x650); held while the camera pans
+  (about 105 frames), then thrown (-2, 8.5 up, -2) in a ball; he lands at (1872, 544, 2288). The sim lands there too.
+- In the air the original keeps Sonic's speed against a wall (only his place is stopped): thrown out of the warp hole
+  against its edge, he goes on once over it; his speed fades 1/16 a frame with no input.
+- Not modelled: what (86, 74) does after the sled ($A(a4) 10).
 
 ## Movement tables (2026-10-27; speedprobe.py)
 - Routine 0x3330 picks [accel $22, side loss $2A, forward loss $26] and top $2E: walking 480/380/260, top 0x5000; the

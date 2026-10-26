@@ -291,6 +291,8 @@ serves index.html from main.
 - In the emulator, freed particle slots keep their old bytes: find new shots by the life word (+0x32) going up.
 
 ## Status
+- 2026-10-27: DD1 warp holes (`warpHole`: land on (57, 50), fall through, thrown out of the other; watched and matched to
+  the unit). On original-movement levels an airborne wall stop keeps Sonic's speed (watched).
 - 2026-10-27: Diamond Dust gates (DD1 supercharger and sled gates, DD2 supercharger gates; `pass` 1 or 2 with
   flagged `passOff`; `w.passOn` is a Set); DD1's (38, 76) wall; the sled as the original (a point, four ways, turned
   by corner pieces at no-floor edges, `sledMove`; ended by a ride): DD1's icy loop now runs to its jump. 118 sim tests.

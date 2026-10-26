@@ -791,7 +791,7 @@
   // Panic Puppet 2's beam posts (180): the frame shown in each of the 24 animation steps (list 0x16030, frame offsets / 4)
   const BEAM_FRAMES = [4, 4, 4, 4, 3, 3, 3, 2, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3];
   let rockObjs = [], jetObjs = [], moverObjs = [], spikeBallObjs = [], fireObjs = [], fireballObjs = [], iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
-  let doorMeshes = [], jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
+  let warpHoleMarks = [], doorMeshes = [], jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
   // spiked ball on a chain, and a burst of fireballs when beaten
   function buildBoss() {
@@ -1287,6 +1287,12 @@
     }
     // cracked walls: a column of plain rock (from the level's own cliffs in the ROM look) on each cell until broken;
     // pillars (broken by a whirl): a stone column on a pink base, about the original sprite's height
+    // Diamond Dust 1's warp holes: a dark well on each cell once they are open
+    warpHoleMarks = world.warpHole ? world.warpHole.cells.map(([cx, cz]) => {
+      const k = (cz * L.width + cx) * 4, y = Math.max(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]);
+      const m = new THREE.Mesh(new THREE.CircleGeometry(0.45, 24), new THREE.MeshBasicMaterial({ color: 0x05070c }));
+      m.rotation.x = -Math.PI / 2; m.position.set(cx + 0.5, y + 0.02, cz + 0.5); m.visible = false; levelGroup.add(m); return m;
+    }) : [];
     crackMeshes = world.cracks.map(c => {
       const g = new THREE.Group(), art = mesh.userData.art && levelArtFor(L), vs = L.rom ? L.rom.vscale : 1;
       const floorOf = (cx, cz) => { const k = (cz * L.width + cx) * 4; return Math.min(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]); };
@@ -2543,6 +2549,7 @@
       u.f = f;
       if (u.rom) o.material = romBossMat(0x180, f, ROM_CANVAS, 80, b.line); else u.tip.material.color.setHex(f === 0 ? 0xfff27a : 0x5a5030);
     });
+    for (const m of warpHoleMarks) m.visible = !!(world.warpHole && world.warpHole.open);
     for (const d of doorMeshes) {
       if (d.userData.field) { d.userData.field.visible = !d.userData.gate.open; continue; }
       const to = d.userData.gate.open ? -d.userData.h - 0.05 : 0;

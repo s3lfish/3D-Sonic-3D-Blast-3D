@@ -1057,6 +1057,16 @@ test('a sled runs Sonic along its way and turns a right angle where a corner pie
   assert.ok(turned && turned.z > 5.9 && turned.z < 6, `turned west at the edge of the corner piece (${turned && turned.z.toFixed(3)})`);
   assert.ok(w.p.x < 1.05 && w.p.z > 5.9, `then ran west along the row to its end (${w.p.x.toFixed(2)}, ${w.p.z.toFixed(2)})`);
 });
+test('warp holes: landing on the first opens both; falling in comes out of the other, thrown up (Diamond Dust 1)', () => {
+  const w = GNG([{ type: 'warpHole', cells: [[4, 2], [12, 2]], exits: [[12.5, 0.25, 2.5], [4.5, 0.25, 2.5]], below: [0.5, 0.5], out: [-3.75, 15.94, 0] }]);
+  w.ringCount = 5; place(w, 4.5, 2.5);
+  run(w, 60, {}); assert.ok(!w.warpHole.open, 'standing does not open it');
+  let warped = -1, out = -1;
+  run(w, 400, (f, ww) => { if (warped < 0 && ww.events.includes('warp')) warped = f; if (warped >= 0 && out < 0 && ww.p.vy > 5) out = f; return f < 4 ? { jump: true } : {}; });
+  assert.ok(w.warpHole.open && warped > 0, `opened and fell through (${warped})`);
+  assert.ok(out - warped >= 100 && out - warped <= 110, `held while the camera pans (${out - warped})`);
+  assert.ok(w.p.grounded && w.p.x > 9 && w.p.x < 12 && Math.abs(w.p.y - 1) < 0.01, `landed by the other hole (${w.p.x.toFixed(2)}, ${w.p.y.toFixed(2)})`);
+});
 // Final Fight: a flat floor at the act's height (25.25 m) over the act's 34 x 22 cells; the doors as the converter makes them
 const FF = () => {
   const tiles = []; for (let k = 0; k < 34 * 22; k++) tiles.push({ c: [25.25, 25.25, 25.25, 25.25], t: 'F' });
