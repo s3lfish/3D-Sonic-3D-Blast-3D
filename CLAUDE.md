@@ -158,6 +158,21 @@ serves index.html from main.
   the same helpers, `movePlat` (128: box swinging 63 units along x/z about +0x28, +4 a frame of 0x800 from +0x26) and
   `spikeBall` (118: swung by the routine about z 0xE80, 56 units, alternate records opposite). Not yet: 0xBA68 fire
   wheels, the sinking 128 kind, VV2's 0x63AC vent exception and $7A flag.
+- Gene Gadget 1 (`GIMMICKS[4]`, RunLevel_GnGdz1 0x11D2A, InitLevel 0x11C78; GnG labels are not swapped): `updraft`
+  (0x55: grounded, `p.hover`: 0.125 a frame per frame up under floor + 48, down over it, the climb halved crossing it,
+  ball table steers, pose spring); `zapCells` (0xAA, object 068: armed on stepping on, sparks at 22 frames for 12,
+  four at a time, blue shield spared); `pyramids` (0x11EE4: 64-unit boxes, surface rises one a unit from each edge by
+  the diagonals, thrown 5.5 out and up by the speed in, `pyramid`); `gate` {cells, top, opens, pass} (InitLevel's
+  raised cells via `L.up`; pass = open while `p.force.pass`: the supercharger's and ride 0x18's run); `barrier` (the
+  zap half of cells 0x7676/78, 0x5EEC/0x5FEC until rings 1/2); speed pads as `dash`; roofs 0x12254; tubes `tubes2`
+  (0x120F8: [cell, x, z, state, effect x, y], grounded; start y null keeps the height; entry 0 `alt` at its 4th
+  segment to state 0x1A with the Flickies, else `tubeNo`); `sprinkler` (07C: within 80 units, a shot every 16 frames
+  along its angle, 0x10 a frame; shots in `w.shots` with `g`); `pylon` (06C, drawn, gone with its barrier); 05C patrols.
+  Drawn: 07C 17 frames + mirror by angle, 06C five frames, 068 lit/sparks, glass tubes along tube paths.
+- Converted levels, all zones (watched in GnG1 and GG1): a roll bounces off walls (`rollBounce`, facing turned); corner
+  pieces (one corner two steps over three level ones, both neighbours by it without floor; `L.diag`, findDiagonals) are
+  diagonal walls (that half solid, rest flat), met as a point (`P.rDiag`); walls keep `P.rOrig` 0.12 m; slope pull
+  `P.slopeOrig` (0.045 units a frame per frame per gradient, measured rolling).
 - VV3 boss `vv` (`vvStep`, 0x9EBA): pod down to `low` (feet frame) in the crater; a falling ball inside `hitBox` is a hit
   (bounce 5, pad 30, 60 frames apart), grounded there hurts; `spikes` cells round the mouth hurt; every 510 frames a fire
   serpent rises at frame 270 at `rise` and chases 240 frames (octant heading, random turn 16..79, 2 units a frame, height
@@ -231,6 +246,9 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
+- 2026-10-27: Gene Gadget 1 (hover cells, zap floors, pyramid bumpers, barriers and gates, sprinklers, tubes with the
+  Flicky way, the supercharger run round the arch); rolls bounce off walls and corner pieces are diagonal walls in every
+  converted level; 105 sim tests. flow.py: GnG1 can be finished. Next: GnG2 (0x115E2), GnG3 boss (0x11126).
 - 2026-10-27: Volcano Valley 1 and 2 (lava, rocks, vents, jet lifts, fire, spouts, fire runs, moving platforms, spiked
   balls, pads, cracked walls, patrols) and the VV3 boss; 98 sim tests. Next: Gene Gadget.
 - 2026-10-27: DD3 boss; freezing as the original's hops; 93 sim tests.

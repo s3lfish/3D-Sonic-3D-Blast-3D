@@ -34,10 +34,21 @@ for e in ents:
     if e['type'] == 'crack':
         for c in e['cells']:
             if len(c) > 3 and c[3] is not None: up[(c[0], c[1])] = c[3]
+# gates (Gene Gadget): walls until their section; the supercharger's gates open for its run (taken once a ride that
+# lets runs through has been reached); hover cells: floated over at 48 units, no jumping
+gates = {}
+for e in ents:
+    if e['type'] == 'gate':
+        for c in e['cells']: gates[(c[0], c[1])] = (e['top'], e['opens'], e.get('pass'))
+hover = {(c[0], c[1]) for e in ents if e['type'] == 'updraft' for c in e['cells']}
+state = {'section': 0, 'pass': False}
 def h(x, z):
+    g = gates.get((x, z))
+    if g and not (0 < g[1] <= state['section']) and not (g[2] and state['pass']): return g[0]
     if (x, z) in up: return up[(x, z)]
     return top(x, z)
 def reach1(seeds, section, seen=None):
+    state['section'] = section
     seen = set(seeds) if seen is None else seen | set(seeds); q = collections.deque(seeds)
     while q:
         x, z = q.popleft(); y = h(x, z)
@@ -45,7 +56,9 @@ def reach1(seeds, section, seen=None):
         nxt = []
         for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             n = (x + dx, z + dz); hy = h(*n)
-            if hy is not None and hy - y <= JUMP: nxt.append(n)
+            if (x, z) in hover:
+                if hy is not None and hy - y <= 50 / 32: nxt.append(n)
+            elif hy is not None and hy - y <= JUMP: nxt.append(n)
             elif hy is None:   # a running jump over a gap of up to 2 cells, landing no higher than half a jump up
                 for k in (2, 3, 4):
                     n2 = (x + dx * k, z + dz * k); h2 = h(*n2)
@@ -78,7 +91,9 @@ def reach1(seeds, section, seen=None):
             if e['box'][0] <= x < e['box'][1] and e['box'][2] <= z < e['box'][3]:
                 sx, sz = int(e['at'][0]), int(e['at'][2]); nxt.append((sx, sz)); nxt += run_on(sx, sz, e['dir'][0], e['dir'][1], 30)
         for b in boosters:   # a supercharger: dashed off along its way
-            if (int(b['x']), int(b['z'])) == (x, z): nxt += run_on(x, z, b['dir'][0], b['dir'][1], 20)
+            if (int(b['x']), int(b['z'])) == (x, z):
+                if gates and not state['pass']: state['pass'] = True; q.extend(seen)   # its run opens the gates
+                nxt += run_on(x, z, b['dir'][0], b['dir'][1], 20)
         for e in holes:
             if (int(e['x']), int(e['z'])) != (x, z) or e['opens'] > section: continue
             if 'ride' in e:
@@ -92,7 +107,11 @@ def reach1(seeds, section, seen=None):
                             if hy is not None and hy <= top_y + 0.1 and abs(xx - int(ex)) + abs(zz - int(ez)) <= (3 if vy > 0 else 0): nxt.append((xx, zz))
                 else: ex, ez = st[0] + sum(p[0] for p in r['path']), st[2] + sum(p[2] for p in r['path'])
                 nxt.append((int(ex), int(ez)))
+                if r.get('alt') and r['alt']['ride'].get('end'):   # with the Flickies, the other way (taken as open)
+                    ax, ay, az = r['alt']['ride']['end']['at']; nxt.append((int(ax), int(az)))
                 f = r.get('force')
+                if f and f.get('pass') and not state['pass']:   # the run: the gates open, everything met so far looked at again
+                    state['pass'] = True; q.extend(seen)
                 if f and f.get('dir'):
                     n = int(max(0, f['t'] - len(r['path']) / 60) * max(8, abs(r['vel'][0]) + abs(r['vel'][2])))
                     nxt += run_on(int(ex), int(ez), f['dir'][0], f['dir'][1], n)

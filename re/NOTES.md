@@ -447,3 +447,32 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   (0x10, 0x60, 0x800) if that vent record is off); if a serpent segment comes within 0x20 of it while $4(a4) is 1..4,
   the vent is put out (sound 0x83).
 
+## Gene Gadget 1 (2026-10-27; gngprobe.py, gngseq.py, emulator)
+- RunLevel_GnGdz1 0x11D2A each frame, by Sonic's cell d7 ($8C):
+  - 0x7676/0x7678 north of z 0xED0 while record 27 (+0x12) is on, 0x5EEC/0x5FEC west of x 0xED0 while record 30 is: hurt,
+    facing 0x400 / 0x200 (thrown back). InitLevel raises the walls behind them to 0x2D00 (58..61, 117) and 0x4500
+    (117, 93..94); the ring code lowers them (0x0D00, 0x2500) and turns the records off.
+  - 0x6582/0x6682: vx 6 (facing 0x600); 0x5E94/0x5E96: vz 6; sound 0xAE.
+  - Boxes at 0x11EE4 (4 x [x, z], 64 units): surface = distance in from the nearest edge (by the diagonals); under it:
+    out across that edge at 5.5, vy = the speed coming in, $56 = 1, pad 0xFF for 10 frames, sound 0xAE, 2 frames apart.
+  - 0x7076 (any height, no ride on): ride state 0x18, pad 0xFF for 340 frames (the supercharger's lane).
+  - Record 1 (024) at state 0xF: flag; while it is up, cells 0x7074, 0x7076, 0x5988, 0x59AA go into the $CC92 list
+    (passable); cell 0x5A88 clears it. InitLevel raises 0x7074/76 (0x2D00), 0x5988/8A (0x4900), 0x466C (0x5100).
+  - Grounded, no ride, pad free: table 0x120F8 (10 x [cell, x, z, state, effect x, effect y]): Sonic put at (x, z),
+    $56 = 2, the state played (tubes). State 6 at script offset 0x10 (4th segment): with $0A8E (Flickies following)
+    = 5, state 0x1A (to the last ring) instead; else sound 0xB2. Sound 0x3C each segment.
+  - Roofs table 0x12254 [cell, cell, top] as Diamond Dust's.
+  - 0x55 cells: $0ACC; grounded: $84 = 0x30 (hover), pose 0x0C, sound 0xC1. Watched: 0.125 a frame per frame up under
+    floor + 48, down above, the climb halved crossing the line; Flickies on 0x55 cells lifted too (0x6000 a frame).
+  - 0xAA cells (helper 0x122C6): entering one grounded puts one of four 068 records (cycling) there with $1E = 6;
+    068 (0x17B40) steps its animation every 2 frames; from index 0x1C (22 frames) Sonic grounded on that cell is hurt
+    ($24 cleared), unless $0AC2 & 0x7FFF = 0x46C0 (the blue shield; monitor kinds by (kind + 1) * 0x80 at 0xC12E).
+- Objects: 07C (0x174B4) turns 0x10 a frame; woken within 80 units; while $0B02 (counts 15..0) is 0, a shot: from 16
+  out, 17 up, (sin, cos) x 2 units a frame, vy -0.25, gravity 1/32 (template 0xD9CA); hurts. A 16 x 16 platform on top
+  that turns Sonic. 06C pylons (the barriers' posts; followers copy the leader's frame). 070 a door at (54, 70).
+  05C patrols a unit a frame between +0x24 and +0x26. 060, 064 enemies.
+- Rolling (watched in GG1 and in GnG1's supercharger run): walls reflect the roll; corner pieces (one corner two steps
+  over three level ones, against the void) turn it a right angle on their diagonal (Sonic a point: within a unit of
+  a wall). Slope pull while rolling: about 0.045 units a frame per frame per unit gradient. The supercharger run keeps
+  7.48 units a frame through ride 0x18's hop.
+

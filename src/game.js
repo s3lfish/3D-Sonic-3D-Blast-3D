@@ -761,6 +761,7 @@
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
+  let sprinklerObjs = [], pylonObjs = [], zapObjs = [], beamObjs = [];
   let rockObjs = [], jetObjs = [], moverObjs = [], spikeBallObjs = [], fireObjs = [], fireballObjs = [], iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
   let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
@@ -1203,7 +1204,49 @@
     });
     turretSprites = world.turrets.map(tu => objSprite('turret', tu, turretMat, 0.95, 0.04));
     shotSprites = [];
-    for (let i = 0; i < 12; i++) { const s = new THREE.Sprite(shotMat); s.scale.set(0.35, 0.35, 1); s.visible = false; levelGroup.add(s); shotSprites.push(s); }
+    for (let i = 0; i < (world.sprinklers.length ? 32 : 12); i++) { const s = new THREE.Sprite(shotMat); s.scale.set(world.sprinklers.length ? 0.25 : 0.35, world.sprinklers.length ? 0.25 : 0.35, 1); s.visible = false; levelGroup.add(s); shotSprites.push(s); }
+    // Gene Gadget: sprinklers (object 07C: 17 frames by their angle, mirrored past half a turn), the barriers' pylons (06C,
+    // five frames, gone with their barrier) and zaps on the floor (068: lit, then eight frames of sparks); otherwise our
+    // own: a purple drum with a nozzle, grey posts and a crackling sheet between them, a yellow glow and a spark
+    sprinklerObjs = world.sprinklers.map(q => {
+      if (rom) { const sp = bottomSprite(romBossMat(0x7C, 0, ROM_CANVAS, 80, 3), q.x, q.y, q.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); sp.userData.rom = true; return sp; }
+      const g = new THREE.Group(), body = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 0.45, 12), new THREE.MeshLambertMaterial({ color: 0x8a4ec0 }));
+      const nz = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.3, 8), new THREE.MeshLambertMaterial({ color: 0x3a3a48 }));
+      body.position.y = 0.22; nz.rotation.x = Math.PI / 2; nz.position.set(0, 0.5, 0.15); g.add(body, nz); g.position.set(q.x, q.y, q.z); levelGroup.add(g); return g;
+    });
+    const postMat = new THREE.MeshLambertMaterial({ color: 0x8890a0 }), tipMat = new THREE.MeshBasicMaterial({ color: 0xffe060 });
+    pylonObjs = world.L.entities.filter(e => e.type === 'pylon').map(q => {
+      if (rom) { const sp = bottomSprite(romBossMat(0x6C, 0, ROM_CANVAS, 80, 3), q.x, q.y, q.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); sp.userData.opens = q.opens; sp.userData.rom = true; return sp; }
+      const g = new THREE.Group(), post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 1.2, 8), postMat), tip = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), tipMat);
+      post.position.y = 0.6; tip.position.y = 1.25; g.add(post, tip); g.position.set(q.x, q.y, q.z); g.userData.opens = q.opens; levelGroup.add(g); return g;
+    });
+    beamObjs = rom ? [] : world.barriers.map(b => {
+      const xs = b.cells.map(c => c[0]), zs = b.cells.map(c => c[1]), y = Sim.floorAt(L, b.cells[0][0] + 0.5, b.cells[0][1] + 0.5);
+      const len = b.half === 'n' ? Math.max(...xs) - Math.min(...xs) + 1 : Math.max(...zs) - Math.min(...zs) + 1;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(len, 1.1), new THREE.MeshBasicMaterial({ color: 0xfff080, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false }));
+      if (b.half === 'n') m.position.set((Math.min(...xs) + Math.max(...xs) + 1) / 2, y + 0.55, Math.min(...zs) + 0.05);
+      else { m.rotation.y = Math.PI / 2; m.position.set(Math.min(...xs) + 0.05, y + 0.55, (Math.min(...zs) + Math.max(...zs) + 1) / 2); }
+      m.userData.opens = b.opens; levelGroup.add(m); return m;
+    });
+    // Gene Gadget's tubes (rides that keep the player's own height): glass pipes along the scripted path, one per pair
+    const tubeMat = new THREE.MeshLambertMaterial({ color: 0x9fd8ff, emissive: 0x10283a, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
+    const drawn = [];
+    for (const h of world.holes) {
+      const R = h.ride;
+      if (!R || !R.start || Number.isFinite(R.start[1]) || !R.path.length) continue;
+      const pts = [new THREE.Vector3(R.start[0], Sim.floorAt(L, h.x, h.z) + 0.45, R.start[2])];
+      let [x, y, z] = [pts[0].x, pts[0].y, pts[0].z];
+      R.path.forEach(([dx, dy, dz], i) => { x += dx; y += dy; z += dz; if (i % 6 === 5 || i === R.path.length - 1) pts.push(new THREE.Vector3(x, y, z)); });
+      const a0 = pts[0], a1 = R.end ? new THREE.Vector3(...R.end.at) : pts[pts.length - 1];
+      if (drawn.some(([b0, b1]) => Math.hypot(b0.x - a1.x, b0.z - a1.z) < 3 && Math.hypot(b1.x - a0.x, b1.z - a0.z) < 3)) continue;
+      drawn.push([a0, a1]);
+      const m = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), pts.length * 3, 0.4, 10, false), tubeMat);
+      m.renderOrder = 2; levelGroup.add(m);
+    }
+    zapObjs = world.zapCells.size ? Array.from({ length: 4 }, () => {
+      const sp = rom ? bottomSprite(romBossMat(0x68, 8, ROM_CANVAS, 80, 3), 0, 0, 0, ROM_SIZE, ROM_SIZE, OBJ_FOOT) : bottomSprite(puffMat.clone(), 0, 0, 0, 0.9, 0.9, 0.1);
+      sp.userData.rom = rom; sp.visible = false; return sp;
+    }) : [];
     // superchargers are painted into the ROM's level art; the scribbled look marks them with a dark pad and an arrow
     boosterMarks = rom && L.rom ? [] : world.boosters.map(b => {
       const g = new THREE.Group();
@@ -1401,7 +1444,7 @@
     if (p.skid && !h.wasSkid) h.skidT = h.S.anims.skid.length / 30;
     h.wasSkid = p.skid; h.skidT = Math.max(0, (h.skidT || 0) - dt);
     let clip, rate = 30;
-    if (!p.grounded) clip = p.sprung ? 'spring' : 'fall';
+    if (!p.grounded) clip = p.sprung || p.hover ? 'spring' : 'fall';   // (hovering: arms up)
     else if (p.skid || h.skidT > 0) clip = 'skid';
     else if (sp < 0.3 || p.whirl) clip = 'idle', rate = 15;
     else if (sp < run * 0.55) clip = 'walk', rate = 30 * Math.max(0.4, sp / (run * 0.4));
@@ -2047,7 +2090,7 @@
     if (p.whirl) { pose = 'whirl'; phase = Math.floor(t * 16) % 4; }
     else if (p.charge > 0) { pose = 'charge'; phase = Math.floor(t * 20) % 2; }
     else if (p.ball || p.rolling) { look3.ballCycle += dt * Math.max(sp, 6) * 1.4; pose = 'ball'; phase = Math.floor(look3.ballCycle) % 4; }
-    else if (!p.grounded) { pose = p.sprung ? 'spring' : 'air'; phase = 0; }
+    else if (!p.grounded) { pose = p.sprung || p.hover ? 'spring' : 'air'; phase = 0; }
     else if (sp > 0.6) { look3.runCycle += dt * (3 + sp * 1.1); pose = 'run'; phase = Math.floor(look3.runCycle) % 4; }
     else { pose = 'idle'; phase = Math.floor(t * 2) % 2; }
     if (sp > 0.6) {
@@ -2182,6 +2225,32 @@
       const sh = world.shots[q]; shotSprites[q].visible = !!sh;
       if (sh) shotSprites[q].position.set(sh.x, sh.y, sh.z);
     }
+    if (sprinklerObjs.length || pylonObjs.length || zapObjs.length || beamObjs.length) {
+      const T = Math.PI / 1024;
+      sprinklerObjs.forEach((o, q) => {
+        const s = world.sprinklers[q];
+        if (!o.userData.rom) { o.rotation.y = s.a * T; return; }
+        // the camera's turn from the original's view (yaw pi/4), in the routine's angle units
+        const off = Math.round((Math.atan2(cam.position.x - s.x, cam.position.z - s.z) - Math.PI / 4) / T);
+        let d0 = ((s.a - off - 0x100) & 0x7C0) >> 4, flip = true;
+        if (d0 > 0x40) { d0 = 0x80 - d0; flip = false; }
+        o.material = romBossMat(0x7C, d0 >> 2, ROM_CANVAS, 80, 3); o.scale.x = (flip ? -1 : 1) * Math.abs(o.scale.x);
+      });
+      for (const o of pylonObjs) {
+        o.visible = !(o.userData.opens > 0 && world.section >= o.userData.opens);
+        if (o.visible && o.userData.rom) o.material = romBossMat(0x6C, Math.floor(world.tick / 4) % 5, ROM_CANVAS, 80, 3);
+      }
+      for (const o of beamObjs) { o.visible = !(o.userData.opens > 0 && world.section >= o.userData.opens); o.material.opacity = 0.3 + 0.25 * Math.abs(Math.sin(t * 23)); }
+      zapObjs.forEach((o, q) => {
+        const z = world.zaps[q], A = Sim.P.zapAt - 4;
+        o.visible = !!z && z.t < A + 16;
+        if (!o.visible) return;
+        const cx = z.cell % L.width, cz = (z.cell - cx) / L.width;
+        o.position.set(cx + 0.5, Sim.floorAt(L, cx + 0.5, cz + 0.5), cz + 0.5);
+        if (o.userData.rom) o.material = romBossMat(0x68, z.t < A ? 8 : Math.min(7, (z.t - A) >> 1), ROM_CANVAS, 80, 3);
+        else { const k = z.t < A ? 0.5 : 1.2; o.scale.set(0.9 * k, 0.9 * k, 1); o.material.opacity = z.t < A ? 0.5 : 0.9; }
+      });
+    }
     // Flickies: hop about, face the way they go; the HUD shows how many the ring has and how many follow
     for (let q = 0; q < flickySprites.length; q++) {
       const s = flickySprites[q], f = world.flickies.filter(ff => ff.state !== 'gone')[q];
@@ -2292,7 +2361,7 @@
   }
   satReady = true; setSaturn(saturn);
   $('screenSel').addEventListener('change', () => setSaturn($('screenSel').value === 'saturn'));
-  window.__game = { MdSound, Sim, resetCamera, get hero3d() { return hero3d; }, get jamProps() { return jamProps; }, jamCopy, poseJam, get jamPalms() { return jamPalms; }, view, setMode, start, get world() { return world; }, get level() { return L; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
+  window.__game = { MdSound, Sim, resetCamera, get hero3d() { return hero3d; }, get jamProps() { return jamProps; }, jamCopy, poseJam, get jamPalms() { return jamPalms; }, view, setMode, start, get world() { return world; }, get level() { return L; }, get levelGroup() { return levelGroup; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
   setMode(view.mode);
   requestAnimationFrame(frame);
 })();

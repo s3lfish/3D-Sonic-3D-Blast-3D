@@ -106,6 +106,25 @@ const S3D = (() => {
       tris: [['z', 1472, 1152, 0, 4, -4, 1], ['z', 1472, 1344, 1, -4, -4, 1], ['x', 2752, 3200, 0, -4, 4, 1], ['x', 2752, 3456, 1, -4, -4, 1],
         ['x', 3264, 1920, 0, -4, 4, 1], ['x', 3264, 2048, 1, -4, -4, 0], ['x', 3072, 2240, 1, -4, -4, 0]],
       spears: [0x9494, 16], spikeWall: [122, [22, 24, 27, 28, 29, 30], 0x380] },
+    // Gene Gadget 1 (RunLevel_GnGdz1 0x11D2A, InitLevel 0x11C78; watched in the emulator): 0x55 cells hover a grounded
+    // player (see Sim.P.hover*); 0xAA cells arm zaps (object 068: a spark 22 frames after the step, hurting for 12 frames
+    // whoever stands there, the blue shield excepted); speed pads (cells 0x6582/0x6682: 6 units a frame east, 0x5E94/
+    // 0x5E96: south); pyramid bumpers (table [address, count] of [x, z], 64-unit boxes); barriers [wall cells, raised to
+    // this high byte until ring n, zap cells, the half that hurts, ring n, thrown that way] (the routine's cells 0x7676/
+    // 0x7678 north of z 0xED0 while record 27 is on, 0x5EEC/0x5FEC west of x 0xED0 while record 30 is; InitLevel raises
+    // the walls, the rings' code lowers them); gates [cells, high byte, ring that opens them (0: none), let a supercharged
+    // run through]: InitLevel raises (58..59, 112), (68..69, 89) and (54, 70); the supercharger's flag (record 1 at its
+    // state 0xF) lists the first four as open until the run reaches (68, 90); tubes: table [address, count] of 12-byte
+    // records [cell, x, z, player state, effect x, effect y], taken grounded: Sonic is put at (x, z) and plays the state
+    // (in a roll; the supercharger run keeps its 7.48 units a frame through the hop, watched); the first one, at the start of its 4th segment, goes on as state 0x1A with five Flickies following
+    // (to the act's last ring) or as 6 without (sound 0xB2); the run after the supercharger is the ride at (59, 112)
+    4: { updrafts: 0x55, zapCells: 0xAA, roofs: 0x12254, pyramids: [0x11EE4, 4],
+      dashes: [[65, 101, 0x7FFF, [6, 0], 1, 0, 0], [65, 102, 0x7FFF, [6, 0], 1, 0, 0], [74, 94, 0x7FFF, [0, 6], 1, 0, 0], [75, 94, 0x7FFF, [0, 6], 1, 0, 0]],
+      barriers: [[[[58, 117], [59, 117], [60, 117], [61, 117]], 0x2D, [[59, 118], [60, 118]], 'n', 1, [0, 1]],
+        [[[117, 93], [117, 94]], 0x45, [[118, 94], [118, 95]], 'w', 2, [1, 0]]],
+      gates: [[[[58, 112], [59, 112]], 0x2D, 0, 1], [[[68, 89], [69, 89]], 0x49, 0, 1], [[[54, 70]], 0x51, 0, 0]],
+      tubes2: [0x120F8, 10, [[0, 3, 0x1A]]],
+      rides: [[59, 112, 0, 0x18, null, null, [0, 0, -7.48], undefined, [340, null, 1, 1]]] },
   };   // units: spike ball circle radius (measured) and height (estimated)
   // Bosses run by the act's own routine. Green Grove 3 (RunLevel_GGz3 0xDDE4): Robotnik's pod starts at [x, y, z],
   // comes down to the cruise height, then loops: follows Sonic (2 units a frame) until close, lets its spiked ball go
@@ -148,7 +167,7 @@ const S3D = (() => {
   // the emulator: RR1's two rides end where the original's do, to the unit.
   const SCRIPTS = 0x25DF2;
   function rideScript(d, state) {
-    const base = SCRIPTS + s16(d, SCRIPTS + state - 2), path = [], turns = [];
+    const base = SCRIPTS + s16(d, SCRIPTS + state - 2), path = [], turns = [], starts = [];
     let sp = 0, mo = 0, left = 0, end = null;
     while (path.length < 5000) {
       if (--left <= 0) {
@@ -159,13 +178,13 @@ const S3D = (() => {
           if (back < 0) end = [0, 1, 2, 3, 4, 5, 6].map(i => s16(d, a + 4 + 2 * i));
           break;
         }
-        const w1 = u16(d, a + 2); mo = w0; left = w1 & 0xFF; sp += 4;
+        const w1 = u16(d, a + 2); mo = w0; left = w1 & 0xFF; sp += 4; starts.push(path.length);
         if (w1 & 0xFF00) turns.push([path.length, (w1 & 0xFF00) - 0x8000]);
       }
       if (u16(d, SCRIPTS + mo) === 0x8000) mo -= s16(d, SCRIPTS + mo + 2);
       path.push([s16(d, SCRIPTS + mo), s16(d, SCRIPTS + mo + 2), s16(d, SCRIPTS + mo + 4)]); mo += 6;
     }
-    return { path, turns, end };
+    return { path, turns, end, starts };
   }
   const compassOf = f => (180 + f * 360 / 2048) % 360;   // the original's facing: 0 south, 0x200 west, 0x400 north
   // object types, identified by watching the game run: player start, springs, monitors, the act-end ring, main enemies
@@ -173,14 +192,17 @@ const S3D = (() => {
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
     0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
     0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',   // 0DC: Diamond Dust's snowdrift springs
-    0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall' };
+    0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall',
+    0x7C: 'sprinkler', 0x6C: 'pylon' };
+  // Gene Gadget: sprinklers (07C, handler 0x174B4) turn 0x10 of 0x800 a frame from word +0x24 and, once Sonic has come
+  // within 80 units, shoot every 16 frames (watched); pylons (06C, 0x17A1A) are the barriers' electric posts, drawn only
   // moving platform (128, handler 0x176B6, word +0x24 = 0): along x (z with bit 3 of byte +0x16) about word +0x28, 63 units
   // each way, angle word +0x26 + 4 a frame of 0x800; box as the jet lift's (swapped). Spiked balls (118): moved by the
   // act's routine (VV2: z = 0xE80 + or - 112 x sine >> 16, alternate records opposite, angle + 8 a frame)
   // Volcano Valley: enemies 100 and 108 walk to and fro along x or z between words +0x24 and +0x26 (along x if that holds
   // x; seen at 1 unit a frame); jet lifts (12C, handler 0x177F6): a box 32 x 48 units from the record (48 x 32 with bit 3
   // of byte +0x16) rising a unit a frame from +0x24 to +0x26 while stood on; fire (120): burns unless the fire shield
-  const PATROL = new Set([0x100, 0x108]);
+  const PATROL = new Set([0x100, 0x108, 0x5C]);   // (Gene Gadget's 05C too: handler 0x17E80, a unit a frame)
   // Spring Stadium's balloons (150, handler 0x164B0): bob 8 units about word +0x26 (phase +0x24, 16 a frame of 2048);
   // touched, they pop and throw Sonic about 43 units up (measured), and are back about 70 frames later
   // Rusty Ruin's spiked crawler (0AC), watched in the emulator: it rolls 1 unit a frame along the foot of a wall between
@@ -394,6 +416,13 @@ const S3D = (() => {
           y0: r3((s16(ob, o + 0x24) + 8) / CELL * vscale), y1: r3((s16(ob, o + 0x26) + 8) / CELL * vscale) });
       }
       if (kind === 'fireSpot') e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
+      if (kind === 'sprinkler') { e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); e.phase = u16(ob, o + 0x24) & 0x7FE; }
+      if (kind === 'pylon') {   // the barrier whose zap cells are nearest turns it off
+        e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
+        let best = 4;
+        (gm.barriers || []).forEach(([, , zap, , ring]) => { for (const [cx, cz] of zap) { const dd = Math.hypot(cx + 0.5 - x / CELL, cz + 0.5 - z / CELL); if (dd < best) { best = dd; e.opens = ring; } } });
+        if (!e.opens) continue;
+      }
       if (kind === 'movePlat') {
         if (u16(ob, o + 0x24)) continue;   // (the sinking kind is not read yet)
         const alongZ = (ob[o + 0x16] >> 3) & 1, sx = alongZ ? 48 : 32, sz = alongZ ? 32 : 48, T = Math.PI / 1024;
@@ -478,7 +507,7 @@ const S3D = (() => {
       const { sc, ...rd } = rideOf(state, from, facing, vel), ride = { ...rd,
         end: sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3(sc.end[1] / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
           vel: [r3(sc.end[4] * mps), r3(-sc.end[5] * mps * vscale), r3(sc.end[6] * mps)] } : null };
-      if (force) { ride.force = { t: r3(force[0] / 60), dir: force[1] }; if (force[2]) ride.force.roll = 1; }   // roll: left rolling ($56 = 2)
+      if (force) { ride.force = { t: r3(force[0] / 60), dir: force[1] }; if (force[2]) ride.force.roll = 1; if (force[3]) ride.force.pass = 1; }   // roll: left rolling ($56 = 2); pass: gates let it through
       // the routines look only at the cell (and a height), grounded or not
       const e = { type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: after, air: true, ride };
       if (maxY !== undefined) e.maxY = r3(maxY / CELL * vscale);
@@ -578,6 +607,44 @@ const S3D = (() => {
       if (cells.length) ents.push({ type: 'spears', cells });
     }
     if (gm.spikeWall) { const [cx, zs, top] = gm.spikeWall; ents.push({ type: 'spikeWall', cells: zs.filter(cz => floorCell(cx, cz)).map(cz => [cx - x0, cz - z0]), side: 'w', top: r3((top + 8) / CELL * vscale) }); }
+    // Gene Gadget (see GIMMICKS[4])
+    if (gm.updrafts !== undefined) { const cells = cellsOf(gm.updrafts); if (cells.length) ents.push({ type: 'updraft', cells }); }
+    if (gm.zapCells !== undefined) { const cells = cellsOf(gm.zapCells); if (cells.length) ents.push({ type: 'zapCells', cells }); }
+    if (gm.pyramids) {
+      const boxes = [];
+      for (let k = 0; k < gm.pyramids[1]; k++) {
+        const bx = s16(d, gm.pyramids[0] + 4 * k), bz = s16(d, gm.pyramids[0] + 4 * k + 2);
+        if (floorCell(Math.floor((bx + 32) / CELL), Math.floor((bz + 32) / CELL))) boxes.push([r3(bx / CELL - x0), r3(bz / CELL - z0)]);
+      }
+      if (boxes.length) ents.push({ type: 'pyramids', boxes });
+    }
+    const gateTop = hb => r3(hb * STEP / CELL * vscale);
+    for (const [wall, hb, zap, half, ring, away] of gm.barriers || []) {
+      const wc = wall.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]), zc = zap.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
+      if (wc.length) ents.push({ type: 'gate', cells: wc, top: gateTop(hb), opens: ring });
+      if (zc.length) ents.push({ type: 'barrier', cells: zc, half, away, opens: ring });
+    }
+    for (const [cells, hb, ring, pass] of gm.gates || []) {
+      const gc = cells.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
+      if (gc.length) { const g = { type: 'gate', cells: gc, top: gateTop(hb), opens: ring }; if (pass) g.pass = 1; ents.push(g); }
+    }
+    // tubes: taken grounded in the cell, Sonic put at (x, z) at his own height, rolling; the script's own end puts him out
+    if (gm.tubes2) {
+      const [tab, n, alts] = gm.tubes2;
+      for (let k = 0; k < n; k++) {
+        const o = tab + 12 * k, c = u16(d, o) >> 1, cx = c % 128, cz = c >> 7, x = s16(d, o + 2), z = s16(d, o + 4), state = u16(d, o + 6);
+        if (!floorCell(cx, cz)) continue;   // (the place is in the tube: no floor there)
+        const endOf = sc => sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3(sc.end[1] / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
+          vel: [r3(sc.end[4] * mps), r3(-sc.end[5] * mps * vscale), r3(sc.end[6] * mps)] } : null;
+        const { sc, ...rd } = rideOf(state, null, null, null), ride = { ...rd, start: [r3(x / CELL - x0), null, r3(z / CELL - z0)], end: endOf(sc) };
+        const alt = (alts || []).find(q => q[0] === k);
+        if (alt) {
+          const a = rideOf(alt[2], null, null, null);
+          ride.alt = { at: sc.starts[alt[1]], ride: { vel: a.vel, path: a.path, turns: a.turns, end: endOf(a.sc) } };
+        }
+        ents.push({ type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: 0, ride });
+      }
+    }
     const bs = BOSSES[id];
     if (bs) {
       const e = { type: 'boss', kind: bs.kind, x: r3(bs.at[0] / CELL - x0), y: r3(bs.at[1] / CELL * vscale), z: r3(bs.at[2] / CELL - z0),
@@ -828,7 +895,8 @@ const S3D = (() => {
       bumper: [0xB7], balloon: [0x77], spikesUp: [0x52], spear: [0x8C] /* Spring Stadium's routines */,
       ddDrop: [0x7E], snowman: [0x51], snowPuff: [0xC8] /* DD3's routine */,
       rockBreak: [0x59], ventOut: [0xB6] /* Volcano Valley's helpers */, serpent: [0x4E] /* VV3's routine */,
-      iceBreak: [0x59] /* Diamond Dust's ice spikes */, freeze: [0x80], frozenHop: [0x94], thaw: [0x80] /* routines 0x1B9CA, 0x3050 */ },
+      iceBreak: [0x59] /* Diamond Dust's ice spikes */, freeze: [0x80], frozenHop: [0x94], thaw: [0x80] /* routines 0x1B9CA, 0x3050 */,
+      hover: [0xC1], pyramid: [0xAE], zapArm: [0x42], sprinkle: [0x4D], tubeNo: [0xB2], tubeYes: [0x3C] /* Gene Gadget 1's routine and objects */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {

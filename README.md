@@ -55,8 +55,11 @@ untested.
 - Volcano Valley 1 and 2: lava that burns unless you carry the fire shield, lava spouts and running fireballs, rocks
   to bounce off, vents that throw you out of another, jet lifts, moving platforms, swinging spiked balls, walls of fire,
   cracked walls, and its scorpions and dragons.
+- Gene Gadget 1: floors that float you over them, floors that spark under your feet, pyramid bumpers, electric
+  barriers that switch off at the big ring, sprinklers, the supercharger run round the arch, and glass tubes between
+  the platforms (the last one takes you to the end only with five Flickies).
 - On levels from your ROM, Sonic moves by the original's own rules: how fast he speeds up, stops, turns, slides on
-  ice, rolls, and how hard each spin dash launches him.
+  ice, rolls (bouncing off walls and turning on corner pieces), and how hard each spin dash launches him.
 - Monitors show their icon and give rings, a shield, a gold shield, invincibility, speed shoes or a 1-up.
 - The Green Grove, Rusty Ruin, Spring Stadium, Diamond Dust and Volcano Valley bosses, moving as the original's routines move them: in Rusty Ruin, ride a stone
   fist up after it slams and jump at the pod; in Diamond Dust, keep clear of the snow its blowers puff (it freezes
@@ -70,7 +73,7 @@ untested.
 - With your ROM: the original music and sound effects, played by an emulated Mega Drive sound chip running the
   game's own sound program from your ROM. Without a ROM: simple sound effects made in the browser. M turns sound off.
 
-Not done yet: Spring Stadium's gates, Tails and Knuckles, and the zones after Volcano Valley. See `re/NOTES.md` for what is known and what is not.
+Not done yet: Spring Stadium's gates, Tails and Knuckles, Gene Gadget 2 and 3, Panic Puppet and Final Fight. See `re/NOTES.md` for what is known and what is not.
 
 ## Working on it
 

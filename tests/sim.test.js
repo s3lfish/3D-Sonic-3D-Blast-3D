@@ -870,5 +870,67 @@ test('a patrolling enemy walks to and fro between its two values', () => {
   let lo = 9, hi = 0; run(w, 300, (f, ww) => { lo = Math.min(lo, ww.enemies[0].x); hi = Math.max(hi, ww.enemies[0].x); return {}; });
   near(lo, 5, 0.05, 'west end'); near(hi, 8, 0.05, 'east end'); near(w.enemies[0].z, 2.5, 1e-9, 'on its line');
 });
+// Gene Gadget 1 (watched in the emulator; see s3d.js GIMMICKS[4])
+const GNG = (ents, extra = {}) => world(grid(W12('c' + row('4', 16) + 'c'), Object.assign({ entities: [{ type: 'start', x: 1.5, z: 2.5 }].concat(ents) },
+  { physics: Object.assign({}, ORIG.physics, { orig: 1 }) }, extra)));
+test('hover cells hold a player about 48 units over them, steering, until they leave them', () => {
+  const w = GNG([{ type: 'updraft', cells: [[4, 1], [4, 2], [4, 3], [5, 2], [6, 2]] }]); place(w, 4.5, 2.5);
+  let lo = 9, hi = 0, ev = false;
+  run(w, 240, (f, ww) => { if (ww.events.includes('hover')) ev = true; if (f > 90) { lo = Math.min(lo, ww.p.y); hi = Math.max(hi, ww.p.y); } return {}; });
+  assert.ok(ev && w.p.hover, 'hovering');
+  assert.ok(lo > 1 + 1.25 && hi < 1 + 1.75, `held near 1.5 m over the floor: ${lo.toFixed(2)}..${hi.toFixed(2)}`);
+  run(w, 120, { mx: 1 }); assert.ok(!w.p.hover && w.p.grounded && w.p.x > 7, `left the cells and landed at x ${w.p.x.toFixed(2)}`);
+});
+test('a pyramid bumper throws a player out over the nearest edge and up by the speed they came in with', () => {
+  const w = GNG([{ type: 'pyramids', boxes: [[6, 1.5]] }]); place(w, 4.5, 2.5); w.p.facing = Math.PI / 2;
+  let got = null; run(w, 90, (f, ww) => { if (!got && ww.events.includes('pyramid')) got = { vx: ww.p.vx, vy: ww.p.vy }; return { mx: 1 }; });
+  assert.ok(got, 'bounced'); near(got.vx, -Sim.P.pyrSpeed, 1e-6, 'thrown back west'); assert.ok(got.vy > 3, `up by its speed in: ${got.vy}`);
+});
+test('a zap cell sparks 22 frames after the step; the blue shield is spared', () => {
+  let w = GNG([{ type: 'zapCells', cells: [[5, 2]] }]); w.ringCount = 5; place(w, 5.5, 2.5);
+  let at = -1; run(w, 40, (f, ww) => { if (at < 0 && ww.events.includes('zap')) at = f; return {}; });
+  assert.ok(at >= 21 && at <= 24 && w.ringCount === 0, `zapped at ${at}`);
+  w = GNG([{ type: 'zapCells', cells: [[5, 2]] }]); w.ringCount = 5; w.p.shield = 'shield'; place(w, 5.5, 2.5);
+  run(w, 40, {}); assert.ok(w.ringCount === 5 && w.p.shield === 'shield', 'spared');
+});
+test('gates stand until their ring or a supercharged run; barriers hurt in their half until their ring', () => {
+  let w = GNG([{ type: 'gate', cells: [[6, 1], [6, 2], [6, 3]], top: 3, opens: 1 }, { type: 'goal', x: 2.5, z: 2.5 }, { type: 'goal', x: 12.5, z: 2.5 }]); place(w, 4.5, 2.5);
+  run(w, 90, { mx: 1 }); assert.ok(w.p.x < 6, `held at ${w.p.x.toFixed(2)}`);
+  w.section = 1; run(w, 90, { mx: 1 }); assert.ok(w.p.x > 7, `through at ${w.p.x.toFixed(2)}`);
+  w = GNG([{ type: 'gate', cells: [[6, 1], [6, 2], [6, 3]], top: 3, pass: true }, { type: 'booster', x: 3.5, z: 2.5, dir: [1, 0] }]); place(w, 3.5, 2.5);
+  run(w, 150, {}); assert.ok(w.p.x > 7, `the run went through: ${w.p.x.toFixed(2)}`);
+  w = GNG([{ type: 'barrier', cells: [[6, 2]], half: 'n', away: [0, 1], opens: 1 }]); w.ringCount = 5; place(w, 6.5, 2.8);
+  run(w, 30, { mz: -1 }); assert.ok(w.ringCount === 0, 'zapped in its north half');
+});
+test('a sprinkler woken within 80 units shoots every 16 frames along its turning angle; shots hurt', () => {
+  const w = GNG([{ type: 'sprinkler', x: 6.5, z: 2.5, y: 1, phase: 0 }]); w.ringCount = 5; place(w, 1.5, 2.5);
+  run(w, 60, {}); assert.strictEqual(w.shots.length, 0, 'asleep');
+  place(w, 8.5, 2.5); let shots = 0, hurt = false;
+  run(w, 128, (f, ww) => { if (ww.events.includes('sprinkle')) shots++; if (ww.events.includes('hurt')) hurt = true; return {}; });
+  assert.strictEqual(shots, 8, 'eight shots in 128 frames'); assert.ok(hurt, 'one came his way');
+});
+test('the original movement: a roll bounces off walls; a corner piece is a diagonal wall that turns it', () => {
+  let w = GNG([]); place(w, 10.5, 2.5); Object.assign(w.p, { vx: UF(6), rolling: true, facing: Math.PI / 2 });
+  run(w, 60, {}); assert.ok(w.p.vx < -UF(4) && w.events !== null, `bounced back: vx ${w.p.vx.toFixed(2)}`);
+  const tiles = [];
+  for (let z = 0; z < 8; z++) for (let x = 0; x < 6; x++) {
+    const inside = x >= 1 && x <= 4 && z >= 1 && z <= 6;
+    tiles.push(!inside ? { c: [0, 0, 0, 0], t: 'W' } : x === 1 && z === 1 ? { c: [1.5, 1, 1, 1], t: 'F' } : { c: [1, 1, 1, 1], t: 'F' });
+  }
+  w = world({ version: 1, format: 'tiles', width: 6, depth: 8, tiles, entities: [{ type: 'start', x: 1.3, z: 5.5 }], physics: Object.assign({}, ORIG.physics, { orig: 1 }), rom: { level: 4, origin: [0, 0], vscale: 1 } });
+  assert.ok(w.L.diag.has(1 * 6 + 1), 'found the corner piece');
+  near(Sim.floorAt(w.L, 1.8, 1.8), 1, 1e-9, 'its open half is flat');
+  place(w, 1.3, 5.5); Object.assign(w.p, { vz: -UF(6), rolling: true, facing: Math.PI });
+  run(w, 28, {}); assert.ok(w.p.vx > UF(4) && Math.abs(w.p.vz) < 0.5, `turned east: (${w.p.vx.toFixed(2)}, ${w.p.vz.toFixed(2)})`);
+});
+test('a tube with a way for the Flickies takes it only with them following', () => {
+  const alt = { at: 2, ride: { path: [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 1], [0, 0, 1]], end: { at: [9.5, 1, 3.5], facing: 0, vel: [0, 0, 0] } } };
+  const tube = { type: 'hole', x: 4.5, z: 2.5, size: 0.5, opens: 0, ride: { start: [4.5, null, 2.5], path: [[0, 0, 0], [0, 0, 0], [0, 0, 0], [1, 0, 0], [1, 0, 0]], end: { at: [2.5, 1, 3.5], facing: 0, vel: [0, 0, 0] }, alt } };
+  let w = GNG([tube, { type: 'enemy', x: 10.5, z: 3.5 }], { flickies: 1 }); place(w, 4.5, 2.5);
+  let no = false; run(w, 20, (f, ww) => { if (ww.events.includes('tubeNo')) no = true; return {}; });
+  assert.ok(no && Math.floor(w.p.x) === 2, `refused, out at ${w.p.x}`);
+  w = GNG([tube], { flickies: 1 }); w.flickies.push({ state: 'follow', x: 4, z: 2.5, y: 1 }); place(w, 4.5, 2.5);
+  run(w, 20, {}); assert.ok(Math.floor(w.p.x) === 9, `taken the other way: ${w.p.x}`);
+});
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

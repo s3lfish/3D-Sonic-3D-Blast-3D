@@ -20,8 +20,9 @@ KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 
          0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
          0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
          0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',
-         0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall'}
-PATROL = {0x100, 0x108}
+         0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall',
+         0x7C: 'sprinkler', 0x6C: 'pylon'}
+PATROL = {0x100, 0x108, 0x5C}
 MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']
 
 
@@ -43,6 +44,13 @@ def spring_power(vscale):
 
 
 GIMMICKS = {
+    4: {'updrafts': 0x55, 'zapCells': 0xAA, 'roofs': 0x12254, 'pyramids': (0x11EE4, 4),   # Gene Gadget 1 (see s3d.js)
+        'dashes': [(65, 101, 0x7FFF, (6, 0), 1, 0, 0), (65, 102, 0x7FFF, (6, 0), 1, 0, 0), (74, 94, 0x7FFF, (0, 6), 1, 0, 0), (75, 94, 0x7FFF, (0, 6), 1, 0, 0)],
+        'barriers': [([(58, 117), (59, 117), (60, 117), (61, 117)], 0x2D, [(59, 118), (60, 118)], 'n', 1, (0, 1)),
+                     ([(117, 93), (117, 94)], 0x45, [(118, 94), (118, 95)], 'w', 2, (1, 0))],
+        'gates': [([(58, 112), (59, 112)], 0x2D, 0, 1), ([(68, 89), (69, 89)], 0x49, 0, 1), ([(54, 70)], 0x51, 0, 0)],
+        'tubes2': (0x120F8, 10, [(0, 3, 0x1A)]),
+        'rides': [(59, 112, 0, 0x18, None, None, (0, 0, -7.48), None, (340, None, 1, 1))]},
     1: {'cannons': [(116, 12, 248, 9, 7.067)], 'cracks': [([(108, 17)], 480, [0, -1])]},
     2: {'cannons': [(21, 48, 576, 9, 6.1)], 'cracks': [([(59, 47)], 784, [-1, 0]), ([(108, 41), (109, 41)], 688, [0, -1])]},
     # Rusty Ruin 1 (see s3d.js GIMMICKS): spike and fan cell marks, door and pillar tables, pockets after rings, rides
@@ -107,7 +115,7 @@ def ride_script(rom, state):
     """RunSonic's scripted moves (see s3d.js rideScript)."""
     u16 = lambda o: struct.unpack('>H', rom[o:o + 2])[0]
     s16 = lambda o: struct.unpack('>h', rom[o:o + 2])[0]
-    base = SCRIPTS + s16(SCRIPTS + state - 2); sp = mo = left = 0; path, turns, end = [], [], None
+    base = SCRIPTS + s16(SCRIPTS + state - 2); sp = mo = left = 0; path, turns, end, starts = [], [], None, []
     while len(path) < 5000:
         left -= 1
         if left <= 0:
@@ -117,11 +125,11 @@ def ride_script(rom, state):
                 if back > 0: sp -= back; left = 0; continue
                 if back < 0: end = [s16(a + 4 + 2 * i) for i in range(7)]
                 break
-            w1 = u16(a + 2); mo = w0; left = w1 & 0xFF; sp += 4
+            w1 = u16(a + 2); mo = w0; left = w1 & 0xFF; sp += 4; starts.append(len(path))
             if w1 & 0xFF00: turns.append([len(path), (w1 & 0xFF00) - 0x8000])
         if u16(SCRIPTS + mo) == 0x8000: mo -= s16(SCRIPTS + mo + 2)
         path.append([s16(SCRIPTS + mo), s16(SCRIPTS + mo + 2), s16(SCRIPTS + mo + 4)]); mo += 6
-    return path, turns, end
+    return path, turns, end, starts
 
 
 def compass_of(f):
@@ -204,6 +212,14 @@ def convert(rom, level_id, vscale=1.0):
             e.update({"x0": jround((x - 1) / CELL - x0, 3), "x1": jround((x - 1 + sx) / CELL - x0, 3), "z0": jround((z - 1) / CELL - z0, 3), "z1": jround((z - 1 + sz) / CELL - z0, 3),
                       "y0": jround((a + 8) / CELL * vscale, 3), "y1": jround((b + 8) / CELL * vscale, 3)})
         if kind == 'fireSpot': e["y"] = jround((y_obj + 8) / CELL * vscale, 3)
+        if kind == 'sprinkler': e["y"] = jround((y_obj + 8) / CELL * vscale, 3); e["phase"] = struct.unpack('>H', r[0x24:0x26])[0] & 0x7FE
+        if kind == 'pylon':   # the barrier whose zap cells are nearest turns it off
+            e["y"] = jround((y_obj + 8) / CELL * vscale, 3); best = 4
+            for _w, _h, zap, _half, ring, _a in gm.get('barriers', []):
+                for zx, zz in zap:
+                    dd = math.hypot(zx + 0.5 - x / CELL, zz + 0.5 - z / CELL)
+                    if dd < best: best = dd; e["opens"] = ring
+            if not e.get("opens"): continue
         if kind == 'movePlat':
             if struct.unpack('>H', r[0x24:0x26])[0]: continue
             along_z = (r[0x16] >> 3) & 1; sx, sz = (48, 32) if along_z else (32, 48); T = math.pi / 1024
@@ -276,15 +292,15 @@ def convert(rom, level_id, vscale=1.0):
                 ents.append({"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": 0, "exit": [jround(x / CELL - x0, 3), jround(z / CELL - z0, 3)],
                              "exitY": jround(y / CELL * vscale, 3), "push": [jround(vx * mps, 3), jround(vz * mps, 3)], "launch": 0})
     r3, r6 = (lambda v: jround(v, 3)), (lambda v: jround(v, 6))
-    def ride_of(state, frm, facing, vel):   # bit 15 of the state: x and z swapped; no velocity: the last step carries on
-        path, turns, end = ride_script(rom, state & 0x7FFF); mir = bool(state & 0x8000)
+    def ride_of(state, frm, facing, vel, want_starts=False):   # bit 15 of the state: x and z swapped; no velocity: the last step carries on
+        path, turns, end, starts = ride_script(rom, state & 0x7FFF); mir = bool(state & 0x8000)
         if mir: path = [[-c, b, -a] for a, b, c in path]
         last = path[-1] if path else [0, 0, 0]
         return ({"start": [r3(frm[0] / CELL - x0), r3(frm[1] / CELL * vscale), r3(frm[2] / CELL - z0)] if frm else None,
                  "facing": None if facing is None else compass_of(facing),
                  "vel": [r3(vel[0] * mps), r3(vel[1] * mps * vscale), r3(vel[2] * mps)] if vel else [r3(last[0] * mps), 0, r3(last[2] * mps)],
                  "path": [[r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)] for dx, dy, dz in path],
-                 "turns": [[i, compass_of((0x200 - f) & 0x7FF if mir else f)] for i, f in turns]}, end)
+                 "turns": [[i, compass_of((0x200 - f) & 0x7FF if mir else f)] for i, f in turns]}, end) if not want_starts else starts
     for cx, cz, after, state, frm, facing, vel, *rest in gm.get('rides', []):
         if floor_cell(cx, cz) and (frm is None or floor_cell(frm[0] // CELL, frm[2] // CELL)):
             ride, end = ride_of(state, frm, facing, vel)
@@ -293,6 +309,7 @@ def convert(rom, level_id, vscale=1.0):
             if len(rest) > 1 and rest[1]:
                 ride["force"] = {"t": r3(rest[1][0] / 60), "dir": rest[1][1]}
                 if len(rest[1]) > 2 and rest[1][2]: ride["force"]["roll"] = 1
+                if len(rest[1]) > 3 and rest[1][3]: ride["force"]["pass"] = 1
             e = {"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": after, "air": True, "ride": ride}
             if rest and rest[0] is not None: e["maxY"] = r3(rest[0] / CELL * vscale)
             ents.append(e)
@@ -394,6 +411,44 @@ def convert(rom, level_id, vscale=1.0):
     if 'spikeWall' in gm:
         cx, zs, top_y = gm['spikeWall']
         ents.append({"type": "spikeWall", "cells": [[cx - x0, cz - z0] for cz in zs if floor_cell(cx, cz)], "side": 'w', "top": r3((top_y + 8) / CELL * vscale)})
+    # Gene Gadget (see s3d.js GIMMICKS[4])
+    if 'updrafts' in gm:
+        cells = cells_of(gm['updrafts'])
+        if cells: ents.append({"type": "updraft", "cells": cells})
+    if 'zapCells' in gm:
+        cells = cells_of(gm['zapCells'])
+        if cells: ents.append({"type": "zapCells", "cells": cells})
+    if 'pyramids' in gm:
+        boxes = []
+        for k2 in range(gm['pyramids'][1]):
+            bx, bz = struct.unpack('>hh', rom[gm['pyramids'][0] + 4 * k2:gm['pyramids'][0] + 4 * k2 + 4])
+            if floor_cell((bx + 32) // CELL, (bz + 32) // CELL): boxes.append([r3(bx / CELL - x0), r3(bz / CELL - z0)])
+        if boxes: ents.append({"type": "pyramids", "boxes": boxes})
+    gate_top = lambda hb: r3(hb * STEP / CELL * vscale)
+    for wall, hb, zap, half, ring, away in gm.get('barriers', []):
+        wc = [[cx - x0, cz - z0] for cx, cz in wall if floor_cell(cx, cz)]; zc = [[cx - x0, cz - z0] for cx, cz in zap if floor_cell(cx, cz)]
+        if wc: ents.append({"type": "gate", "cells": wc, "top": gate_top(hb), "opens": ring})
+        if zc: ents.append({"type": "barrier", "cells": zc, "half": half, "away": list(away), "opens": ring})
+    for cells, hb, ring, pss in gm.get('gates', []):
+        gc = [[cx - x0, cz - z0] for cx, cz in cells if floor_cell(cx, cz)]
+        if gc:
+            g = {"type": "gate", "cells": gc, "top": gate_top(hb), "opens": ring}
+            if pss: g["pass"] = 1
+            ents.append(g)
+    if 'tubes2' in gm:   # taken grounded in the cell, put at (x, z) at his own height (see s3d.js)
+        tab, n, alts = gm['tubes2']
+        end_of = lambda end: {"at": [r3(end[0] / CELL - x0), r3(end[1] / CELL * vscale), r3(end[2] / CELL - z0)], "facing": compass_of(end[3]),
+                              "vel": [r3(end[4] * mps), r3(-end[5] * mps * vscale), r3(end[6] * mps)]} if end else None
+        for k2 in range(n):
+            c, x, z, state = struct.unpack('>HhhH', rom[tab + 12 * k2:tab + 12 * k2 + 8]); c >>= 1; cx, cz = c % 128, c >> 7
+            if not floor_cell(cx, cz): continue   # (the place is in the tube: no floor there)
+            ride, end = ride_of(state, None, None, None)
+            ride["start"] = [r3(x / CELL - x0), None, r3(z / CELL - z0)]; ride["end"] = end_of(end)
+            alt = next((q for q in alts if q[0] == k2), None)
+            if alt:
+                a, aend = ride_of(alt[2], None, None, None)
+                ride["alt"] = {"at": ride_of(state, None, None, None, True)[alt[1]], "ride": {"vel": a["vel"], "path": a["path"], "turns": a["turns"], "end": end_of(aend)}}
+            ents.append({"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": 0, "ride": ride})
     bs = BOSSES.get(level_id)
     if bs:
         e = {"type": "boss", "kind": bs['kind'], "x": jround(bs['at'][0] / CELL - x0, 3), "y": jround(bs['at'][1] / CELL * vscale, 3), "z": jround(bs['at'][2] / CELL - z0, 3),
