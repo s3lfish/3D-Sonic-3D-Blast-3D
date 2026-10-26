@@ -91,7 +91,11 @@ original art. The browser code carries reading rules only.
   (+0x08, then the +0x1C list).
 - Picture pixel (X, Y) = camera ($084E, $0850) + screen pixel, with X = x - z + 4096 and Y = (x+z)/2 - y.
 - Animated static tiles (water, lava) are written at run time; `anim_recipe.py` records the first tile, count and
-  ROM address of the frame seen. Level 22 only partly found.
+  ROM address of the frame seen. Level 22 only partly found. `animwatch.py LEVEL FRAMES` watches them: every frame of
+  each run is raw in the ROM. Green Grove: 12, 6 and 12 frames 0x200 apart, 4 video frames each; Rusty Ruin: 8 frames
+  stepping back 0x200, 1 video frame each; Diamond Dust 2: 12 frames, 2 each; Volcano Valley: 12 frames of 40 tiles,
+  3 each; Panic Puppet: 8 frames of 2 tiles, 1 each; Final Fight: four runs, one frame held 24. Other levels' runs
+  did not change in 300 frames.
 - Priority: high-priority tiles are foreground (drawn over Sonic): palms, flowers, grass along front edges, some
   floor at raised edges. Under palms the low layer still has ground; under edge grass it has nothing.
 - Bake (Blast Grid's method, not the game's): one 32 x 32 slot per cell top and per 32-unit band of wall. A point

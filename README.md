@@ -39,7 +39,8 @@ untested.
 ## What works
 
 - All 22 levels' terrain, start points, rings, springs, monitors, big rings and most enemies.
-- The original level art unprojected onto the 3D faces, foliage as standing sprites, zone skies.
+- The original level art unprojected onto the 3D faces, with its water, waterfalls and lava animated as in the original;
+  foliage as standing sprites (each flower on its own patch of ground), plain rock on cliffs the original never shows, zone skies.
 - Movement measured in the original (jump height, spring height, gravity, step height; edges are walls).
 - Green Grove sections: Flickies freed from enemies open each big ring; holes carry you to the next section.
   Reaching the last ring ends the act and moves on to the next one.

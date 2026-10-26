@@ -488,6 +488,22 @@ const S3D = (() => {
     17: [[42, 16, 949246]], 19: [[110, 2, 911806]], 20: [[125, 1, 907518], [127, 1, 907582], [129, 12, 907646], [153, 2, 911678]],
     22: [[1, 4, 965118], [7, 3, 965310], [12, 9, 965470], [22, 15, 965790], [121, 16, 1430202], [137, 16, 1430202]],
   };
+  // animated static tiles (water, waterfalls, lava) as the emulator shows them: per level, runs of [first tile, count,
+  // ROM address of each frame in display order, video frames each is shown (one number when all frames match)]
+  // (re/animwatch.py); ANIM above is the frame the bake starts from
+  const ANIM_FRAMES = {
+    1: [[136, 16, [0xD84FE, 0xD86FE, 0xD88FE, 0xD8AFE, 0xD8CFE, 0xD8EFE, 0xD90FE, 0xD92FE, 0xD94FE, 0xD96FE, 0xD98FE, 0xD9AFE], 4], [152, 16, [0xDCCFE, 0xDCEFE, 0xDD0FE, 0xDD2FE, 0xDD4FE, 0xDD6FE], 4], [168, 16, [0xD9CFE, 0xD9EFE, 0xDA0FE, 0xDA2FE, 0xDA4FE, 0xDA6FE, 0xDA8FE, 0xDAAFE, 0xDACFE, 0xDAEFE, 0xDB0FE, 0xDB2FE], 4]],
+    2: [[197, 16, [0xD9AFE, 0xD84FE, 0xD86FE, 0xD88FE, 0xD8AFE, 0xD8CFE, 0xD8EFE, 0xD90FE, 0xD92FE, 0xD94FE, 0xD96FE, 0xD98FE], 4]],
+    3: [[29, 16, [0xD8CFE, 0xD8EFE, 0xD90FE, 0xD92FE, 0xD94FE, 0xD96FE, 0xD98FE, 0xD9AFE, 0xD84FE, 0xD86FE, 0xD88FE, 0xD8AFE], 4]],
+    6: [[126, 11, [0xDEF1E, 0xDED1E, 0xDEB1E, 0xDF91E, 0xDF71E, 0xDF51E, 0xDF31E, 0xDF11E], 1]],
+    7: [[58, 11, [0xDF51E, 0xDF31E, 0xDF11E, 0xDEF1E, 0xDED1E, 0xDEB1E, 0xDF91E, 0xDF71E], 1]],
+    10: [[99, 16, [0xE0CFE, 0xE11FE, 0xE16FE, 0xE1BFE, 0xE20FE, 0xE25FE, 0xE2AFE, 0xE2FFE, 0xE34FE, 0xDFDFE, 0xE02FE, 0xE07FE], 2]],
+    12: [[125, 40, [0xE71FE, 0xE76FE, 0xE3FFE, 0xE44FE, 0xE49FE, 0xE4EFE, 0xE53FE, 0xE58FE, 0xE5DFE, 0xE62FE, 0xE67FE, 0xE6CFE], 3]],
+    13: [[69, 40, [0xE71FE, 0xE76FE, 0xE3FFE, 0xE44FE, 0xE49FE, 0xE4EFE, 0xE53FE, 0xE58FE, 0xE5DFE, 0xE62FE, 0xE67FE, 0xE6CFE], 3]],
+    19: [[110, 2, [0xDEA7E, 0xDEABE, 0xDE8FE, 0xDE93E, 0xDE97E, 0xDE9BE, 0xDE9FE, 0xDEA3E], 1]],
+    20: [[153, 2, [0xDEA7E, 0xDEA3E, 0xDE9FE, 0xDE9BE, 0xDE97E, 0xDE93E, 0xDE8FE, 0xDEABE], 1]],
+    22: [[1, 4, [0xEBEFE, 0xE87FE, 0xE8CFE, 0xE91FE, 0xE96FE, 0xE9BFE, 0xEA0FE, 0xEA5FE, 0xEAAFE, 0xEAFFE, 0xEB4FE, 0xEB9FE], 4], [7, 3, [0xEBFBE, 0xE88BE, 0xE8DBE, 0xEABBE, 0xEB0BE, 0xEB5BE, 0xEBABE], [4, 4, 24, 4, 4, 4, 4]], [12, 9, [0xEC05E, 0xE895E, 0xE8E5E, 0xE935E, 0xE985E, 0xE9D5E, 0xEA25E, 0xEA75E, 0xEAC5E, 0xEB15E, 0xEB65E, 0xEBB5E], 4], [22, 15, [0xEC19E, 0xE8A9E, 0xE8F9E, 0xE949E, 0xE999E, 0xE9E9E, 0xEA39E, 0xEA89E, 0xEAD9E, 0xEB29E, 0xEB79E, 0xEBC9E], 4]]
+  };
   const PALM_LEVELS = [1, 2, 3];                                       // Green Grove: palms found by their picture
   const EDGE = [[0, 1], [1, 2], [2, 3], [3, 0]];                       // N, E, S, W as corner pairs (mesh order)
   const NEIGH = [[0, -1, 3, 2], [1, 0, 0, 3], [0, 1, 1, 0], [-1, 0, 2, 1]];
@@ -511,6 +527,9 @@ const S3D = (() => {
       else if (k === 2) a += 10; else a += 2;
     }
     for (const [tile, n, addr] of ANIM[id] || []) vr.set(d.subarray(addr, addr + n * 32), tile * 32);
+    const animRuns = ANIM_FRAMES[id] || [], animT = new Uint8Array(0x800);
+    for (const [tile, n] of animRuns) animT.fill(1, tile, tile + n);
+    let animPix = false;   // set by pixel() when the texel it returns comes from an animated tile
     const base = f[6], nRows = u16(d, base) / 2, rows = [];
     for (let r = 0; r < nRows; r++) rows.push(rnc2Unpack(d, base + u16(d, base + 2 * r)));
     const pal = [0, 1, 2, 3].map(line => paletteRGB(d, d[h + 0x26 + line]));
@@ -573,6 +592,7 @@ const S3D = (() => {
     // mode 0: as the game draws it (high-priority foliage lifted out shows the ground beneath); 1: high priority only
     let masked = null;
     const pixel = (X, Y, mode = 0) => {
+      animPix = false;
       const r = Y >> 5, c = X >> 5;
       if (X < 0 || Y < 0 || r >= nRows || c >= 256) return -1;
       const low = mode === 0 && masked !== null && masked[(Y >> 3) * 1024 + (X >> 3)] === 1;
@@ -592,7 +612,7 @@ const S3D = (() => {
         const w = u16(d, tabB + (B >> 1) * 32 + ty * 8 + tx * 2);
         if (w & 0x7FF && !(low && w & 0x8000) && !(mode === 1 && !(w & 0x8000))) {
           const ci = texel(vr, (w & 0x7FF) * 32, w, px, py);
-          if (ci && (best < 0 || (w >> 15) > bestPri)) best = ((w >> 13) & 3) * 16 + ci;
+          if (ci && (best < 0 || (w >> 15) > bestPri)) { best = ((w >> 13) & 3) * 16 + ci; animPix = animT[w & 0x7FF] === 1; }
         }
       }
       return best;
@@ -661,6 +681,47 @@ const S3D = (() => {
         for (const t of comp) { const tx = t % TW, ty = (t - tx) / TW; x0 = Math.min(x0, tx); x1 = Math.max(x1, tx); y0 = Math.min(y0, ty); y1 = Math.max(y1, ty); }
         return [x0, y0, x1, y1];
       };
+      // blobs of a piece's picture (pixels within 2 of each other join up); blobs under 120 pixels (a flower's shadow)
+      // go with the nearest big one; one big blob or none: the piece stays whole
+      const splitBlobs = (img, w, h) => {
+        const lab = new Int32Array(w * h).fill(-1), blobs = [];
+        for (let s0 = 0; s0 < w * h; s0++) {
+          if (!img[s0 * 4 + 3] || lab[s0] >= 0) continue;
+          const pts = [s0]; lab[s0] = blobs.length;
+          for (let q = 0; q < pts.length; q++) {
+            const x = pts[q] % w, y = (pts[q] - x) / w;
+            for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+              const nx = x + dx, ny = y + dy, n = ny * w + nx;
+              if (nx >= 0 && ny >= 0 && nx < w && ny < h && img[n * 4 + 3] && lab[n] < 0) { lab[n] = blobs.length; pts.push(n); }
+            }
+          }
+          let sx = 0, sy = 0; for (const t of pts) { sx += t % w; sy += Math.floor(t / w); }
+          blobs.push({ pts, cx: sx / pts.length, cy: sy / pts.length });
+        }
+        const big = blobs.filter(b => b.pts.length >= 120);
+        if (big.length < 2) return [{ img, w, h, ox: 0, oy: 0 }];
+        for (const b of blobs) if (b.pts.length < 120) {
+          let best = big[0], bd = Infinity;
+          for (const g of big) { const d = (g.cx - b.cx) ** 2 + (g.cy - b.cy) ** 2; if (d < bd) { bd = d; best = g; } }
+          best.pts = best.pts.concat(b.pts);
+        }
+        return big.map(b => {
+          let bx0 = w, by0 = h, bx1 = 0, by1 = 0;
+          for (const t of b.pts) { const x = t % w, y = (t - x) / w; bx0 = Math.min(bx0, x); bx1 = Math.max(bx1, x); by0 = Math.min(by0, y); by1 = Math.max(by1, y); }
+          const pw = bx1 - bx0 + 1, ph = by1 - by0 + 1, pim = new Uint8ClampedArray(pw * ph * 4);
+          for (const t of b.pts) { const x = t % w, y = (t - x) / w; pim.set(img.subarray(t * 4, t * 4 + 4), ((y - by0) * pw + x - bx0) * 4); }
+          return { img: pim, w: pw, h: ph, ox: bx0, oy: by0 };
+        });
+      };
+      // a part stands where the middle of its two lowest rows meets the floor (null if that is a wall face or nothing)
+      const standPart = (pt, pxo, pyo) => {
+        let bottom = -1, sumX = 0, nB = 0;
+        for (let o = 3; o < pt.img.length; o += 4) if (pt.img[o]) bottom = Math.max(bottom, Math.floor((o >> 2) / pt.w));
+        for (let iy = bottom - 1; iy <= bottom; iy++) for (let ix = 0; ix < pt.w; ix++) if (iy >= 0 && pt.img[(iy * pt.w + ix) * 4 + 3]) { sumX += ix; nB++; }
+        const g = nB ? ground(pxo + pt.ox + sumX / nB, pyo + pt.oy + bottom + 1) : null;
+        if (!g || g[3] >= 3) return null;
+        return { x: g[0], y: g[1], z: g[2], w: pt.w, h: pt.h, ax: sumX / nB, ay: bottom + 1, img: pt.img, px: pxo + pt.ox, py: pyo + pt.oy };
+      };
       for (let qi = 0; qi < queue.length; qi++) {
         const comp = queue[qi];
         const [x0, y0, x1, y1] = bbox(comp);
@@ -690,7 +751,11 @@ const S3D = (() => {
         // pieces of floor drawn in front (raised edges) reuse the ground's own tiles; palms and flowers almost never do
         const groundy = comp.filter(t => lowUse.has(hiTile[t])).length / comp.length;
         if (groundy > 0.3) { rejects.push([x0, y0, x1, y1, 'ground']); continue; }
-        foliage.push({ x: g[0], y: g[1], z: g[2], w, h, ax: sumX / nB, ay: bottom + 1, img, px: x0 * 8, py: y0 * 8 });
+        // a piece holding several flowers (or a palm with flowers at its foot) is one picture, but each thing in it
+        // stands on its own ground: split it into its blobs, each standing where its own foot is
+        const parts = splitBlobs(img, w, h).map(pt => standPart(pt, x0 * 8, y0 * 8));
+        if (parts.length > 1 && parts.every(Boolean)) foliage.push(...parts);
+        else foliage.push({ x: g[0], y: g[1], z: g[2], w, h, ax: sumX / nB, ay: bottom + 1, img, px: x0 * 8, py: y0 * 8 });
         for (const t of comp) masked[t] = 1;
       }
       // ---- Green Grove palms: all one picture, sometimes mirrored, sometimes overlapping flowers or another palm ----
@@ -733,15 +798,37 @@ const S3D = (() => {
       }
     }
     const sample = (x, y, z) => { const c = pixel(Math.floor(x - z + 4096), Math.floor((x + z) / 2 - y)); return c < 0 ? 0 : c; };
-    const newSlot = fn => {
-      const px = new Uint8ClampedArray(S * S * 4);
+    // a slot is drawn by fn(s, t); one that shows any animated tile is remembered (with which texels do) to be drawn
+    // again for each frame of the animation
+    const animSlots = [];
+    const drawSlot = (fn, px, mask) => {
       for (let t = 0; t < S; t++) for (let s = 0; s < S; s++) {
         const c = fn(s, t) * 3, o = (t * S + s) * 4;
         px[o] = PAL[c]; px[o + 1] = PAL[c + 1]; px[o + 2] = PAL[c + 2]; px[o + 3] = 255;
+        if (mask && animPix) mask[t * S + s] = 1;
       }
+    };
+    const newSlot = (fn, wallSlot = false) => {   // wallSlot: the band number of a wall slot
+      const px = new Uint8ClampedArray(S * S * 4), mask = animRuns.length ? new Uint8Array(S * S) : null;
+      drawSlot(fn, px, mask);
       slots.push(px);
+      if (mask && mask.some(Boolean)) animSlots.push({ i: slots.length - 1, fn, mask, wall: wallSlot !== false, band: wallSlot === false ? 0 : wallSlot });
       return slots.length - 1;
     };
+    // the animation at a video frame (60 a second): each run shows the frame its durations give; when any run changes,
+    // the animated slots are drawn again. Returns the slots that changed ([] when nothing did)
+    const animShown = animRuns.map(() => -1);
+    function animStep(vf) {
+      let changed = false;
+      animRuns.forEach(([tile, n, addrs, dur], r) => {
+        const durs = Array.isArray(dur) ? dur : addrs.map(() => dur), cycle = durs.reduce((a, b) => a + b, 0);
+        let tt = vf % cycle, k = 0;
+        while (tt >= durs[k]) tt -= durs[k++];
+        if (k !== animShown[r]) { animShown[r] = k; vr.set(d.subarray(addrs[k], addrs[k] + n * 32), tile * 32); changed = true; }
+      });
+      if (!changed) return [];
+      return animSlots.map(a => { drawSlot(a.fn, slots[a.i], null); return a; });
+    }
     const topVisible = (cx, cz) => {
       const key = cz * 128 + cx;
       if (!seen.has(key)) {
@@ -812,19 +899,36 @@ const S3D = (() => {
       if (!walls.has('plain')) walls.set('plain', newSlot(() => 9));
       return walls.get('plain');
     }
-    // nearest visible wall band (same top band or body band) on the side that faces the camera
+    // a band painted with leaves or vines: more than 1 in 32 of 64 sampled points green
+    function leafy(cx, cz, edge, k) {
+      const g = wallGeom(cx, cz, edge);
+      let n = 0, m = 0;
+      for (let t = 2; t < S; t += 4) for (let s = 2; s < S; s += 4) {
+        const [x, y, z, bot] = wallPoint(g, k, s, t);
+        if (y < bot) continue;
+        const c = sample(x, y, z) * 3; m++;
+        if (PAL[c + 1] > PAL[c] + 24 && PAL[c + 1] > PAL[c + 2] + 24) n++;
+      }
+      return n * 32 > m;
+    }
+    // nearest visible wall band (same top band or body band) on the side that faces the camera; body bands lend only
+    // plain rock (no leaves or vines) when any lies within reach, so a wall the original never shows is not a pattern
+    // of copied plants
     function donor(cx, cz, edge, kk) {
       const dkey = ((cz * 128 + cx) * 4 + edge) * 3 + kk;
       if (donors.has(dkey)) return donors.get(dkey);
       const side = DONOR_SIDE[edge];
       let found = null;
-      for (let rad = 0; rad < 17 && !found; rad++) {
-        for (let dz = -rad; dz <= rad; dz++) for (let dx = -rad; dx <= rad; dx++) {
-          if (Math.max(Math.abs(dx), Math.abs(dz)) !== rad || found) continue;
-          const x2 = cx + dx, z2 = cz + dz;
-          if (!hasWall(x2, z2, side) || (x2 === cx && z2 === cz && side === edge)) continue;
-          if (wallVisible(x2, z2, side, kk)) found = [x2, z2, side, kk];
+      for (const clean of kk ? [true, false] : [false]) {
+        for (let rad = 0; rad < 17 && !found; rad++) {
+          for (let dz = -rad; dz <= rad; dz++) for (let dx = -rad; dx <= rad; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dz)) !== rad || found) continue;
+            const x2 = cx + dx, z2 = cz + dz;
+            if (!hasWall(x2, z2, side) || (x2 === cx && z2 === cz && side === edge)) continue;
+            if (wallVisible(x2, z2, side, kk) && !(clean && leafy(x2, z2, side, kk))) found = [x2, z2, side, kk];
+          }
         }
+        if (found) break;
       }
       donors.set(dkey, found);
       return found;
@@ -835,7 +939,7 @@ const S3D = (() => {
       let v;
       if (wallVisible(cx, cz, edge, k)) {
         const g = wallGeom(cx, cz, edge);
-        v = newSlot((s, t) => { const [x, y, z] = wallPoint(g, k, s, t); return sample(x, y, z); });
+        v = newSlot((s, t) => { const [x, y, z] = wallPoint(g, k, s, t); return sample(x, y, z); }, k);
       } else {
         // hidden band: repeat this wall's own visible body bands if it has any, else borrow from a nearby wall,
         // a deep body band (2) for deep bands so the grass under the top edge does not repeat down the cliff
@@ -861,7 +965,8 @@ const S3D = (() => {
       });
       return { width: W, height: H, pixels: px, cols, slot: S };
     }
-    return { top, wall, atlas, foliage, palms, rejects, get count() { return slots.length; } };
+    return { top, wall, atlas, foliage, palms, rejects, get count() { return slots.length; },
+      animSlots, animStep, slotPixels: i => slots[i] };
   }
 
   return { LEVELS, check, openRomFile, objImage, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, levelPalettes, OCTANT, HERO };

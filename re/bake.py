@@ -177,18 +177,32 @@ class Baker:
         self.walls[key] = self.wall(*found) if found else self.plain()
         return self.walls[key]
 
+    def leafy(self, cx, cz, edge, k):
+        """A band painted with leaves or vines: more than 1 in 32 of 64 sampled points green."""
+        g = self.wall_geom(cx, cz, edge); n = m = 0
+        for t in range(2, S, 4):
+            for s in range(2, S, 4):
+                x, y, z, bot = self.wall_point(g, k, s, t)
+                if y < bot: continue
+                p = self.sample(x, y, z); m += 1
+                if p[1] > p[0] + 24 and p[1] > p[2] + 24: n += 1
+        return n * 32 > m
+
     def donor(self, cx, cz, edge, kk):
+        # body bands lend only plain rock (no leaves or vines) when any lies within reach
         side = DONOR_SIDE[edge]
-        for rad in range(0, 17):
-            for dz in range(-rad, rad + 1):
-                for dx in range(-rad, rad + 1):
-                    if max(abs(dx), abs(dz)) != rad: continue
-                    x2, z2 = cx + dx, cz + dz
-                    if not self.corners(x2, z2): continue
-                    g = self.wall_geom(x2, z2, side)
-                    if g[2] <= g[4] and g[3] <= g[5]: continue          # no wall there
-                    if (x2, z2, side) == (cx, cz, edge): continue
-                    if self.wall_visible(x2, z2, side, kk): return (x2, z2, side, kk)
+        for clean in ((True, False) if kk else (False,)):
+            for rad in range(0, 17):
+                for dz in range(-rad, rad + 1):
+                    for dx in range(-rad, rad + 1):
+                        if max(abs(dx), abs(dz)) != rad: continue
+                        x2, z2 = cx + dx, cz + dz
+                        if not self.corners(x2, z2): continue
+                        g = self.wall_geom(x2, z2, side)
+                        if g[2] <= g[4] and g[3] <= g[5]: continue          # no wall there
+                        if (x2, z2, side) == (cx, cz, edge): continue
+                        if self.wall_visible(x2, z2, side, kk) and not (clean and self.leafy(x2, z2, side, kk)):
+                            return (x2, z2, side, kk)
         return None
 
     def plain(self):

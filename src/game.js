@@ -479,7 +479,39 @@
   // tiles with a floor (pits and the void around a converted level have none)
   const solid = (L, t) => L.coll[t] === 'F' || L.coll[t] === 'H';
   // ---- foliage lifted out of the original picture: one quad each, turned to face the camera every frame ----
-  let foliage = null, jamPalms = [];
+  let foliage = null, jamPalms = [], levelAnim = null;
+  // ---- the ROM's animated water, waterfalls and lava: slots of the atlas drawn again as the frames change, copied
+  // to the graphics card one 32 x 32 slot at a time; with a Sonic Jam disc, its falling-water streaks scroll down over
+  // the animated texels of walls (waterfalls) ----
+  const slotTex = new THREE.DataTexture(new Uint8Array(32 * 32 * 4), 32, 32, THREE.RGBAFormat), slotAt = new THREE.Vector2();
+  function putSlot(a, i, px) {
+    if (i >= a.count || !renderer.properties.get(a.tex).__webglTexture) return;
+    slotTex.image.data.set(px);
+    slotAt.set((i % a.cols) * 32, a.size[1] - Math.floor(i / a.cols) * 32 - 32);   // the atlas canvas is uploaded flipped
+    renderer.copyTextureToTexture(slotAt, slotTex, a.tex);
+  }
+  const jamFall = new Uint8ClampedArray(32 * 32 * 4);
+  function updateLevelAnim(t) {
+    const A = levelAnim, a = A && A.a;
+    if (!a || !a.tex || !a.baker.animSlots.length) return;
+    const changed = a.baker.animStep(Math.floor(t * 60));
+    const fall = jamOn() && jamProps.waterfall;
+    for (const s of fall ? a.baker.animSlots : changed) {
+      let px = a.baker.slotPixels(s.i);
+      if (fall && s.wall) {
+        // the streaks move down 48 texels a second; bands stack, so a band's texels continue the one above
+        const W = fall.w, H = fall.h, off = Math.floor(t * 48), base = s.band * 32;
+        jamFall.set(px);
+        for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
+          if (!s.mask[y * 32 + x]) continue;
+          const v = ((y + base - off) % H + H) % H, o = (v * W + x % W) * 4;
+          jamFall.set(fall.px.subarray(o, o + 3), (y * 32 + x) * 4);
+        }
+        px = jamFall;
+      }
+      putSlot(a, s.i, px);
+    }
+  }
   const PXH = 1 / (32 * Math.SQRT2);           // metres per picture pixel across (the picture runs along x - z)
   function buildFoliage(art) {
     // with 3D palms, pieces show what is left once their palms are cut out (`bare`)
@@ -683,6 +715,7 @@
     const mesh = buildLevelMesh(L);
     levelGroup.add(mesh);
     foliage = mesh.userData.art ? buildFoliage(levelArtFor(L)) : null;
+    levelAnim = mesh.userData.art ? { a: levelArtFor(L), shown: -1 } : null;
     if (foliage) levelGroup.add(foliage.mesh);
     // Green Grove's palms as Sonic Jam's 3D palm, each turned its own way; the trunk is a flat quad facing the camera
     jamPalms = [];
@@ -911,6 +944,7 @@
       ring: stand(ring.anim, 1.6, 'y', false),             // as wide as the original's ring sprite (64 px)
       flickies: P.flickies.map(G => { const m = modelOf(G, P.flickyParent); return { ...m, ...stand(m.anim, 0.42, 'y', false) }; }),
       fly: P.fly,
+      waterfall: P.waterfall,
     };
     // the spring's coil (part 1, from its top at y = -c up to 0 in the model's y-down units) squashes at rest and
     // stretches when fired; its pad (part 0) rides on top
@@ -1742,6 +1776,7 @@
     lastRp.copy(rp);
     fadeBlockers(dt);
     updateFoliage();
+    updateLevelAnim(t);
     dome.position.copy(cam.position);
     if (saturn) {
       renderer.setRenderTarget(satTarget); renderer.render(scene, cam);

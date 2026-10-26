@@ -72,6 +72,7 @@ const Jam = (() => {
   const MODELS = { palm: [0x5034C, 2], spring: [0x50B44, 2], bigRing: [0x52FDC, 1],
     flicky: [[0x53880, 0x53F08, 0x53BC4, 0x5424C], 10] };
   const FLICKY = { parent: [-1, 0, 1, 0, 3, 0, 5, 0, 7, 0], fly: 0x1FAD0 };
+  const WATERFALL = 211;                     // texture definition: Sonic World's falling-water streaks
 
   function part(m, f) {
     const vp = u32(m, f) - HWRAM, nv = u32(m, f + 4), ip = u32(m, f + 8) - HWRAM, nq = u32(m, f + 12);
@@ -156,6 +157,7 @@ const Jam = (() => {
     out.flickyParent = FLICKY.parent;
     out.fly = anim(museum, FLICKY.fly + sh, MODELS.flicky[1], true);
     out.textures = texturesOf(museum, sprdata, all);
+    out.waterfall = texture(museum, sprdata, WATERFALL * 2);
     return out;
   }
   return { openDisc, check, sonic, props, ANIMS };

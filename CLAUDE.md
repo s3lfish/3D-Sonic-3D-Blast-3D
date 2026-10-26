@@ -50,7 +50,14 @@ serves index.html from main.
 - Foliage: `artBaker(...).foliage` lifts clumps of high-priority picture tiles that stand on a floor out of the baked
   art (the ground beneath shows through); the game draws them as camera-facing quads in one mesh (`buildFoliage`,
   `updateFoliage`), tucked away when between the chase camera and the player. Grass along cliff tops and pieces of
-  floor drawn in front stay painted. GG1: 58 pieces (palms, flowers, flower beds, a cannon).
+  floor drawn in front stay painted. A piece holding several blobs of 120+ pixels (rows of flowers, a palm with flowers)
+  is split (`splitBlobs`, `standPart`), each standing on its own floor; GG1: 76 pieces.
+- Hidden walls: bands the original never shows borrow a nearby visible band; body bands prefer plain rock (`leafy`:
+  more than 1 in 32 of 64 samples green is refused), so cliffs are not patterns of copied plants. bake.py matches.
+- Animated tiles: `ANIM_FRAMES` (per level: tile runs, ROM address per frame, video frames each; from re/animwatch.py);
+  the bake keeps slots showing animated texels (`animSlots`, with a texel mask, wall band) and `animStep(videoFrame)`
+  redraws them; the game copies changed slots to the atlas with `copyTextureToTexture` (`updateLevelAnim`). With Jam
+  objects on, Jam's waterfall texture (def 211) scrolls down over animated wall texels.
 - Objects added 2026-10-26: `mine` (hurts, then gone), `turret` (shot every 2.5 s within 8 m), `booster` {dir}
   (supercharger: jump on it, held `P.boostWait`, fired at `P.boostSpeed`); monitor `kind` (rings, shield, gold, invincible,
   speed, oneup, fire); enemy `chase` (Scouter 58) and radius 0 (Hunter 0C stands still, turns to face the player;
