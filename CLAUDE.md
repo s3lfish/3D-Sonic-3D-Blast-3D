@@ -235,7 +235,7 @@ serves index.html from main.
     frames, a step every 15 (jump taps hurry it; 'charge' events), let go: 8/12/14/16 x 0x7800 along the facing
     (0x54DA a part on diagonals), not moving that frame.
   * Floor (`origTri`, 0x3BB2): each cell two triangles, split by its 0x4A08 flag (converters emit `s`: bit 0 the
-    flag, bit 1 all corners odd), height in whole units; slope pull (`origPull`, 0x3540): the triangle's normal
+    flag, bit 1 all corners odd; the level mesh splits its cells the same way), height in whole units; slope pull (`origPull`, 0x3540): the triangle's normal
     (1/8 a step, x 0x5A00, cut toward 0), g + g/4 (rolling a quarter) when steep (0x1000) or moving (0x800).
   * Walls (`resolveWallsOrig`, 0x40D6): a point; a cell 9+ whole units over him is a wall, in the air too; stopped at
     his own cell's edge, x then z, that speed gone, the other kept; a roll comes back 0x4000 slower (stopping if that

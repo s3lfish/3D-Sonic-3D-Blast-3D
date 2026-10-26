@@ -7713,13 +7713,14 @@ const Art = (() => {
       const V = OFF.map((o, q) => [i + o[0], h[q], j + o[1]]);
       const top = COLORS[mat] || ((i + j) % 2 ? COLORS.grassA : COLORS.grassB);
       const tc = art ? WHITE : shade(top, (h[0] + h[2]) / 2);
-      if (art) {
-        const slot = art.baker.top(i + L.rom.origin[0], j + L.rom.origin[1]), su = q => [slot, OFF[q][0], OFF[q][1]];
-        tri(V[0], V[3], V[2], tc, tc, tc, su(0), su(3), su(2), up);
-        tri(V[0], V[2], V[1], tc, tc, tc, su(0), su(2), su(1), up);
-      } else {
-        tri(V[0], V[3], V[2], tc, tc, tc, TUV[0], TUV[3], TUV[2], up);
-        tri(V[0], V[2], V[1], tc, tc, tc, TUV[0], TUV[2], TUV[1], up);
+      // two triangles split north-west to south-east, or north-east to south-west where the original's cell flag says
+      // so (converted levels' `s`; Sim origTri), so the floor drawn is the floor Sonic stands on
+      const ne = L.split && (L.split[t] & 1), Q = ne ? [[0, 3, 1], [1, 3, 2]] : [[0, 3, 2], [0, 2, 1]];
+      for (const [qa, qb, qc] of Q) {
+        if (art) {
+          const slot = art.baker.top(i + L.rom.origin[0], j + L.rom.origin[1]), su = q => [slot, OFF[q][0], OFF[q][1]];
+          tri(V[qa], V[qb], V[qc], tc, tc, tc, su(qa), su(qb), su(qc), up);
+        } else tri(V[qa], V[qb], V[qc], tc, tc, tc, TUV[qa], TUV[qb], TUV[qc], up);
       }
       const stony = mat === 'stone';
       const sideTop = stony ? COLORS.stone : COLORS.earthTop, sideLow = stony ? COLORS.stoneLow : COLORS.earthLow;
