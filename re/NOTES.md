@@ -332,3 +332,19 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - Not used yet: 044 (Sonic head pickups:
   ten add one to $06AA), 13C (a red button), 140, 154 (spear-like posts, animated when a ring opens a gate), 15C/160
   Tails and Knuckles.
+
+## Diamond Dust 1 (2026-10-27; dd1_dis, runlog.py, flow.py, simrun.js)
+- The game places Sonic at the start table's first [x, z] (header +0x20), not at the 030 object; both converters now
+  read the table first.
+- RunLevel_DDz1 (0x1009E): pads 0CC in pairs (tables from 0x108C4: pad 1 sends to pad 2 once ring 1 opens it, pad 3
+  to pad 4 after ring 2). Ride states with bit 15 are mirrored: (x, z) -> (-z, -x), facing (0x200 - f) & 0x7FF
+  (state 0x8004 at (89, 50) watched in the emulator; a plain x/z swap was wrong).
+- Cells: ice chute x 39-40, z 52-70 (grounded: +0.25 units a frame per frame south, steered to x 1280, pad let go)
+  into state 0x3A at (40, 70) (rolling, pad held 80 frames); dash east at (54, 65) under y 704 (7.5 units a frame for
+  24 frames, a jump at 6 a frame on frame 14); sled at (78..79, 66) (pulled to (2528, 2128), then +0.0625 a frame per
+  frame south for 300 frames) into state 0x3C at (86, 81); currents x 110-113 z 55-89 (up to 2 a frame) and x 50-53
+  z 83-99 (up to 3), +0.375 a frame per frame south; snowdrift springs at (94, 39), (90, 39), (80, 39) (rise 40).
+- Snowblowers: table 0x10976 (7), fired like flamethrowers; a blast freezes Sonic (time not measured: 1.5 s used).
+- Airborne, Sonic is lifted onto a ledge whose top is within 12 units above his feet (the current to ring 2's ledge).
+- Not modelled: warp holes (57, 50) <-> (59, 72), the wall cells 0x4C4C, gates.
+

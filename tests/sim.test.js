@@ -723,6 +723,19 @@ test('a chasing enemy comes after a nearby player and a still one stays put', ()
   place(w, 6.5, 2.5); run(w, 30, {});
   assert.ok(w.enemies[0].x < 9.2, `chaser at ${w.enemies[0].x}`); near(w.enemies[1].x, 14.5, 1e-9, 'still enemy');
 });
+test('Diamond Dust: a chute slides and steers, a current pushes, a dash cell runs and jumps, a snowblower freezes', () => {
+  let w = FLAT([{ type: 'chute', box: [3, 6, 0, 12], dir: [1, 0], accel: 28 }]); place(w, 4.5, 2.5); run(w, 30, {});
+  assert.ok(w.p.chute && w.p.vx > 2, `sliding at ${w.p.vx}`);
+  w = FLAT([{ type: 'current', box: [3, 9, 0, 12], dir: [1, 0], accel: 42, top: 3.75, leave: 4.7 }]); place(w, 4.5, 2.5); run(w, 60, {});
+  near(w.p.vx, 3.75, 0.05, 'current top speed');
+  w = FLAT([{ type: 'dash', x: 3.5, z: 2.5, v: [7, 0], t: 0.6, jumpAt: 0.3, jumpV: 6 }]); place(w, 3.5, 2.5);
+  let jumped = -1; run(w, 30, (f, ww) => { if (jumped < 0 && ww.events.includes('jump')) jumped = f; return {}; });
+  assert.ok(jumped >= 16 && jumped <= 20 && w.p.x > 6, `dash jump at ${jumped}, x ${w.p.x}`);
+  w = FLAT([{ type: 'flame', x: 4, z: 2.5, y: 1, dir: [1, 0], freeze: true }]); w.ringCount = 5; place(w, 5.5, 2.5);
+  let froze = -1; run(w, 30, (f, ww) => { if (froze < 0 && ww.events.includes('freeze')) froze = f; return { mx: 1 }; });
+  assert.ok(froze >= 0 && w.p.frozen > 0 && w.ringCount === 5, 'frozen, no rings lost');
+  const x0 = w.p.x; run(w, 20, { mx: 1 }); near(w.p.x, x0, 1e-9, 'cannot move while frozen');
+});
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

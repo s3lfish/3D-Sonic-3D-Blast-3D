@@ -108,7 +108,8 @@ serves index.html from main.
   units up), `bumpers` (0xFF + table cells: entering one near its floor pushes 5 units a frame across the nearest
   edge, pad taken 20 frames, `p.bumpCell`), `spikeField` (0xAA, act 1: one count `w.spike` +1 every 4 frames while
   stood on, -1 off; at 5 it hurts; drawn as an InstancedMesh of cones). Rides at cells take `force` [frames, dir]
-  (`p.force`: pad held, counted from the move's start, `force.top` keeps the speed) and states with bit 15 swap x/z;
+  (`p.force`: pad held, counted from the move's start, `force.top` keeps the speed); states with bit 15 are mirrored
+  (x, z) -> (-z, -x), facing (0x200 - f) & 0x7FF (checked with DD1's 0x8004);
   `hold` cells extend a held pad; tubes = holes with `half` [hx, hz] and ride `wait`. `balloon` (150): bobs 8 units,
   pops (43 units up), back after 70 frames; ROM art type 0x150 palette line 2 (`romBossMat(..., line)`).
   Superchargers (routine 0xCA6A, all zones): way from word +0x26 and bit 3 of byte +0x16 (N/W/S/E), taken standing
@@ -120,6 +121,14 @@ serves index.html from main.
   0x10) / low 400 (0x40, arms in), heading for Sonic by octant (table 0xDBEE), speed (6 - left/2)/2, arena bounds
   and two corners; spring fists hang and swing 32 units, stop at the floor, hurt; generic boss check 0xF794 (from 8
   over and spinning: hit, else hurt); 8 hits. Arms drawn as our own chain and red fists (`buildSsArms`).
+- Diamond Dust 1 (`GIMMICKS[9]`, RunLevel_DDz1 0x1009E): pads 0CC (pairs from tables 0x108C4..); `chute` {box, dir,
+  accel, steer} (grounded: slid along, pad let go, steered to x, until a ride); `dash` {x, z, maxY, v, t, jumpAt,
+  jumpV} (a cell that sets a forced run and a jump on cue, `p.force.jumpAt`); `sled` {box, at, dir, accel, t} (pulled
+  to `at`, then carried); `current` {box, dir, accel, top, leave} (pushed along up to `top`, `leave` on jumping off);
+  `hops` (snowdrift springs as `springCells`); ride `force` [frames, dir, roll]; snowblowers are flames with `freeze`
+  (`p.frozen`, `P.freezeTime` 1.5 s estimated, no rings lost). On the original's levels (`L.rom`) an airborne player
+  within stepUp of a ledge top is lifted onto it (measured in DD1). The game starts Sonic at the start table (header
+  +0x20), not the 030 object (both converters).
 - Object handlers: the table at 0x1BF42 + type (bra.w per type); `re/NOTES.md` lists the ones read.
 - Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
   ROM look draws springs as 3D drums coloured from the ROM sprite (`romSpringMats`).
@@ -183,6 +192,9 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
+- 2026-10-27: Diamond Dust 1: chute, dash, sled, currents, snowdrift springs, snowblowers that freeze, CC pads, rides
+  mirrored correctly, start from the start table, airborne step-up; 87 sim tests. flow.py says DD1 can be finished.
+  Open in DD1: warp holes (57,50)<->(59,72), the 0x4C4C wall, gates. Next: DD2 (RunLevel_DDz2 0xFA06), DD3 boss.
 - 2026-10-27: Spring Stadium 1 and 2: superchargers fixed (way and spot from the routine), loops and held runs,
   floor springs, bumpers, spike fields, tubes, balloons, triangle bumpers, spears, spiked wall; SS enemies 05C/14C;
   SS3 boss; 86 sim tests; private flow.py says SS1 and SS2 can be finished. Open in SS: gates (038, raised cells),

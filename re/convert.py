@@ -19,7 +19,7 @@ RING_TABLE, RING_HOVER = 0x1936, 18
 KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
          0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
          0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
-         0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon'}
+         0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring'}
 MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']
 
 
@@ -62,6 +62,13 @@ GIMMICKS = {
          'holds': [(55, 115, 100), (53, 41, 100)], 'tubes': (0x98C6, 0x40, 0x42),
          'tris': [('x', 2432, 1600, 0, -4, 4, 1), ('x', 2432, 1792, 1, -4, -4, 1)]},
     17: {'floorSprings': 0x55, 'spikeField': 0xFF},
+    9: {'pads': [(0, 1, 1), (2, 3, 2)],
+        'rides': [(89, 50, 0, 0x8004, None, None, None, None, (80, None)), (40, 70, 0, 0x3A, None, None, None, None, (80, None, 1)),
+                  (86, 81, 0, 0x3C, None, None, None)],
+        'chutes': [(39, 40, 52, 70, [0, 1], 0.25, 1280)], 'dashes': [(54, 65, 704, (7.5, 0), 24, 14, 6)],
+        'sleds': [(78, 79, 66, 66, (2528, 672, 2128), [0, 1], 0.0625, 300)],
+        'currents': [(110, 113, 55, 89, [0, 1], 0.375, 2, 2.5), (50, 53, 83, 99, [0, 1], 0.375, 3, 4)],
+        'hops': ([(94, 39), (90, 39), (80, 39)], 40), 'flames': (0x10976, 7), 'freeze': 1},
     16: {'floorSprings': 0x55, 'bumpers': (0xFF, 0x94EA, 30),
          'rides': [(73, 105, 0, 4, None, None, None, None, (70, None)), (85, 76, 0, 0x8004, None, None, None, None, (84, None)),
                    (87, 74, 0, 0x8044, None, None, None, None, (84, None))],
@@ -140,7 +147,7 @@ def convert(rom, level_id, vscale=1.0):
         if not (hnd < 0x400000 and t < 0x400): break
         if not hnd: continue
         x, z = struct.unpack('>h', r[6:8])[0], struct.unpack('>h', r[0xE:0x10])[0]
-        if t in (0x1C, 0x90):
+        if t in (0x1C, 0x90, 0xCC):
             mode = struct.unpack('>H', r[0x24:0x26])[0]
             if mode: holes.append((x, z, mode))
             continue
@@ -215,7 +222,9 @@ def convert(rom, level_id, vscale=1.0):
         for k in range(n):
             x, z, y = struct.unpack('>3h', rom[o + 8 * k:o + 8 * k + 6]); fl = struct.unpack('>H', rom[o + 8 * k + 6:o + 8 * k + 8])[0]
             if not floor_cell(x // CELL, z // CELL): continue
-            ents.append({"type": "flame", "x": jround(x / CELL - x0, 3), "z": jround(z / CELL - z0, 3), "y": jround(y / CELL * vscale, 3), "dir": [0, 1] if fl & 0x800 else [1, 0]})
+            e = {"type": "flame", "x": jround(x / CELL - x0, 3), "z": jround(z / CELL - z0, 3), "y": jround(y / CELL * vscale, 3), "dir": [0, 1] if fl & 0x800 else [1, 0]}
+            if gm.get('freeze'): e["freeze"] = 1
+            ents.append(e)
     if 'doors' in gm:
         o, n = gm['doors']
         for k in range(n):
@@ -230,19 +239,21 @@ def convert(rom, level_id, vscale=1.0):
     r3, r6 = (lambda v: jround(v, 3)), (lambda v: jround(v, 6))
     def ride_of(state, frm, facing, vel):   # bit 15 of the state: x and z swapped; no velocity: the last step carries on
         path, turns, end = ride_script(rom, state & 0x7FFF); mir = bool(state & 0x8000)
-        if mir: path = [[c, b, a] for a, b, c in path]
+        if mir: path = [[-c, b, -a] for a, b, c in path]
         last = path[-1] if path else [0, 0, 0]
         return ({"start": [r3(frm[0] / CELL - x0), r3(frm[1] / CELL * vscale), r3(frm[2] / CELL - z0)] if frm else None,
                  "facing": None if facing is None else compass_of(facing),
                  "vel": [r3(vel[0] * mps), r3(vel[1] * mps * vscale), r3(vel[2] * mps)] if vel else [r3(last[0] * mps), 0, r3(last[2] * mps)],
                  "path": [[r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)] for dx, dy, dz in path],
-                 "turns": [[i, compass_of((0x600 - f) & 0x7FF if mir else f)] for i, f in turns]}, end)
+                 "turns": [[i, compass_of((0x200 - f) & 0x7FF if mir else f)] for i, f in turns]}, end)
     for cx, cz, after, state, frm, facing, vel, *rest in gm.get('rides', []):
         if floor_cell(cx, cz) and (frm is None or floor_cell(frm[0] // CELL, frm[2] // CELL)):
             ride, end = ride_of(state, frm, facing, vel)
             ride["end"] = {"at": [r3(end[0] / CELL - x0), r3(end[1] / CELL * vscale), r3(end[2] / CELL - z0)], "facing": compass_of(end[3]),
                            "vel": [r3(end[4] * mps), r3(-end[5] * mps * vscale), r3(end[6] * mps)]} if end else None
-            if len(rest) > 1 and rest[1]: ride["force"] = {"t": r3(rest[1][0] / 60), "dir": rest[1][1]}
+            if len(rest) > 1 and rest[1]:
+                ride["force"] = {"t": r3(rest[1][0] / 60), "dir": rest[1][1]}
+                if len(rest[1]) > 2 and rest[1][2]: ride["force"]["roll"] = 1
             e = {"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": after, "air": True, "ride": ride}
             if rest and rest[0] is not None: e["maxY"] = r3(rest[0] / CELL * vscale)
             ents.append(e)
@@ -268,6 +279,21 @@ def convert(rom, level_id, vscale=1.0):
     if 'spikeField' in gm:
         cells = cells_of(gm['spikeField'])
         if cells: ents.append({"type": "spikeField", "cells": cells})
+    box = lambda a, b, c, e: [a - x0, b - x0 + 1, c - z0, e - z0 + 1]   # Diamond Dust (see s3d.js)
+    for ax, bx, az, bz, dr, acc, cx in gm.get('chutes', []):
+        ents.append({"type": "chute", "box": box(ax, bx, az, bz), "dir": dr, "accel": r3(acc * 3600 / CELL), "steer": r3(cx / CELL - x0)})
+    for cx, cz, max_y, v, n, at, jv in gm.get('dashes', []):
+        if floor_cell(cx, cz):
+            ents.append({"type": "dash", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "maxY": r3((max_y + 8) / CELL * vscale), "v": [r3(v[0] * mps), r3(v[1] * mps)],
+                         "t": r3(n / 60), "jumpAt": r3(at / 60), "jumpV": r3(jv * mps * vscale)})
+    for ax, bx, az, bz, at, dr, acc, n in gm.get('sleds', []):
+        ents.append({"type": "sled", "box": box(ax, bx, az, bz), "at": [r3(at[0] / CELL - x0), r3(at[1] / CELL * vscale), r3(at[2] / CELL - z0)], "dir": dr,
+                     "accel": r3(acc * 3600 / CELL), "t": r3(n / 60)})
+    for ax, bx, az, bz, dr, acc, top_v, leave in gm.get('currents', []):
+        ents.append({"type": "current", "box": box(ax, bx, az, bz), "dir": dr, "accel": r3(acc * 3600 / CELL), "top": r3(top_v * mps), "leave": r3(leave * mps)})
+    if 'hops' in gm:
+        cells = [[cx - x0, cz - z0] for cx, cz in gm['hops'][0] if floor_cell(cx, cz)]
+        if cells: ents.append({"type": "springCells", "cells": cells, "power": launch_for(vscale, gm['hops'][1])})
     if 'tris' in gm:   # triangle bumpers (see s3d.js)
         ents.append({"type": "triBumpers", "list": [{"band": band, "b": r3(b / CELL - (x0 if band == 'x' else z0)), "s": r3(sd / CELL - (z0 if band == 'x' else x0)),
                                                        "flip": bool(flip), "v": [r3(vx * mps), r3(vz * mps)], "along": bool(along)} for band, b, sd, flip, vx, vz, along in gm['tris']]})
@@ -334,9 +360,8 @@ def convert(rom, level_id, vscale=1.0):
         if not (x0 <= cx <= x1 and z0 <= cz <= z1): continue
         y_world = a - abs(c) + RING_HOVER
         ents.append({"type": "ring", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "absY": jround(y_world / CELL * vscale, 4)})
-    if start is None:
-        sx, sz = struct.unpack('>hh', rom[start_tab:start_tab + 4])
-        if (sx or sz) and floor_cell(sx // CELL, sz // CELL): start = (sx / CELL, sz / CELL)
+    sx, sz = struct.unpack('>hh', rom[start_tab:start_tab + 4])   # the start table first (see s3d.js)
+    if (sx or sz) and floor_cell(sx // CELL, sz // CELL): start = (sx / CELL, sz / CELL)
     if start is None:
         cells = [(i % 128, i // 128) for i, v in enumerate(w) if v]
         mx, mz = sum(c[0] for c in cells) / len(cells), sum(c[1] for c in cells) / len(cells)

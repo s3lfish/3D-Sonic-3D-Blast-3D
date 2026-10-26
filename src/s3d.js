@@ -43,7 +43,8 @@ const S3D = (() => {
     // Spring Stadium 1 (RunLevel_SSz1 0x95DA) and 2 (_SSz2 0x8EC2), helpers 0x9974 (bumpers, then floor springs),
     // 0x9D44 (act 1's spike fields), 0x9B40 (tubes): cells by low byte: floor springs (0x55: grounded, thrown up at 7.875
     // units a frame), bumpers (0xFF and the cells in the table [address, count]; entering one pushes Sonic out across its
-    // nearest edge), spike fields (0xAA). Rides at cells (player state 4: a loop; bit 15: x and z swapped), then the pad
+    // nearest edge), spike fields (0xAA). Rides at cells (player state 4: a loop; bit 15: turned a quarter, x = -z and
+    // z = -x, as watched in Diamond Dust 1), then the pad
     // held for n frames (F5: running east; FF: let go); holds: a cell that keeps the pad held n frames. Tubes: table
     // [address, state in, state out] of two mouths (see the convert loop). Triangle bumpers (the routines' boxes):
     // [band axis, band start, side start, side flipped, push x, push z (units a frame), pushes along the band near its
@@ -56,6 +57,21 @@ const S3D = (() => {
       holds: [[55, 115, 100], [53, 41, 100]], tubes: [0x98C6, 0x40, 0x42],
       tris: [['x', 2432, 1600, 0, -4, 4, 1], ['x', 2432, 1792, 1, -4, -4, 1]] },
     17: { floorSprings: 0x55, spikeField: 0xFF },   // the boss arena: springs up to a spiked ledge, spikes all round
+    // Diamond Dust 1 (RunLevel_DDz1 0x1009E): pads 0CC (pairs; the routine's tables at 0x108C4.. send pad 1 to pad 2
+    // once ring 1 opens it, pad 3 to pad 4 after ring 2); the supercharger's loop (state 0x8004) at (89, 50);
+    // and its other cells: the opening ice chute (x 39-40, z 52-70: slid down south at 0.25 units a frame per frame, steered
+    // to x 1280) into a jump (state 0x3A at (40, 70)); a dash east (cell (54, 65) under 704: 7.5 units a frame for 24
+    // frames, a 6 a frame jump at 14); a sled run south from (78..79, 66) (pulled to (2528, 2128), then 0.0625 a frame per
+    // frame for 300 frames) into a jump (state 0x3C at (86, 81)); currents (x 110-113 z 55-89 up to 2 a frame, x 50-53
+    // z 83-99 up to 3, 0.375 a frame per frame, south); snowdrift springs (4.5 a frame) at (94, 39), (90, 39), (80, 39);
+    // snowblowers (table 0x10976, as flamethrowers; they freeze)
+    9: { pads: [[0, 1, 1], [2, 3, 2]],
+      rides: [[89, 50, 0, 0x8004, null, null, null, undefined, [80, null]], [40, 70, 0, 0x3A, null, null, null, undefined, [80, null, 1]],
+        [86, 81, 0, 0x3C, null, null, null]],
+      chutes: [[39, 40, 52, 70, [0, 1], 0.25, 1280]], dashes: [[54, 65, 704, [7.5, 0], 24, 14, 6]],
+      sleds: [[78, 79, 66, 66, [2528, 672, 2128], [0, 1], 0.0625, 300]],
+      currents: [[110, 113, 55, 89, [0, 1], 0.375, 2, 2.5], [50, 53, 83, 99, [0, 1], 0.375, 3, 4]],
+      hops: [[[94, 39], [90, 39], [80, 39]], 40], flames: [0x10976, 7], freeze: 1 },
     16: { floorSprings: 0x55, bumpers: [0xFF, 0x94EA, 30],
       rides: [[73, 105, 0, 4, null, null, null, undefined, [70, null]], [85, 76, 0, 0x8004, null, null, null, undefined, [84, null]],
         [87, 74, 0, 0x8044, null, null, null, undefined, [84, null]]],
@@ -118,7 +134,7 @@ const S3D = (() => {
   const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
     0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
-    0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon' };
+    0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring' };   // 0DC: Diamond Dust's snowdrift springs
   // Spring Stadium's balloons (150, handler 0x164B0): bob 8 units about word +0x26 (phase +0x24, 16 a frame of 2048);
   // touched, they pop and throw Sonic about 43 units up (measured), and are back about 70 frames later
   // Rusty Ruin's spiked crawler (0AC), watched in the emulator: it rolls 1 unit a frame along the foot of a wall between
@@ -293,7 +309,7 @@ const S3D = (() => {
       if (!code) continue;
       const x = s16(ob, o + 6), z = s16(ob, o + 0xE);
       // holes (Green Grove): mode 1 = open from the start, 4 = opened by the next big ring; the second record of a pair is 0
-      if (t === 0x1C || t === 0x90) { const mode = u16(ob, o + 0x24); if (mode) holes.push([x, z, mode]); continue; }
+      if (t === 0x1C || t === 0x90 || t === 0xCC) { const mode = u16(ob, o + 0x24); if (mode) holes.push([x, z, mode]); continue; }
       const kind = KINDS[t];
       if (kind === 'goal' && tableRings) continue;
       if (!kind || !floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) continue;
@@ -364,7 +380,9 @@ const S3D = (() => {
     if (gm.flames) for (let k = 0, o = gm.flames[0]; k < gm.flames[1]; k++, o += 8) {
       const x = s16(d, o), z = s16(d, o + 2), y = s16(d, o + 4), fl = u16(d, o + 6);
       if (!floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) continue;
-      ents.push({ type: 'flame', x: r3(x / CELL - x0), z: r3(z / CELL - z0), y: r3(y / CELL * vscale), dir: fl & 0x800 ? [0, 1] : [1, 0] });
+      const e = { type: 'flame', x: r3(x / CELL - x0), z: r3(z / CELL - z0), y: r3(y / CELL * vscale), dir: fl & 0x800 ? [0, 1] : [1, 0] };
+      if (gm.freeze) e.freeze = 1;   // Diamond Dust's snowblowers freeze rather than burn
+      ents.push(e);
     }
     // doors: stepping on the cell (grounded) moves Sonic to the place given and pushes him out of it
     const DOOR_PUSH = { 0: [0, 4], 2: [-4, 0], 4: [0, -4] };
@@ -375,20 +393,21 @@ const S3D = (() => {
         ents.push({ type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: 0, exit: [r3(x / CELL - x0), r3(z / CELL - z0)],
           exitY: r3(y / CELL * vscale), push: [r3(vx * mps), r3(vz * mps)], launch: 0 });
     }
-    // a ride's state with bit 15 set plays the script with x and z swapped (facings mirrored to match); with no velocity
+    // a ride's state with bit 15 set plays the script mirrored across the diagonal (x = -z, z = -x; facings to match:
+    // Diamond Dust 1's north loop is the east loop so mirrored, in the emulator); with no velocity
     // given, the move's last step carries on; `force`: [frames, way] the pad is held afterwards (null: let go)
     const rideOf = (state, from, facing, vel) => {
-      const sc = rideScript(d, state & 0x7FFF), mir = !!(state & 0x8000), path = mir ? sc.path.map(([a, b, c]) => [c, b, a]) : sc.path, last = path[path.length - 1] || [0, 0, 0];
+      const sc = rideScript(d, state & 0x7FFF), mir = !!(state & 0x8000), path = mir ? sc.path.map(([a, b, c]) => [-c, b, -a]) : sc.path, last = path[path.length - 1] || [0, 0, 0];
       return { start: from ? [r3(from[0] / CELL - x0), r3(from[1] / CELL * vscale), r3(from[2] / CELL - z0)] : null, facing: facing === null ? null : compassOf(facing),
         vel: vel ? [r3(vel[0] * mps), r3(vel[1] * mps * vscale), r3(vel[2] * mps)] : [r3(last[0] * mps), 0, r3(last[2] * mps)],
         path: path.map(([dx, dy, dz]) => [r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)]),
-        turns: sc.turns.map(([i, f]) => [i, compassOf(mir ? (0x600 - f) & 0x7FF : f)]), sc };
+        turns: sc.turns.map(([i, f]) => [i, compassOf(mir ? (0x200 - f) & 0x7FF : f)]), sc };
     };
     for (const [cx, cz, after, state, from, facing, vel, maxY, force] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
       const { sc, ...rd } = rideOf(state, from, facing, vel), ride = { ...rd,
         end: sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3(sc.end[1] / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
           vel: [r3(sc.end[4] * mps), r3(-sc.end[5] * mps * vscale), r3(sc.end[6] * mps)] } : null };
-      if (force) ride.force = { t: r3(force[0] / 60), dir: force[1] };
+      if (force) { ride.force = { t: r3(force[0] / 60), dir: force[1] }; if (force[2]) ride.force.roll = 1; }   // roll: left rolling ($56 = 2)
       // the routines look only at the cell (and a height), grounded or not
       const e = { type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: after, air: true, ride };
       if (maxY !== undefined) e.maxY = r3(maxY / CELL * vscale);
@@ -421,6 +440,19 @@ const S3D = (() => {
       if (cells.length) ents.push({ type: 'bumpers', cells });
     }
     if (gm.spikeField !== undefined) { const cells = cellsOf(gm.spikeField); if (cells.length) ents.push({ type: 'spikeField', cells }); }
+    // Diamond Dust: chutes [x0, x1, z0, z1, way, speed-up a frame, steer-to x] (units), dashes [x, z, under y, velocity,
+    // frames, jump at frame, jump speed], sleds [x0, x1, z, z, pulled to, way, speed-up, frames], currents [x0, x1, z0, z1,
+    // way, speed-up, top, on leaving], hops [cells, rise in units]
+    const box = (a, b, c, e) => [a - x0, b - x0 + 1, c - z0, e - z0 + 1];
+    for (const [ax, bx, az, bz, dir, acc, cx] of gm.chutes || [])
+      ents.push({ type: 'chute', box: box(ax, bx, az, bz), dir, accel: r3(acc * 3600 / CELL), steer: r3(cx / CELL - x0) });
+    for (const [cx, cz, maxY, v, n, at, jv] of gm.dashes || []) if (floorCell(cx, cz))
+      ents.push({ type: 'dash', x: cx + 0.5 - x0, z: cz + 0.5 - z0, maxY: r3((maxY + 8) / CELL * vscale), v: [r3(v[0] * mps), r3(v[1] * mps)], t: r3(n / 60), jumpAt: r3(at / 60), jumpV: r3(jv * mps * vscale) });
+    for (const [ax, bx, az, bz, at, dir, acc, n] of gm.sleds || [])
+      ents.push({ type: 'sled', box: box(ax, bx, az, bz), at: [r3(at[0] / CELL - x0), r3(at[1] / CELL * vscale), r3(at[2] / CELL - z0)], dir, accel: r3(acc * 3600 / CELL), t: r3(n / 60) });
+    for (const [ax, bx, az, bz, dir, acc, top, leave] of gm.currents || [])
+      ents.push({ type: 'current', box: box(ax, bx, az, bz), dir, accel: r3(acc * 3600 / CELL), top: r3(top * mps), leave: r3(leave * mps) });
+    if (gm.hops) { const cells = gm.hops[0].filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]); if (cells.length) ents.push({ type: 'springCells', cells, power: launchFor(vscale, gm.hops[1]) }); }
     if (gm.tris) ents.push({ type: 'triBumpers', list: gm.tris.map(([band, b, sd, flip, vx, vz, along]) => ({ band,
       b: r3(b / CELL - (band === 'x' ? x0 : z0)), s: r3(sd / CELL - (band === 'x' ? z0 : x0)), flip: !!flip, v: [r3(vx * mps), r3(vz * mps)], along: !!along })) });
     if (gm.spears) {
@@ -482,8 +514,9 @@ const S3D = (() => {
       const yWorld = (a & 0x7FFF) - Math.abs(c) + RING_HOVER;
       ents.push({ type: 'ring', x: cx + 0.5 - x0, z: cz + 0.5 - z0, absY: Math.round(yWorld / CELL * vscale * 1e4) / 1e4 });
     }
-    // start: the start object, else the start table, else the floor cell nearest the middle (boss arenas)
-    if (!start) {
+    // start: the start table (where the emulator's Sonic stands at every act's start), else the start object (030:
+    // not where the game starts Sonic in ten acts), else the floor cell nearest the middle
+    {
       const sx = s16(d, st), sz = s16(d, st + 2);
       if ((sx || sz) && floorCell(Math.floor(sx / CELL), Math.floor(sz / CELL))) start = [sx / CELL, sz / CELL];
     }

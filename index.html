@@ -1067,6 +1067,7 @@ const Sim = (() => {
     // Spring Stadium: bumpers push 5 units a frame and take the pad 20 frames; balloons (touch box estimated)
     bumpSpeed: 5 * 60 / 32, bumpLock: 20 / 60, balloonR: 0.55, balloonBack: 70 / 60,
     spearWait: 34 / 60, spearRise: 28 / 60, fistR: 0.5,
+    freezeTime: 1.5,    // a snowblower's blast freezes the player this long (estimated)
     chaseRange: 5,      // a chasing enemy starts after a player this close
     chaseSpeed: 3,
     turretRange: 8,     // turrets fire at a player this close
@@ -1248,7 +1249,7 @@ const Sim = (() => {
         // a flamethrower at (x, y, z) firing along "dir"
         case 'flame': {
           if (!inBounds(e.x, e.z) || !Number.isFinite(e.y)) { errs.push(`A flamethrower at (${e.x}, ${e.z}) needs a place on the map and a height "y".`); break; }
-          L.entities.push({ type: 'flame', x: e.x, z: e.z, y: e.y, dir: Array.isArray(e.dir) && e.dir.length === 2 ? e.dir : [1, 0] });
+          L.entities.push({ type: 'flame', x: e.x, z: e.z, y: e.y, dir: Array.isArray(e.dir) && e.dir.length === 2 ? e.dir : [1, 0], freeze: !!e.freeze });
           break;
         }
         // a boss (its kind names its routine): start [x, y, z], "home" [x, z], "cruise" height, "arena" [x0, x1, z0, z1], "hp"
@@ -1302,6 +1303,22 @@ const Sim = (() => {
           L.entities.push({ type: e.type, cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]), top: Number.isFinite(e.top) ? e.top : Infinity });
           break;
         }
+        // Diamond Dust: a chute (box [x0, x1, z0, z1]: a grounded player slides `dir`, gaining `accel` m/s each second,
+        // steered to x `steer`), a sled (box: pulled to `at`, then run `dir` gaining `accel` for `t` s), a current (box:
+        // pushed `dir` up to `top` m/s, at least `leave` on jumping off) and a dash (cell: run at `v` for `t` s, jump at
+        // `jumpAt` at `jumpV`, under height `maxY`)
+        case 'chute': case 'sled': case 'current': {
+          const okBox = Array.isArray(e.box) && e.box.length === 4 && e.box.every(Number.isFinite) && Array.isArray(e.dir) && e.dir.length === 2 && e.accel > 0;
+          if (!okBox) { errs.push(`A ${e.type} needs a "box", a "dir" and an "accel".`); break; }
+          L.entities.push({ type: e.type, box: e.box, dir: e.dir, accel: e.accel, steer: Number.isFinite(e.steer) ? e.steer : null,
+            at: Array.isArray(e.at) && e.at.length === 3 ? e.at : null, t: e.t > 0 ? e.t : 0, top: e.top > 0 ? e.top : 0, leave: e.leave > 0 ? e.leave : 0 });
+          break;
+        }
+        case 'dash': {
+          if (!inBounds(e.x, e.z) || !Array.isArray(e.v) || e.v.length !== 2 || !(e.t > 0)) { errs.push(`A dash at (${e.x}, ${e.z}) needs a velocity "v" and a time "t".`); break; }
+          L.entities.push({ type: 'dash', x: e.x, z: e.z, maxY: Number.isFinite(e.maxY) ? e.maxY : Infinity, v: e.v, t: e.t, jumpAt: e.jumpAt || 0, jumpV: e.jumpV || 0 });
+          break;
+        }
         // a cell that keeps a held pad held a while longer ("t" seconds)
         case 'hold': {
           if (!inBounds(e.x, e.z) || !(e.t > 0)) { errs.push(`A hold at (${e.x}, ${e.z}) needs a place on the map and a time "t".`); break; }
@@ -1339,7 +1356,7 @@ const Sim = (() => {
               end: ride.end && Array.isArray(ride.end.at) ? { at: ride.end.at, facing: deg(ride.end.facing || 0), vel: ride.end.vel || [0, 0, 0] } : null,
               // "wait": seconds held at the start first; "force" {t, dir [x, z] or null}: the pad held afterwards
               wait: ride.wait > 0 ? ride.wait : 0,
-              force: ride.force && ride.force.t > 0 ? { t: ride.force.t, dir: Array.isArray(ride.force.dir) && ride.force.dir.length === 2 ? ride.force.dir : null } : null } });
+              force: ride.force && ride.force.t > 0 ? { t: ride.force.t, dir: Array.isArray(ride.force.dir) && ride.force.dir.length === 2 ? ride.force.dir : null, roll: !!ride.force.roll } : null } });
           break;
         }
         case 'spring': {
@@ -1454,8 +1471,9 @@ const Sim = (() => {
   // Push the player's circle out of every tile too high to step onto. Returns summed normal or null.
   const _n = [0, 0];
   function resolveWalls(L, p) {
-    // grounded: rises up to stepUp are walkable; airborne: only clear the ledge once the feet are above it
-    const r = P.r, lim = p.y + (p.grounded ? L.phys.stepUp : 0.02);
+    // grounded: rises up to stepUp are walkable; airborne: only clear the ledge once the feet are above it (the original's
+    // levels: within a step of it, and the player is lifted on; Diamond Dust 1's current to the second ring's ledge)
+    const r = P.r, lim = p.y + (p.grounded || L.rom ? L.phys.stepUp : 0.02);
     let hit = false, nx = 0, nz = 0;
     for (let iter = 0; iter < 3; iter++) {
       let moved = false;
@@ -1503,6 +1521,8 @@ const Sim = (() => {
       spikeCells: new Set(L.entities.filter(e => e.type === 'spikeField').flatMap(e => e.cells.map(([cx, cz]) => cz * L.width + cx))),
       holds: new Map(L.entities.filter(e => e.type === 'hold').map(e => [Math.floor(e.z) * L.width + Math.floor(e.x), e.t])),
       tris: L.entities.filter(e => e.type === 'triBumpers').flatMap(e => e.list),
+      boxes: L.entities.filter(e => e.type === 'chute' || e.type === 'sled' || e.type === 'current'),
+      dashes: L.entities.filter(e => e.type === 'dash'),
       spearCells: new Set(L.entities.filter(e => e.type === 'spears').flatMap(e => e.cells.map(([cx, cz]) => cz * L.width + cx))),
       spikeWall: new Map(L.entities.filter(e => e.type === 'spikeWall').flatMap(e => e.cells.map(([cx, cz]) => [cz * L.width + cx, e.top]))),
       p: null,
@@ -1758,7 +1778,7 @@ const Sim = (() => {
     w.p = { x: s.x, y: floorAt(w.L, s.x, s.z), z: s.z, vx: 0, vy: 0, vz: 0, grounded: true, coyote: 0,
       rolling: false, ball: false, sprung: false, charge: 0, facing: s.facing, jumping: false, prevJump: false, prevDash: false, invuln: 0,
       shield: null, inv: 0, fast: 0, boost: null, goldUsed: false, dashHeld: 0, cannon: null, flyT: 0, whirl: false, whirlHold: 0,
-      ride: null, auto: null, pad: null, slideT: 0, slideDir: null, lock: 0, force: null, bumpCell: -1 };
+      ride: null, auto: null, pad: null, slideT: 0, slideDir: null, lock: 0, force: null, bumpCell: -1, chute: null, sled: null, frozen: 0, dashCell: -1 };
     if (s.auto) w.p.auto = autoWalk(w);
     if (w.boss) initBoss(w);
     // starting again on a pad (a ring stands over one) does not set it off until the player steps off it
@@ -1776,9 +1796,14 @@ const Sim = (() => {
     if (p.lock > 0) { p.lock -= dt; inp = {}; }
     // after some rides the original holds the pad a while: running on along `dir` at the speed the ride left, or let go
     if (p.force) {
-      p.force.t -= dt;
+      p.force.t -= dt; p.force.el = (p.force.el || 0) + dt;
+      if (p.force.jumpAt && !p.force.jumped && p.force.el >= p.force.jumpAt) { p.force.jumped = true; p.vy = p.force.jumpV; p.grounded = false; p.jumping = false; w.events.push('jump'); }
       if (p.force.t <= 0) p.force = null; else inp = p.force.dir ? { mx: p.force.dir[0], mz: p.force.dir[1] } : {};
     }
+    // frozen by a snowblower: still, the pad taken
+    if (p.frozen > 0) { p.frozen -= dt; inp = {}; p.vx = p.vz = 0; }
+    // a chute or a sled: the pad is let go and the player is carried along
+    if (p.chute || p.sled) inp = {};
     if (p.auto && !p.ride) {
       if (p.auto.t > 0) { p.auto.t -= dt; inp = {}; }
       else { const dx = p.auto.x - p.x, dz = p.auto.z - p.z, l = Math.hypot(dx, dz) || 1; inp = { mx: dx / l, mz: dz / l }; }
@@ -1847,6 +1872,7 @@ const Sim = (() => {
       else [p.vx, p.vy, p.vz] = R.vel;
       // the pad was held from the move's start (the original counts its lock down through the move)
       if (R.force && R.force.t > R.path.length / 60 + R.wait) p.force = { t: R.force.t - R.path.length / 60 - R.wait, dir: R.force.dir, top: Math.hypot(p.vx, p.vz) };
+      if (R.force && R.force.roll) p.rolling = true;
       p.ride = null; p.ball = false; p.grounded = false; p.jumping = false; w.warpedAt = w.time;
       // a move that ends on (or a unit into) the floor carries on along it
       const fe = floorAt(L, p.x, p.z);
@@ -2020,6 +2046,7 @@ const Sim = (() => {
         else p.y = f;
       } else {
         p.y += p.vy * sdt;
+        if (L.rom && Number.isFinite(f) && p.y < f && f - p.y <= L.phys.stepUp) p.y = f;
         if (p.vy <= 0 && Number.isFinite(f) && p.y <= f) {
           p.y = f; p.vy = 0; p.grounded = true; p.jumping = false; p.coyote = 0; p.ball = p.rolling; p.sprung = false; p.goldUsed = false;
           w.events.push('land');
@@ -2054,6 +2081,45 @@ const Sim = (() => {
           if (k === 0) p.vz = -P.bumpSpeed; else if (k === 1) p.vx = -P.bumpSpeed; else if (k === 2) p.vx = P.bumpSpeed; else p.vz = P.bumpSpeed;
           p.lock = P.bumpLock; p.rolling = false; p.charge = 0; w.events.push('bumper');
         }
+      }
+    }
+    // Diamond Dust's boxes: a chute slides a grounded player along it, steered to its line, until a ride takes them or
+    // they leave it; a sled pulls them to its start and runs them along for a while; a current pushes them along
+    for (const bx of w.boxes) {
+      const inside = p.x >= bx.box[0] && p.x < bx.box[1] && p.z >= bx.box[2] && p.z < bx.box[3];
+      if (bx.type === 'chute') {
+        if (inside && p.grounded && !p.ride && !p.chute) { p.chute = bx; p.rolling = false; p.charge = 0; w.events.push('chute'); }
+        if (p.chute === bx) {
+          if (p.ride || !(p.x >= bx.box[0] - 1 && p.x < bx.box[1] + 1 && p.z >= bx.box[2] - 1 && p.z < bx.box[3] + 1)) p.chute = null;
+          else {
+            p.vx += bx.dir[0] * bx.accel * dt; p.vz += bx.dir[1] * bx.accel * dt;
+            if (bx.steer !== null && bx.dir[0] === 0) { const d = bx.steer - p.x; if (Math.abs(d) < 0.03) { p.x = bx.steer; p.vx = 0; } else p.vx += Math.sign(d) * bx.accel * dt; }
+          }
+        }
+      } else if (bx.type === 'sled') {
+        if (inside && p.grounded && !p.ride && !p.sled) {
+          p.sled = { bx, t: bx.t }; p.x = bx.at[0]; p.z = bx.at[2]; const f = floorAt(L, p.x, p.z); if (Number.isFinite(f)) p.y = f;
+          p.vx = p.vz = 0; p.rolling = false; p.charge = 0; w.events.push('sled');
+        }
+        if (p.sled && p.sled.bx === bx) {
+          p.sled.t -= dt;
+          if (p.ride || p.sled.t <= 0) p.sled = null; else { p.vx += bx.dir[0] * bx.accel * dt; p.vz += bx.dir[1] * bx.accel * dt; }
+        }
+      } else if (inside) {   // a current
+        const along = p.vx * bx.dir[0] + p.vz * bx.dir[1];
+        if (p.grounded) { if (along < bx.top) { const add = Math.min(bx.accel * dt, bx.top - along); p.vx += bx.dir[0] * add; p.vz += bx.dir[1] * add; } }
+        else if (along < bx.leave && p.vy > 0) { p.vx += bx.dir[0] * (bx.leave - along); p.vz += bx.dir[1] * (bx.leave - along); }
+      }
+    }
+    // a dash cell: run on along it, and jump on cue
+    if (w.dashes.length && cell !== p.dashCell) {
+      p.dashCell = cell;
+      for (const ds of w.dashes) {
+        if (Math.floor(ds.x) + Math.floor(ds.z) * L.width !== cell || p.y > ds.maxY + 0.01) continue;
+        const sp = Math.hypot(ds.v[0], ds.v[1]) || 1;
+        p.vx = ds.v[0]; p.vz = ds.v[1]; p.rolling = false; p.charge = 0;
+        p.force = { t: ds.t, dir: [ds.v[0] / sp, ds.v[1] / sp], top: sp, jumpAt: ds.jumpAt, jumpV: ds.jumpV };
+        w.events.push('dash'); break;
       }
     }
     // spike fields (Spring Stadium 1): one count for them all, up a step every 4 frames while the player stands on one,
@@ -2228,7 +2294,7 @@ const Sim = (() => {
       if (f.cool > 0) f.cool -= dt;
       const ax = p.x - f.x, az = p.z - f.z, along = ax * f.dir[0] + az * f.dir[1], across = ax * f.dir[1] - az * f.dir[0];
       if (along >= -P.flameBack && along < P.flameReach && Math.abs(across) < P.flameWide && f.cool <= 0) {
-        f.cool = 6 / 60; w.puffs.push({ x: f.x, y: f.y, z: f.z, vx: f.dir[0] * P.flameSpeed, vz: f.dir[1] * P.flameSpeed, t: 0 });
+        f.cool = 6 / 60; w.puffs.push({ x: f.x, y: f.y, z: f.z, vx: f.dir[0] * P.flameSpeed, vz: f.dir[1] * P.flameSpeed, t: 0, freeze: f.freeze });
         w.events.push('flame');
       }
     }
@@ -2238,6 +2304,7 @@ const Sim = (() => {
       if (q.t > P.flameLife) { w.puffs.splice(i, 1); continue; }
       const dx = p.x - q.x, dz = p.z - q.z;
       if (dx * dx + dz * dz < P.flameR * P.flameR && Math.abs(pcy - (q.y + 0.3)) < 0.7 && p.inv <= 0 && p.invuln <= 0) {
+        if (q.freeze) { if (p.frozen <= 0) { p.frozen = P.freezeTime; p.invuln = P.freezeTime + 0.5; w.events.push('freeze'); } continue; }
         hurt(w, dx, dz); if (w.events.includes('respawn')) return w;
       }
     }
@@ -2985,7 +3052,8 @@ const S3D = (() => {
     // Spring Stadium 1 (RunLevel_SSz1 0x95DA) and 2 (_SSz2 0x8EC2), helpers 0x9974 (bumpers, then floor springs),
     // 0x9D44 (act 1's spike fields), 0x9B40 (tubes): cells by low byte: floor springs (0x55: grounded, thrown up at 7.875
     // units a frame), bumpers (0xFF and the cells in the table [address, count]; entering one pushes Sonic out across its
-    // nearest edge), spike fields (0xAA). Rides at cells (player state 4: a loop; bit 15: x and z swapped), then the pad
+    // nearest edge), spike fields (0xAA). Rides at cells (player state 4: a loop; bit 15: turned a quarter, x = -z and
+    // z = -x, as watched in Diamond Dust 1), then the pad
     // held for n frames (F5: running east; FF: let go); holds: a cell that keeps the pad held n frames. Tubes: table
     // [address, state in, state out] of two mouths (see the convert loop). Triangle bumpers (the routines' boxes):
     // [band axis, band start, side start, side flipped, push x, push z (units a frame), pushes along the band near its
@@ -2998,6 +3066,21 @@ const S3D = (() => {
       holds: [[55, 115, 100], [53, 41, 100]], tubes: [0x98C6, 0x40, 0x42],
       tris: [['x', 2432, 1600, 0, -4, 4, 1], ['x', 2432, 1792, 1, -4, -4, 1]] },
     17: { floorSprings: 0x55, spikeField: 0xFF },   // the boss arena: springs up to a spiked ledge, spikes all round
+    // Diamond Dust 1 (RunLevel_DDz1 0x1009E): pads 0CC (pairs; the routine's tables at 0x108C4.. send pad 1 to pad 2
+    // once ring 1 opens it, pad 3 to pad 4 after ring 2); the supercharger's loop (state 0x8004) at (89, 50);
+    // and its other cells: the opening ice chute (x 39-40, z 52-70: slid down south at 0.25 units a frame per frame, steered
+    // to x 1280) into a jump (state 0x3A at (40, 70)); a dash east (cell (54, 65) under 704: 7.5 units a frame for 24
+    // frames, a 6 a frame jump at 14); a sled run south from (78..79, 66) (pulled to (2528, 2128), then 0.0625 a frame per
+    // frame for 300 frames) into a jump (state 0x3C at (86, 81)); currents (x 110-113 z 55-89 up to 2 a frame, x 50-53
+    // z 83-99 up to 3, 0.375 a frame per frame, south); snowdrift springs (4.5 a frame) at (94, 39), (90, 39), (80, 39);
+    // snowblowers (table 0x10976, as flamethrowers; they freeze)
+    9: { pads: [[0, 1, 1], [2, 3, 2]],
+      rides: [[89, 50, 0, 0x8004, null, null, null, undefined, [80, null]], [40, 70, 0, 0x3A, null, null, null, undefined, [80, null, 1]],
+        [86, 81, 0, 0x3C, null, null, null]],
+      chutes: [[39, 40, 52, 70, [0, 1], 0.25, 1280]], dashes: [[54, 65, 704, [7.5, 0], 24, 14, 6]],
+      sleds: [[78, 79, 66, 66, [2528, 672, 2128], [0, 1], 0.0625, 300]],
+      currents: [[110, 113, 55, 89, [0, 1], 0.375, 2, 2.5], [50, 53, 83, 99, [0, 1], 0.375, 3, 4]],
+      hops: [[[94, 39], [90, 39], [80, 39]], 40], flames: [0x10976, 7], freeze: 1 },
     16: { floorSprings: 0x55, bumpers: [0xFF, 0x94EA, 30],
       rides: [[73, 105, 0, 4, null, null, null, undefined, [70, null]], [85, 76, 0, 0x8004, null, null, null, undefined, [84, null]],
         [87, 74, 0, 0x8044, null, null, null, undefined, [84, null]]],
@@ -3060,7 +3143,7 @@ const S3D = (() => {
   const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
     0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
-    0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon' };
+    0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring' };   // 0DC: Diamond Dust's snowdrift springs
   // Spring Stadium's balloons (150, handler 0x164B0): bob 8 units about word +0x26 (phase +0x24, 16 a frame of 2048);
   // touched, they pop and throw Sonic about 43 units up (measured), and are back about 70 frames later
   // Rusty Ruin's spiked crawler (0AC), watched in the emulator: it rolls 1 unit a frame along the foot of a wall between
@@ -3235,7 +3318,7 @@ const S3D = (() => {
       if (!code) continue;
       const x = s16(ob, o + 6), z = s16(ob, o + 0xE);
       // holes (Green Grove): mode 1 = open from the start, 4 = opened by the next big ring; the second record of a pair is 0
-      if (t === 0x1C || t === 0x90) { const mode = u16(ob, o + 0x24); if (mode) holes.push([x, z, mode]); continue; }
+      if (t === 0x1C || t === 0x90 || t === 0xCC) { const mode = u16(ob, o + 0x24); if (mode) holes.push([x, z, mode]); continue; }
       const kind = KINDS[t];
       if (kind === 'goal' && tableRings) continue;
       if (!kind || !floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) continue;
@@ -3306,7 +3389,9 @@ const S3D = (() => {
     if (gm.flames) for (let k = 0, o = gm.flames[0]; k < gm.flames[1]; k++, o += 8) {
       const x = s16(d, o), z = s16(d, o + 2), y = s16(d, o + 4), fl = u16(d, o + 6);
       if (!floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) continue;
-      ents.push({ type: 'flame', x: r3(x / CELL - x0), z: r3(z / CELL - z0), y: r3(y / CELL * vscale), dir: fl & 0x800 ? [0, 1] : [1, 0] });
+      const e = { type: 'flame', x: r3(x / CELL - x0), z: r3(z / CELL - z0), y: r3(y / CELL * vscale), dir: fl & 0x800 ? [0, 1] : [1, 0] };
+      if (gm.freeze) e.freeze = 1;   // Diamond Dust's snowblowers freeze rather than burn
+      ents.push(e);
     }
     // doors: stepping on the cell (grounded) moves Sonic to the place given and pushes him out of it
     const DOOR_PUSH = { 0: [0, 4], 2: [-4, 0], 4: [0, -4] };
@@ -3317,20 +3402,21 @@ const S3D = (() => {
         ents.push({ type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: 0, exit: [r3(x / CELL - x0), r3(z / CELL - z0)],
           exitY: r3(y / CELL * vscale), push: [r3(vx * mps), r3(vz * mps)], launch: 0 });
     }
-    // a ride's state with bit 15 set plays the script with x and z swapped (facings mirrored to match); with no velocity
+    // a ride's state with bit 15 set plays the script mirrored across the diagonal (x = -z, z = -x; facings to match:
+    // Diamond Dust 1's north loop is the east loop so mirrored, in the emulator); with no velocity
     // given, the move's last step carries on; `force`: [frames, way] the pad is held afterwards (null: let go)
     const rideOf = (state, from, facing, vel) => {
-      const sc = rideScript(d, state & 0x7FFF), mir = !!(state & 0x8000), path = mir ? sc.path.map(([a, b, c]) => [c, b, a]) : sc.path, last = path[path.length - 1] || [0, 0, 0];
+      const sc = rideScript(d, state & 0x7FFF), mir = !!(state & 0x8000), path = mir ? sc.path.map(([a, b, c]) => [-c, b, -a]) : sc.path, last = path[path.length - 1] || [0, 0, 0];
       return { start: from ? [r3(from[0] / CELL - x0), r3(from[1] / CELL * vscale), r3(from[2] / CELL - z0)] : null, facing: facing === null ? null : compassOf(facing),
         vel: vel ? [r3(vel[0] * mps), r3(vel[1] * mps * vscale), r3(vel[2] * mps)] : [r3(last[0] * mps), 0, r3(last[2] * mps)],
         path: path.map(([dx, dy, dz]) => [r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)]),
-        turns: sc.turns.map(([i, f]) => [i, compassOf(mir ? (0x600 - f) & 0x7FF : f)]), sc };
+        turns: sc.turns.map(([i, f]) => [i, compassOf(mir ? (0x200 - f) & 0x7FF : f)]), sc };
     };
     for (const [cx, cz, after, state, from, facing, vel, maxY, force] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
       const { sc, ...rd } = rideOf(state, from, facing, vel), ride = { ...rd,
         end: sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3(sc.end[1] / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
           vel: [r3(sc.end[4] * mps), r3(-sc.end[5] * mps * vscale), r3(sc.end[6] * mps)] } : null };
-      if (force) ride.force = { t: r3(force[0] / 60), dir: force[1] };
+      if (force) { ride.force = { t: r3(force[0] / 60), dir: force[1] }; if (force[2]) ride.force.roll = 1; }   // roll: left rolling ($56 = 2)
       // the routines look only at the cell (and a height), grounded or not
       const e = { type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: after, air: true, ride };
       if (maxY !== undefined) e.maxY = r3(maxY / CELL * vscale);
@@ -3363,6 +3449,19 @@ const S3D = (() => {
       if (cells.length) ents.push({ type: 'bumpers', cells });
     }
     if (gm.spikeField !== undefined) { const cells = cellsOf(gm.spikeField); if (cells.length) ents.push({ type: 'spikeField', cells }); }
+    // Diamond Dust: chutes [x0, x1, z0, z1, way, speed-up a frame, steer-to x] (units), dashes [x, z, under y, velocity,
+    // frames, jump at frame, jump speed], sleds [x0, x1, z, z, pulled to, way, speed-up, frames], currents [x0, x1, z0, z1,
+    // way, speed-up, top, on leaving], hops [cells, rise in units]
+    const box = (a, b, c, e) => [a - x0, b - x0 + 1, c - z0, e - z0 + 1];
+    for (const [ax, bx, az, bz, dir, acc, cx] of gm.chutes || [])
+      ents.push({ type: 'chute', box: box(ax, bx, az, bz), dir, accel: r3(acc * 3600 / CELL), steer: r3(cx / CELL - x0) });
+    for (const [cx, cz, maxY, v, n, at, jv] of gm.dashes || []) if (floorCell(cx, cz))
+      ents.push({ type: 'dash', x: cx + 0.5 - x0, z: cz + 0.5 - z0, maxY: r3((maxY + 8) / CELL * vscale), v: [r3(v[0] * mps), r3(v[1] * mps)], t: r3(n / 60), jumpAt: r3(at / 60), jumpV: r3(jv * mps * vscale) });
+    for (const [ax, bx, az, bz, at, dir, acc, n] of gm.sleds || [])
+      ents.push({ type: 'sled', box: box(ax, bx, az, bz), at: [r3(at[0] / CELL - x0), r3(at[1] / CELL * vscale), r3(at[2] / CELL - z0)], dir, accel: r3(acc * 3600 / CELL), t: r3(n / 60) });
+    for (const [ax, bx, az, bz, dir, acc, top, leave] of gm.currents || [])
+      ents.push({ type: 'current', box: box(ax, bx, az, bz), dir, accel: r3(acc * 3600 / CELL), top: r3(top * mps), leave: r3(leave * mps) });
+    if (gm.hops) { const cells = gm.hops[0].filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]); if (cells.length) ents.push({ type: 'springCells', cells, power: launchFor(vscale, gm.hops[1]) }); }
     if (gm.tris) ents.push({ type: 'triBumpers', list: gm.tris.map(([band, b, sd, flip, vx, vz, along]) => ({ band,
       b: r3(b / CELL - (band === 'x' ? x0 : z0)), s: r3(sd / CELL - (band === 'x' ? z0 : x0)), flip: !!flip, v: [r3(vx * mps), r3(vz * mps)], along: !!along })) });
     if (gm.spears) {
@@ -3424,8 +3523,9 @@ const S3D = (() => {
       const yWorld = (a & 0x7FFF) - Math.abs(c) + RING_HOVER;
       ents.push({ type: 'ring', x: cx + 0.5 - x0, z: cz + 0.5 - z0, absY: Math.round(yWorld / CELL * vscale * 1e4) / 1e4 });
     }
-    // start: the start object, else the start table, else the floor cell nearest the middle (boss arenas)
-    if (!start) {
+    // start: the start table (where the emulator's Sonic stands at every act's start), else the start object (030:
+    // not where the game starts Sonic in ten acts), else the floor cell nearest the middle
+    {
       const sx = s16(d, st), sz = s16(d, st + 2);
       if ((sx || sz) && floorCell(Math.floor(sx / CELL), Math.floor(sz / CELL))) start = [sx / CELL, sz / CELL];
     }
