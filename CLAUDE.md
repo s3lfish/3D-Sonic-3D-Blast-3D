@@ -41,8 +41,11 @@ serves index.html from main.
   the mesh uses MeshBasicMaterial with that atlas (walls in bands one original unit tall). Falls back to the scribbled
   mesh if baking throws. Converter default is true shape (vscale 1); half height keeps the same timing.
 - Sections: `goal` entities in order are big rings; touching the current one (on entry) advances `w.section` and sets the
-  respawn there; the last clears the level. `hole` {x, z, opens, exit [x, z], launch} swallows a grounded player once
-  `opens` <= section and throws them out at exit (1 s rest after a warp). Only the current ring is drawn.
+  respawn there (or at its `put` pocket, walked out of); the last clears the level. `hole` {x, z, opens, exit, launch}
+  takes a player once `opens` <= section (0: always). Kinds: `pad` {sink, bury, pocket} = the objects' own sequence
+  (1C holes in GG, 090 pads in RR; slow grounded player held 100 frames sinking, then 95 frames under the other pad,
+  thrown up; `w.padOff` keeps the arrival pad quiet until stepped off); `ride` = scripted move; plain = instant (doors:
+  exitY/push/size). Only the current ring is drawn. Every warp fades from black and resets the camera.
 - Flickies: level `flickies` (converted levels with rings: 5). Each defeated enemy frees one (hops about; touch to
   collect); followers trail the player (every 14 sim frames along `w.trail`); a hit or a death scatters them. A ring
   takes followers up to its share; it opens at min(share, delivered + following + free + enemies alive), so it never
@@ -82,6 +85,11 @@ serves index.html from main.
   move (`rideScript`: RunSonic's interpreter 0x2EFC, scripts at 0x25DF2 per player state; hole `ride` {start, facing,
   vel, path, turns, end}; `p.ride`), checked to the unit against the emulator. Cuts fade from black (`fadeCut`); while
   a ride is under the ground the hero is hidden and the camera stays on the ground above. Crock (9C) is an enemy. Crack cells may carry their own height ([x, z, top]). Holes with `opens` 0 are open.
+- Rusty Ruin 2 (`GIMMICKS[6]`, RunLevel 0x7CFC): pads both ways after each ring (rise 138); slides (low byte 0xC3 east,
+  0xF0 south: `slide` entity, `P.slide*`); trampolines 08C (spring with `absY`, rise 94, drawn as slabs); sinking slabs
+  098 (`lift`: raised cell in `L.up`, sinks 84 units 1 s after landing); pillar (85, 101) breaks into a pit (crack
+  cell [x, z, top, after, quiet]; quiet linked cell (99, 96)) whose ride 0x2E runs under the floor to (98, 96); rides
+  0x30/0x32/0x34; dash wall (101, 60). Private flow check: s3d/flow.py, comps.py, simat.js.
 - Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
   ROM look draws springs as 3D drums coloured from the ROM sprite (`romSpringMats`).
 - Act end: the `goal` event shows `#clearCard`, flashes, and after 5 s converts the next act in `S3D.LEVELS` order.
@@ -144,6 +152,8 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
+- 2026-10-27 early: RR2 gimmicks; pads with the original sequence (GG too); 78 sim tests. Open: RR maces, flamethrowers,
+  0AC crawler (hurts), RR3 boss.
 - 2026-10-26 late: Jam discs as CHD, ECM, zip, .img, .mdf, .nrg (all checked byte for byte against the files).
 - 2026-10-26 evening: Rusty Ruin 1 gimmicks (above); 75 sim tests. Open in RR: maces (084/088 orbit, helper 0x86B0),
   flamethrowers (helper 0x84F2, sound 0x7F), green dome buttons (0xAA cells, cosmetic), RR2 rides (states 2E-34),

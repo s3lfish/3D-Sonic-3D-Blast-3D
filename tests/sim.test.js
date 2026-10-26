@@ -411,31 +411,56 @@ test('a door moves a player standing on it to its exit and pushes them out along
   run(w, 60, (f, ww) => { if (ww.events.includes('warp')) { warped = true; grounded = ww.p.grounded; } return { mx: warped ? 0 : 1, mz: 0 }; });
   assert.ok(warped && grounded, 'came out on the floor'); assert.ok(w.p.x > 15.6, `pushed east to ${w.p.x}`);
 });
-test('a ring with a pocket puts the player there; a ride from it opens with the ring and ends in the air', () => {
-  const w = world(arena([{ type: 'goal', x: 4.5, z: 2.5, put: [12.5, 1.5, 90] }, { type: 'goal', x: 19.5, z: 2.5 },
-    { type: 'hole', x: 14.5, z: 1.5, size: 0.5, opens: 1, exit: [16.5, 3.5], exitY: 4, push: [0, -1], launch: 0 }]));
-  let sec = false;
-  run(w, 60, (f, ww) => { if (ww.events.includes('section')) sec = true; return { mx: sec ? 0 : 1, mz: 0 }; });
-  assert.ok(sec, 'ring used'); near(w.p.x, 12.5, 0.2, 'pocket x'); near(w.p.z, 1.5, 0.2, 'pocket z');
-  Sim.respawn(w);
-  near(w.p.x, 12.5, 1e-9, 'a lost life starts in the pocket'); near(w.p.facing, Math.PI / 2, 1e-9, 'facing east');
-  let rode = false, high = 0;
-  run(w, 90, (f, ww) => { if (ww.events.includes('warp')) rode = true; if (rode) high = Math.max(high, ww.p.y); return { mx: rode ? 0 : 1, mz: 0 }; });
-  assert.ok(rode, 'took the ride'); near(high, 4, 0.05, 'came out at the given height'); assert.ok(w.p.grounded, 'landed');
+test('a pad under a used ring holds a slow player, sinks them, and throws them out of the other pad', () => {
+  const w = world(arena([{ type: 'goal', x: 4.5, z: 2.5 }, { type: 'goal', x: 19.5, z: 2.5 },
+    { type: 'hole', x: 8.5, z: 2.5, opens: 1, exit: [15.5, 2.5], launch: 6, pad: { sink: 1.75, bury: 1.47 } }]));
+  run(w, 60, (f, ww) => ({ mx: ww.section ? 0 : 1, mz: 0 }));
+  assert.strictEqual(w.section, 1, 'ring used');
+  Object.assign(w.p, { x: 10.5, z: 2.5, vx: 0, vz: 0 });
+  let held = -1;
+  run(w, 120, (f, ww) => { if (held < 0 && ww.p.pad) held = f; return { mx: ww.p.pad ? 1 : -0.4, mz: 0 }; });
+  assert.ok(held >= 0, 'taken in walking slowly');
+  assert.ok(w.p.pad, 'still held');
+  run(w, 100 - (120 - held) + 2, { mx: 1, mz: 0 });
+  assert.ok(w.p.pad && w.p.pad.out, 'came out under the other pad'); near(w.p.x, 15.5, 1e-9, 'at the exit'); assert.ok(w.p.y < 0, `buried: y ${w.p.y}`);
+  let top = 0; run(w, 140, (f, ww) => { top = Math.max(top, ww.p.y); return {}; });
+  assert.ok(!w.p.pad && top > 1.5, `thrown up after a wait: top ${top}`);
 });
-test('a pocket walks the player to its ride, which plays its path and lets them go with the given velocity', () => {
+test('a ring with a pocket: its pad takes the player there, they walk out by themselves, the ride plays its path', () => {
   const path = []; for (let i = 0; i < 30; i++) path.push([0, i < 15 ? 0.1 : -0.05, 0.05]);
   const w = world(arena([{ type: 'goal', x: 4.5, z: 2.5, put: [9.5, 2.5, 90] }, { type: 'goal', x: 19.5, z: 2.5 },
-    { type: 'hole', x: 14.5, z: 2.5, size: 0.5, opens: 1, ride: { start: [16.5, 2, 1.5], facing: 180, vel: [0, 0, 2], path, turns: [[20, 90]], end: null } }]));
-  let sec = false, rode = -1, f0 = 0;
-  run(w, 300, (f, ww) => { if (ww.events.includes('section')) { sec = true; f0 = f; } if (ww.events.includes('ride')) rode = f; return { mx: sec ? -1 : 1, mz: 0 }; });
-  assert.ok(sec, 'ring used'); assert.ok(rode > f0 + 60, `walked out by itself after a wait (${rode - f0} frames)`);
-  const w2 = world(arena([{ type: 'hole', x: 3.5, z: 2.5, size: 0.5, opens: 0, ride: { start: [16.5, 2, 1.5], facing: 180, vel: [0, 0, 2], path, turns: [[20, 90]], end: null } }]));
+    { type: 'hole', x: 4.5, z: 2.5, opens: 1, exit: [9.5, 2.5], launch: 0, pad: { sink: 1.75, bury: 1.47, pocket: true } },
+    { type: 'hole', x: 14.5, z: 2.5, size: 0.5, opens: 1, air: true, ride: { start: [16.5, 2, 1.5], facing: 180, vel: [0, 0, 2], path, turns: [[20, 90]], end: null } }]));
+  let warped = -1, rode = -1;
+  run(w, 400, (f, ww) => { if (warped < 0 && ww.events.includes('warp')) warped = f; if (ww.events.includes('ride')) rode = f; return { mx: 0.4, mz: 0 }; });
+  assert.strictEqual(w.section, 1, 'ring used'); assert.ok(warped > 0, 'the pad took the player to the pocket');
+  assert.ok(rode > warped + 60, `walked out by itself after a wait (${rode - warped} frames)`);
+  Sim.respawn(w); near(w.p.x, 9.5, 1e-9, 'a lost life starts in the pocket'); assert.ok(w.p.auto, 'and walks out again');
+  const w2 = world(arena([{ type: 'hole', x: 3.5, z: 2.5, size: 0.5, opens: 0, air: true, ride: { start: [16.5, 2, 1.5], facing: 180, vel: [0, 0, 2], path, turns: [[20, 90]], end: null } }]));
   for (let f = 0; f < 120 && !(w2.p.ride && w2.p.ride.i === 25); f++) Sim.step(w2, { mx: w2.p.ride ? 0 : 1, mz: 0 });
   assert.ok(w2.p.ride, 'riding'); near(w2.p.x, 16.5, 1e-9, 'moved to the start'); near(w2.p.facing, Math.PI / 2, 1e-9, 'turned on frame 20');
   near(w2.p.z, 1.5 + 25 * 0.05, 1e-9, 'followed the path');
   run(w2, 60, {});
   assert.ok(!w2.p.ride, 'ride over'); assert.ok(w2.p.z > 1.5 + 1.5 + 0.2, `carried on south with the routine's velocity: z ${w2.p.z}`);
+});
+test('a slide pushes a grounded player down it, and a linked pillar sinks to its own floor and lowers another cell', () => {
+  const w = world(arena([{ type: 'slide', cells: [[6, 2], [7, 2], [8, 2]], dir: [1, 0] }]));
+  w.p.x = 6.5; run(w, 60, {});
+  assert.ok(w.p.x > 9, `slid east to ${w.p.x}`);
+  const v = world(arena([{ type: 'fan', cells: [[3, 2]] }, { type: 'crack', by: 'whirl', cells: [[8, 2, 6, 0.5], [12, 3, 5, null, 1]], top: 6 }]));
+  run(v, 200, { mx: 1, mz: 0 });
+  assert.ok(v.cracks[0].broken, 'broken'); near(Sim.floorAt(v.L, 8.5, 2.5), 0.5, 1e-9, 'sank to its own floor');
+  near(Sim.floorAt(v.L, 12.5, 3.5), 1, 1e-9, 'the linked cell is back to the floor');
+});
+test('a raised spring (a trampoline) bounces a player landing on it; a lift sinks a moment after they land', () => {
+  const w = world(arena([{ type: 'spring', x: 6.5, z: 2.5, absY: 2.5, power: 7 }]));
+  Object.assign(w.p, { x: 6.5, z: 2.5, y: 3.5, grounded: false, vy: 0 });
+  let top = 0, bounced = false; run(w, 60, (f, ww) => { if (ww.events.includes('spring')) bounced = true; top = Math.max(top, ww.p.y); return {}; });
+  assert.ok(bounced, 'bounced'); assert.ok(top > 3.5, `went back up to ${top}`);
+  const v = world(arena([{ type: 'lift', x: 8.5, z: 2.5, y: 2, drop: 0.8 }]));
+  Object.assign(v.p, { x: 8.5, z: 2.5, y: 2 });
+  run(v, 30, {}); near(v.p.y, 2, 1e-9, 'still up after half a second');
+  run(v, 120, {}); near(v.p.y, 1.2, 1e-9, 'sank with the player on it');
 });
 test('converted spike blocks (H) hurt', () => {
   const tiles = []; for (let k = 0; k < 15; k++) tiles.push({ c: [1, 1, 1, 1], t: k === 7 ? 'H' : 'F' });

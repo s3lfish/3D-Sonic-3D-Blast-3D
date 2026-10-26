@@ -325,6 +325,8 @@
       cannon: () => { noise(0.4, 0.8, 600); tone('square', 160, 60, 0.5, 0.3); },
       crack: () => { noise(0.5, 0.9, 1400); noise(0.3, 0.5, 300); },
       whirl: () => tone('sawtooth', 300, 1100, 0.12, 0.12),
+      padIn: () => tone('triangle', 500, 120, 0.9, 0.2),
+      padOut: () => { tone('triangle', 180, 1400, 0.32, 0.4); noise(0.2, 0.3, 2000); },
       boost: () => { noise(0.35, 0.6, 2500); tone('square', 700, 120, 0.4, 0.25); },
       enemy: () => { noise(0.22, 0.7, 1400); tone('square', 520, 90, 0.2, 0.3); },
       boom: () => { noise(0.5, 0.9, 700); tone('sine', 120, 40, 0.5, 0.6); },
@@ -707,7 +709,7 @@
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
   let mineSprites = [], turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
-  let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [];
+  let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [];
   const SPRING_REST = 0.3;   // how far the Jam spring's coil stands at rest (fired: 1)
   function buildLevelObjects() {
     if (levelGroup) {
@@ -759,22 +761,12 @@
     // cracked walls: a column of plain rock (from the level's own cliffs in the ROM look) on each cell until broken;
     // pillars (broken by a whirl): a stone column on a pink base, about the original sprite's height
     crackMeshes = world.cracks.map(c => {
-      const g = new THREE.Group(), art = mesh.userData.art && levelArtFor(L);
-      if (c.by === 'whirl') {
-        for (const [cx, cz] of c.cells) {
-          const k = (cz * L.width + cx) * 4, floor = Math.min(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]);
-          const vs = L.rom ? L.rom.vscale : 1, hh = 1.7 * vs;
-          for (const [r, h, y, col] of [[0.42, 0.18 * vs, 0, 0xb07894], [0.32, hh, 0.18 * vs, 0xa8a492], [0.4, 0.14 * vs, 0.18 * vs + hh, 0xa8a492]]) {
-            const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 12), new THREE.MeshLambertMaterial({ color: col }));
-            m.position.set(cx + 0.5, floor + y + h / 2, cz + 0.5); g.add(m);
-          }
-        }
-        levelGroup.add(g); return g;
-      }
-      for (const [cx, cz, top] of c.cells) {
-        // drawn 3 m tall (the original's 480 units would be a 15 m chimney); no jump clears either
-        const vs = L.rom ? L.rom.vscale : 1, k = (cz * L.width + cx) * 4;
-        const floor = Math.min(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]), h = Math.min(top - floor, 3 * vs);
+      const g = new THREE.Group(), art = mesh.userData.art && levelArtFor(L), vs = L.rom ? L.rom.vscale : 1;
+      const floorOf = (cx, cz) => { const k = (cz * L.width + cx) * 4; return Math.min(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]); };
+      // a block of plain rock (from the level's own cliffs in the ROM look), at most 3 m tall (the original's 480 units
+      // would be a 15 m chimney); no jump clears either
+      const rock = (cx, cz, top) => {
+        const floor = floorOf(cx, cz), h = Math.min(top - floor, 3 * vs);
         let mat;
         const slot = art && L.rom ? art.baker.rockSlot(cx + L.rom.origin[0], cz + L.rom.origin[1]) : -1;
         if (slot >= 0) {
@@ -786,11 +778,37 @@
         } else mat = new THREE.MeshLambertMaterial({ color: 0x8a6a48 });
         const m = new THREE.Mesh(new THREE.BoxGeometry(1, h, 1), mat);
         m.position.set(cx + 0.5, floor + h / 2, cz + 0.5); g.add(m);
+      };
+      for (const [cx, cz, top, after, quiet] of c.cells) {
+        if (c.by !== 'whirl' || quiet) { rock(cx, cz, top); continue; }
+        // a pillar: a stone column on a pink base, about the original sprite's height
+        const floor = floorOf(cx, cz), hh = 1.7 * vs;
+        for (const [r, h, y, col] of [[0.42, 0.18 * vs, 0, 0xb07894], [0.32, hh, 0.18 * vs, 0xa8a492], [0.4, 0.14 * vs, 0.18 * vs + hh, 0xa8a492]]) {
+          const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 12), new THREE.MeshLambertMaterial({ color: col }));
+          m.position.set(cx + 0.5, floor + y + h / 2, cz + 0.5); g.add(m);
+        }
+        // one that leaves a pit behind: a dark square over the drawn floor, shown once it breaks
+        if (after !== null && after < floor - 0.1) {
+          const pit = new THREE.Mesh(new THREE.PlaneGeometry(0.96, 0.96), new THREE.MeshBasicMaterial({ color: 0x0c0a08 }));
+          pit.rotation.x = -Math.PI / 2; pit.position.set(cx + 0.5, floor + 0.02, cz + 0.5); pit.visible = false;
+          levelGroup.add(pit); g.userData.pit = pit;
+        }
       }
       levelGroup.add(g); return g;
     });
     jamSprings = [];
+    // stone slabs: trampolines (raised springs) and sinking lifts, in the ruins' stone colours
+    const slab = (x, y, z, col) => {
+      const g = new THREE.Group(), t = 0.22;
+      const m = new THREE.Mesh(new THREE.BoxGeometry(1.15, t, 1.15), new THREE.MeshLambertMaterial({ color: col }));
+      m.position.y = -t / 2; g.add(m);
+      const top = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.03, 0.8), new THREE.MeshLambertMaterial({ color: 0x6f7a52 }));
+      top.position.y = 0.01; g.add(top);
+      g.position.set(x, y, z); levelGroup.add(g); return g;
+    };
+    liftMeshes = (world.lifts || []).map(f => slab(Math.floor(f.x) + 0.5, f.top, Math.floor(f.z) + 0.5, 0x9a9680));
     springSprites = world.springs.map(sp => {
+      if (sp.raised) { jamSprings.push(null); return slab(sp.x, sp.y, sp.z, 0xa8a492); }
       if (rom && jamOn()) {
         const c = jamCopy(jamProps.spring); c.g.position.set(sp.x, sp.y, sp.z); c.g.userData.jam = true;
         jamProps.spring.coil(c.nodes, SPRING_REST); jamSprings.push(c.nodes); levelGroup.add(c.g); return c.g;
@@ -1629,11 +1647,11 @@
       if (world.events.includes('monitor')) toast(POWER_TEXT[world.power] || '', 2);
       if (world.events.includes('shieldLost')) toast('The shield took the hit.', 1.6);
       if (world.events.includes('needFlickies')) toast(`The ring needs ${L.flickies} Flickies. Free them from enemies and bring them here.`, 3);
-      if (world.events.includes('section')) toast(world.goals[world.section - 1].put ? 'Ring used. Find the way out of here.'
-        : world.holes.some(h => h.opens === world.section && h.exitY === null) ? 'Ring used. Step into the hole beneath it.' : 'Ring used. On to the next one.', 3);
+      if (world.events.includes('section')) toast(world.holes.some(h => h.opens === world.section && h.pad) ? 'Ring used. Stand still on the pad beneath it.'
+        : world.holes.some(h => h.opens === world.section && h.exitY === null && !h.ride) ? 'Ring used. Step into the hole beneath it.' : 'Ring used. On to the next one.', 3);
       if (world.events.includes('warp')) {
         prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
-        if (world.events.includes('ride') || (world.events.includes('section') && world.goals[world.section - 1].put)) { fadeCut(); resetCamera(); }
+        fadeCut(); resetCamera();   // the original cuts (and fades) whenever it moves Sonic somewhere else
       }
       acc -= STEP; steps++;
     }
@@ -1724,7 +1742,10 @@
       if (Math.abs(sx) > 1e-4) s.userData.left = sx < 0;
       s.material = s.userData.rom ? s.userData.rom[s.userData.left ? 0 : 1] : enemyMat(Math.floor(t * 6) % 2, (Math.floor(t * 8) + q) % 3, !!s.userData.left);
     }
-    for (let q = 0; q < crackMeshes.length; q++) crackMeshes[q].visible = !world.cracks[q].broken;
+    for (let q = 0; q < crackMeshes.length; q++) {
+      const g = crackMeshes[q], broken = world.cracks[q].broken;
+      g.visible = !broken; if (g.userData.pit) g.userData.pit.visible = broken;
+    }
     for (let q = 0; q < ballSprites.length; q++) {
       const b = ballSprites[q], en = world.enemies[q];
       if (!b) continue;
@@ -1811,11 +1832,13 @@
     }
     for (let q = 0; q < springSprites.length; q++) {
       const s = springSprites[q], fired = world.time - world.springs[q].firedAt < 0.25;
+      if (world.springs[q].raised) { s.position.y = world.springs[q].y - (fired ? 0.1 : 0); continue; }
       if (jamSprings[q]) jamProps.spring.coil(jamSprings[q], fired ? 1 : SPRING_REST);
       else if (s.userData.drum) { s.userData.drum.scale.y = fired ? 1.6 : 1; s.userData.drum.position.y = fired ? 0.2 : 0.15; }
       else if (s.userData.rom) s.scale.set(s.userData.size, s.userData.size * (fired ? 1.25 : 1), 1);
       else s.material = springMats[fired ? 1 : 0];
     }
+    for (let q = 0; q < liftMeshes.length; q++) liftMeshes[q].position.y = world.lifts[q].top;
     if (waterMesh) waterTex.offset.set(t * 0.08, t * 0.03);
 
     if (shownRings !== world.ringCount) { shownRings = world.ringCount; $('ringCount').textContent = String(world.ringCount); }
@@ -1824,7 +1847,7 @@
 
     // a ride that goes through solid ground (a tunnel the original draws over Sonic): hide him and keep the camera on
     // the ground above, as the original keeps its view outside
-    const rideFloor = p.ride ? Sim.floorAt(L, rp.x, rp.z) : -Infinity, buried = p.ride && Number.isFinite(rideFloor) && rp.y < rideFloor - 0.3;
+    const rideFloor = p.ride || p.pad ? Sim.floorAt(L, rp.x, rp.z) : -Infinity, buried = (p.ride || p.pad) && Number.isFinite(rideFloor) && rp.y < rideFloor - 0.3;
     if (buried) { hero.visible = sil.visible = false; if (hero3d) hero3d.root.visible = false; camPt.set(rp.x, rideFloor, rp.z); }
     const cp = buried ? camPt : rp;
     if (view.mode === 'iso') updateIso(cp, dt); else updateChase(cp, dt, p);
@@ -1842,7 +1865,7 @@
   }
   satReady = true; setSaturn(saturn);
   $('screenSel').addEventListener('change', () => setSaturn($('screenSel').value === 'saturn'));
-  window.__game = { MdSound, Sim, get hero3d() { return hero3d; }, get jamProps() { return jamProps; }, jamCopy, poseJam, get jamPalms() { return jamPalms; }, view, setMode, start, get world() { return world; }, get level() { return L; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
+  window.__game = { MdSound, Sim, resetCamera, get hero3d() { return hero3d; }, get jamProps() { return jamProps; }, jamCopy, poseJam, get jamPalms() { return jamPalms; }, view, setMode, start, get world() { return world; }, get level() { return L; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
   setMode(view.mode);
   requestAnimationFrame(frame);
 })();

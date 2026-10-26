@@ -1026,7 +1026,13 @@ const Sim = (() => {
     // the whirl (Rusty Ruin fans), measured in the emulator: held on the fan 32 frames, then 0.094 units a frame per frame
     // towards the stick, up to 5 units a frame, 0.03 a frame per frame of drag with the stick let go, 0.94 kept off a wall
     whirlHold: 32 / 60, whirlAccel: 10.5, whirlTop: 9.375, whirlDrag: 3.4, whirlBounce: 0.94,
+    liftWait: 1, liftSink: 40 / 60,
     autoWait: 1,        // a pocket: the original stands the player still about a second, then walks them out
+    // pads (objects 1C and 090, watched in the emulator): taken under 2 units a frame; held 100 frames, sinking from
+    // frame 51 for 21 frames; under the other pad 95 frames before the throw
+    padSlow: 2 * 60 / 32, padHold: 100 / 60, padSinkFrom: 51 / 60, padSinkTime: 21 / 60, padWait: 95 / 60,
+    // slides (Rusty Ruin 2): 0.25 units a frame per frame down the slide up to 4, and for 15 frames after leaving one
+    slideAccel: 0.25 * 3600 / 32, slideTop: 4 * 60 / 32, slideAfter: 15 / 60,
     rollFriction: 2.5,
     rollMin: 2.0,       // rolling stops below this speed
     rollTurn: 3.0,      // rad/s steering while rolling
@@ -1200,8 +1206,21 @@ const Sim = (() => {
         case 'crack': {
           if (!Array.isArray(e.cells) || !e.cells.length || !e.cells.every(c => Array.isArray(c) && inBounds(c[0], c[1])) || !(e.top > 0)) { errs.push('A cracked wall needs "cells" inside the map and a height "top".'); break; }
           const d = Array.isArray(e.dir) && e.dir.length === 2 ? e.dir : [0, -1];
-          L.entities.push({ type: 'crack', cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1]), c[2] > 0 ? c[2] : e.top]), top: e.top, dir: d,
+          // a cell may carry [x, z, own height, floor once broken, 1 = quiet (only lowered with the rest, never hit)]
+          L.entities.push({ type: 'crack', cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1]), c[2] > 0 ? c[2] : e.top, Number.isFinite(c[3]) ? c[3] : null, c[4] ? 1 : 0]), top: e.top, dir: d,
             by: e.by === 'whirl' ? 'whirl' : 'dash' });
+          break;
+        }
+        // a lift: a slab whose top is at "y" over its cell, sinking "drop" metres a moment after the player lands on it
+        case 'lift': {
+          if (!inBounds(e.x, e.z) || !Number.isFinite(e.y)) { errs.push(`A lift at (${e.x}, ${e.z}) needs a place on the map and a height "y".`); break; }
+          L.entities.push({ type: 'lift', x: e.x, z: e.z, y: e.y, drop: e.drop > 0 ? e.drop : 1, skin: skinOf(e) });
+          break;
+        }
+        // slides: steep cells that push a grounded player down them, along "dir" (Rusty Ruin 2)
+        case 'slide': {
+          if (!Array.isArray(e.cells) || !e.cells.every(c => Array.isArray(c) && inBounds(c[0], c[1])) || !Array.isArray(e.dir)) { errs.push('A slide needs "cells" inside the map and a "dir".'); break; }
+          L.entities.push({ type: 'slide', cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]), dir: e.dir });
           break;
         }
         // fan tiles: standing on one sets the player whirling (Rusty Ruin)
@@ -1226,7 +1245,8 @@ const Sim = (() => {
           if (!(Number.isInteger(opens) && opens >= 0 && opens <= 9) || !(launch >= 0 && launch <= 30) || !(size > 0 && size <= 1)) { errs.push(`A hole needs "opens" from 0 to 9, "launch" from 0 to 30 m/s and "size" from 0 to 1.`); break; }
           const deg = f => (r => Math.atan2(Math.sin(r), -Math.cos(r)))(f * Math.PI / 180);
           L.entities.push({ type: 'hole', x: e.x, z: e.z, y: floorAt(L, e.x, e.z), opens, exit: [ex[0], ex[1]], launch, size, push,
-            exitY: Number.isFinite(e.exitY) ? e.exitY : null,
+            exitY: Number.isFinite(e.exitY) ? e.exitY : null, air: !!e.air, maxY: Number.isFinite(e.maxY) ? e.maxY : null,
+            pad: e.pad && Number.isFinite(e.pad.sink) ? { sink: e.pad.sink, bury: e.pad.bury || 0, pocket: !!e.pad.pocket } : null,
             ride: ride && { start: Array.isArray(ride.start) ? ride.start : null, facing: Number.isFinite(ride.facing) ? deg(ride.facing) : null,
               vel: Array.isArray(ride.vel) ? ride.vel : [0, 0, 0], path: ride.path, turns: (ride.turns || []).map(([i, f]) => [i, deg(f)]),
               end: ride.end && Array.isArray(ride.end.at) ? { at: ride.end.at, facing: deg(ride.end.facing || 0), vel: ride.end.vel || [0, 0, 0] } : null } });
@@ -1234,11 +1254,12 @@ const Sim = (() => {
         }
         case 'spring': {
           if (!inBounds(e.x, e.z)) { errs.push(`A spring at (${e.x}, ${e.z}) is outside the map.`); break; }
-          const f = floorAt(L, e.x, e.z);
+          // "absY": a spring (a trampoline) standing at its own height rather than on the floor
+          const f = Number.isFinite(e.absY) ? e.absY : floorAt(L, e.x, e.z);
           if (!Number.isFinite(f)) { errs.push(`A spring at (${e.x}, ${e.z}) is over a pit.`); break; }
           const power = e.power ?? 12;
           if (!(power > 0 && power <= 30)) { errs.push(`A spring's "power" must be between 0 and 30 m/s.`); break; }
-          L.entities.push({ type: 'spring', x: e.x, z: e.z, y: f, power, skin: skinOf(e) });
+          L.entities.push({ type: 'spring', x: e.x, z: e.z, y: f, power, skin: skinOf(e), raised: Number.isFinite(e.absY) });
           break;
         }
         case 'ringLine': {
@@ -1377,13 +1398,14 @@ const Sim = (() => {
     const w = {
       L, time: 0, ringCount: 0, deaths: 0, events: [],
       rings: L.entities.filter(e => e.type === 'ring').map(e => ({ x: e.x, y: e.y, z: e.z, got: false, gotAt: 0 })),
-      springs: L.entities.filter(e => e.type === 'spring').map(e => ({ x: e.x, y: e.y, z: e.z, power: e.power, cool: 0, firedAt: -9, skin: e.skin })),
+      springs: L.entities.filter(e => e.type === 'spring').map(e => ({ x: e.x, y: e.y, z: e.z, power: e.power, cool: 0, firedAt: -9, skin: e.skin, raised: e.raised })),
       enemies: [], monitors: [], goals: [], loose: [], cleared: false, section: 0, spawn: null,
       holes: L.entities.filter(e => e.type === 'hole'),
       boosters: L.entities.filter(e => e.type === 'booster').map(e => ({ x: e.x, y: e.y, z: e.z, dir: e.dir, firedAt: -9, skin: e.skin })),
       mines: [], turrets: [], shots: [], lives: 3,
       cannons: L.entities.filter(e => e.type === 'cannon').map(e => ({ ...e, firedAt: -9 })), cracks: [],
       fans: new Set(L.entities.filter(e => e.type === 'fan').flatMap(e => e.cells.map(([cx, cz]) => cz * L.width + cx))),
+      slides: new Map(L.entities.filter(e => e.type === 'slide').flatMap(e => e.cells.map(([cx, cz]) => [cz * L.width + cx, e.dir]))),
       flickies: [], delivered: 0, trail: [], seed: 12345,
       p: null,
     };
@@ -1393,7 +1415,7 @@ const Sim = (() => {
   // put every ring, enemy and monitor back and the player at the start
   function resetLevel(w) {
     const L = w.L;
-    w.ringCount = 0; w.loose.length = 0; w.cleared = false; w.section = 0; w.spawn = null; w.inGoal = false; w.warpedAt = -9;
+    w.ringCount = 0; w.loose.length = 0; w.cleared = false; w.section = 0; w.spawn = null; w.inGoal = false; w.warpedAt = -9; w.padOff = null;
     w.flickies = []; w.delivered = 0; w.saved = 0; w.trail = []; w.seed = 12345;
     for (const g of w.rings) g.got = false;
     w.enemies = L.entities.filter(e => e.type === 'enemy').map((e, i) => ({ x0: e.x, z0: e.z, x: e.x, z: e.z, y: e.y, radius: e.radius, speed: e.speed, chase: e.chase, ang: i * 1.7, alive: true, diedAt: -9, skin: e.skin,
@@ -1404,10 +1426,17 @@ const Sim = (() => {
     L.up = new Map();
     w.cracks = L.entities.filter(e => e.type === 'crack').map(e => ({ ...e, broken: false, brokeAt: -9 }));
     for (const c of w.cracks) for (const [cx, cz, top] of c.cells) L.up.set(cz * L.width + cx, top);
+    w.lifts = L.entities.filter(e => e.type === 'lift').map(e => ({ ...e, cell: Math.floor(e.z) * L.width + Math.floor(e.x), top: e.y, t: -1 }));
+    for (const f of w.lifts) L.up.set(f.cell, f.top);
     w.turrets = L.entities.filter(e => e.type === 'turret').map((e, i) => ({ x: e.x, z: e.z, y: e.y, cool: 1 + i * 0.4, firedAt: -9, skin: e.skin }));
     w.shots = [];
     w.goals = L.entities.filter(e => e.type === 'goal').map(e => ({ x: e.x, z: e.z, y: e.y, put: e.put }));
     respawn(w);
+  }
+  // a broken wall or pillar: its cells drop to the floor beneath, or to their own floor once broken
+  function breakCrack(w, c) {
+    c.broken = true; c.brokeAt = w.time; w.events.push('crack');
+    for (const [cx, cz, , after] of c.cells) { const t = cz * w.L.width + cx; if (after === null) w.L.up.delete(t); else w.L.up.set(t, after); }
   }
   // the way out of a pocket: the ride that the ring just used opens
   function autoWalk(w) {
@@ -1421,8 +1450,10 @@ const Sim = (() => {
     w.p = { x: s.x, y: floorAt(w.L, s.x, s.z), z: s.z, vx: 0, vy: 0, vz: 0, grounded: true, coyote: 0,
       rolling: false, ball: false, sprung: false, charge: 0, facing: s.facing, jumping: false, prevJump: false, prevDash: false, invuln: 0,
       shield: null, inv: 0, fast: 0, boost: null, goldUsed: false, dashHeld: 0, cannon: null, flyT: 0, whirl: false, whirlHold: 0,
-      ride: null, auto: null };
+      ride: null, auto: null, pad: null, slideT: 0, slideDir: null };
     if (s.auto) w.p.auto = autoWalk(w);
+    // starting again on a pad (a ring stands over one) does not set it off until the player steps off it
+    w.padOff = (w.holes || []).find(h => h.pad && Math.abs(h.x - s.x) < h.size && Math.abs(h.z - s.z) < h.size) || null;
   }
 
   const _g = [0, 0];
@@ -1453,6 +1484,33 @@ const Sim = (() => {
       if (jumpPress) {
         p.vy = c.vy; p.vz = c.vz; p.vx = 0; p.grounded = false; p.jumping = false; p.cannon = null; p.flyT = P.cannonFly;
         p.facing = 0; c.firedAt = w.time; w.events.push('cannon');
+      }
+      return w;
+    }
+    // a pad: held on its middle, sinking, then out of the other pad (or into the ring's pocket) and thrown up
+    if (p.pad) {
+      const q = p.pad, h = q.h;
+      q.t += dt; p.vx = p.vz = p.vy = 0; p.ball = false; p.grounded = true;
+      if (!q.out) {
+        p.x = h.x; p.z = h.z;
+        const k = Math.min(1, Math.max(0, (q.t - P.padSinkFrom) / P.padSinkTime));
+        p.y = q.y0 - h.pad.sink * k * k;
+        if (q.t >= P.padHold) {
+          p.x = h.exit[0]; p.z = h.exit[1]; const fy = floorAt(L, p.x, p.z);
+          w.events.push('warp'); w.warpedAt = w.time;
+          if (h.pad.pocket) {
+            p.y = fy; p.pad = null; p.auto = autoWalk(w);
+            const sp = w.spawn; if (sp) p.facing = sp.facing;
+            return w;
+          }
+          q.out = true; q.t = 0; p.y = fy - h.pad.bury;
+          w.padOff = w.holes.find(o => o.pad && Math.abs(o.x - p.x) < 0.01 && Math.abs(o.z - p.z) < 0.01) || null;
+        }
+        return w;
+      }
+      if (q.t >= P.padWait) {
+        p.y = floorAt(L, p.x, p.z); p.vy = h.launch; p.grounded = false; p.ball = true; p.pad = null; w.warpedAt = w.time; w.inGoal = true;
+        w.events.push('padOut');
       }
       return w;
     }
@@ -1584,6 +1642,16 @@ const Sim = (() => {
       }
     }
 
+    // slides push down them while on one and a moment after
+    if (w.slides.size) {
+      const sd = p.grounded ? w.slides.get(Math.floor(p.z) * L.width + Math.floor(p.x)) : undefined;
+      if (sd) { p.slideT = P.slideAfter; p.slideDir = sd; if (sd[1]) p.whirl = false; }
+      if (p.slideT > 0) {
+        p.slideT -= dt;
+        const along = p.vx * p.slideDir[0] + p.vz * p.slideDir[1];
+        if (along < P.slideTop) { p.vx += p.slideDir[0] * P.slideAccel * dt; p.vz += p.slideDir[1] * P.slideAccel * dt; }
+      }
+    }
     // slope pull and gravity
     if (p.grounded) { gradientAt(L, p.x, p.z, _g); p.vx -= _g[0] * P.slope * dt; p.vz -= _g[1] * P.slope * dt; }
     else { p.vy = Math.max(-L.phys.maxFall, p.vy - L.phys.gravity * dt); if (p.coyote > 0) p.coyote -= dt; }
@@ -1600,16 +1668,14 @@ const Sim = (() => {
         return gap < P.r + speed * dt + 0.3;
       });
       if (!hit) continue;
-      c.broken = true; c.brokeAt = w.time; w.events.push('crack');
-      for (const [cx, cz] of c.cells) L.up.delete(cz * L.width + cx);
+      breakCrack(w, c);
     }
 
     if (p.whirl) for (const c of w.cracks) {
       if (c.broken || c.by !== 'whirl') continue;
-      const hit = c.cells.some(([cx, cz, top]) => p.y < top && Math.hypot(p.x - Math.max(cx, Math.min(cx + 1, p.x)), p.z - Math.max(cz, Math.min(cz + 1, p.z))) < P.r + speed * dt + 0.05);
+      const hit = c.cells.some(([cx, cz, top, , quiet]) => !quiet && p.y < top && Math.hypot(p.x - Math.max(cx, Math.min(cx + 1, p.x)), p.z - Math.max(cz, Math.min(cz + 1, p.z))) < P.r + speed * dt + 0.05);
       if (!hit) continue;
-      c.broken = true; c.brokeAt = w.time; w.events.push('crack');
-      for (const [cx, cz] of c.cells) L.up.delete(cz * L.width + cx);
+      breakCrack(w, c);
     }
 
     // move in substeps no longer than half the radius
@@ -1638,6 +1704,14 @@ const Sim = (() => {
     if (speed > 0.3 && !charging) p.facing = Math.atan2(p.vx, p.vz);
     if (p.y < L.killY) { w.deaths++; respawn(w); w.events.push('respawn'); return w; }
 
+    // lifts (Rusty Ruin 2's slabs): stood on, they wait a second, then sink (the original: about 40 frames for 84 units)
+    for (const f of w.lifts) {
+      if (f.t < 0) { if (p.grounded && Math.floor(p.z) * L.width + Math.floor(p.x) === f.cell) f.t = 0; continue; }
+      f.t += dt;
+      const k = Math.min(1, Math.max(0, (f.t - P.liftWait) / P.liftSink));
+      f.top = f.y - f.drop * k * k * (3 - 2 * k); L.up.set(f.cell, f.top);
+      if (p.grounded && Math.floor(p.z) * L.width + Math.floor(p.x) === f.cell) p.y = f.top;
+    }
     // springs: a pad on the floor that launches the player straight up, keeping horizontal speed
     for (const sp of w.springs) {
       if (sp.cool > 0) { sp.cool -= dt; continue; }
@@ -1756,13 +1830,9 @@ const Sim = (() => {
         w.delivered = 0;
         if (w.section < w.goals.length - 1) {
           w.section++; w.spawn = gl.put ? { ...gl.put } : { x: gl.x, z: gl.z, facing: p.facing }; w.events.push('section');
-          // some acts take the player on to a closed pocket that leads to the next part (Rusty Ruin)
-          if (gl.put) {
-            p.x = gl.put.x; p.z = gl.put.z; p.y = floorAt(L, p.x, p.z); p.vx = p.vy = p.vz = 0; p.facing = gl.put.facing;
-            p.grounded = true; p.ball = p.rolling = p.jumping = p.whirl = false; p.whirlHold = 0; p.charge = 0;
-            p.auto = autoWalk(w); w.spawn.auto = true;
-            w.warpedAt = w.time; w.events.push('warp');
-          }
+          // some acts restart a part in a closed pocket, walking the player out (Rusty Ruin); the pad under the ring
+          // takes them there the first time
+          if (gl.put) w.spawn.auto = true;
         }
         else { w.cleared = true; w.events.push('goal'); }
       }
@@ -1770,8 +1840,19 @@ const Sim = (() => {
     }
     // open holes (and doors, and the start of a ride) swallow a player standing in them and put them at the exit: thrown
     // up, or at a given height moving a given way; not again within a second
-    if (p.grounded && w.time - w.warpedAt > 1) for (const h of w.holes) {
+    if (w.padOff && (Math.abs(p.x - w.padOff.x) >= w.padOff.size || Math.abs(p.z - w.padOff.z) >= w.padOff.size)) w.padOff = null;
+    if (w.time - w.warpedAt > 1) for (const h of w.holes) {
       if (h.opens > w.section || Math.abs(p.x - h.x) >= h.size || Math.abs(p.z - h.z) >= h.size) continue;
+      if (!p.grounded && !h.air) continue;
+      if (h.maxY !== null && p.y > h.maxY + 0.01) continue;
+      // a pad takes a slow player only (the original: under 2 units a frame), and not the one just thrown out of it
+      // until they have stepped off
+      if (h.pad) {
+        if (w.padOff === h || Math.hypot(p.vx, p.vz) > P.padSlow) continue;
+        p.pad = { h, t: 0, out: false, y0: p.y }; p.auto = null; p.rolling = p.whirl = false; p.whirlHold = 0; p.charge = 0;
+        w.events.push('padIn');
+        break;
+      }
       if (h.ride) {
         const R = h.ride;
         p.ride = { ride: R, i: 0 }; p.auto = null; p.rolling = p.whirl = false; p.whirlHold = 0; p.charge = 0;
@@ -2451,7 +2532,19 @@ const S3D = (() => {
     7: { spikes: 0xFF, fans: 0x55, doors: [0x7994, 4], pillars: [0x7ACC, 23],
       links: [[1696, 1840, 90], [2576, 1216, 180]],
       rides: [[60, 48, 1, 0x36, [1888, 392, 768], 0x400, [0, 0, 5]], [80, 50, 2, 0x38, null, null, [0, 0, 0]]],
+      pads: [[0, -1, 1], [1, -1, 2]],
       cracks: [[[[88, 62]], 432, [-1, 0]], [[[100, 41], [100, 15, 560]], 432, [0, -1]]] },
+    // Rusty Ruin 2 (RunLevel 0x7CFC, labelled RRz1): teleport pads both ways after each ring (table 0x81B8 places
+    // Sonic at the other pad, which throws him 138 units up, measured); slides: grounded on a cell whose low byte is
+    // 0xC3 (falls east) or 0xF0 (falls south) pushes 0.25 units a frame per frame that way up to 4, and for 15 frames
+    // after; rides at four cells, one of them only after the pillar at (85, 101) breaks: the routine then drops that
+    // cell to 0x500 and lowers (99, 96) to its map value; it fires below 32 units (Sonic falls through the
+  // 0x500 floor to there; ours stops at 40, so the ride here fires at 40). Dash wall (101, 60).
+    6: { spikes: 0xFF, fans: 0x55, pillars: [0x8266, 23], padRise: 138, pads: [[0, 1, 1], [1, 0, 1], [2, 3, 2], [3, 2, 2]],
+      slides: [[0xC3, [1, 0]], [0xF0, [0, 1]]], pillarLinks: [[85, 101, 0x05, [[99, 96, 0x22]]]],
+      rides: [[98, 96, 0, 0x30, null, null, [0, 0, 0]], [85, 101, 0, 0x2E, null, null, [0, 0, 0], 40],
+        [100, 60, 0, 0x32, null, null, [0, 0, 0]], [91, 71, 0, 0x34, null, null, [0, 0, 0]]],
+      cracks: [[[[101, 60]], 336, [-1, 0]]] },
   };   // units: spike ball circle radius (measured) and height (estimated)
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
@@ -2484,7 +2577,9 @@ const S3D = (() => {
   // object types, identified by watching the game run: player start, springs, monitors, the act-end ring, main enemies
   const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
-    0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy' };
+    0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift' };
+  // Rusty Ruin 2, watched in the emulator: 08C is a stone trampoline at its own height (Sonic bounces 94 units up
+  // whatever he presses); 098 a stone slab over a gap that sinks 84 units about a second after Sonic lands on it
   const MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire'];
   const LEVELS = [
     [1, 'Green Grove 1'], [2, 'Green Grove 2'], [3, 'Green Grove 3'],
@@ -2615,7 +2710,6 @@ const S3D = (() => {
     return { gravity: r4(g), jumpV: r4(jump), jumpCut: r4(jump * 0.4), maxFall: r4(420 / CELL), stepUp: r4(12 / CELL), snapDown: r4(12 / CELL) };
   }
   const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };
-  const holeLaunch = vscale => launchFor(vscale, 127);
   const springPower = vscale => launchFor(vscale, 140);   // measured: a spring throws Sonic 140 units up
   function convert(d, id, vscale = 1) {
     const h = HEADERS + (id - 1) * HSIZE;
@@ -2653,7 +2747,7 @@ const S3D = (() => {
       if (!code) continue;
       const x = s16(ob, o + 6), z = s16(ob, o + 0xE);
       // holes (Green Grove): mode 1 = open from the start, 4 = opened by the next big ring; the second record of a pair is 0
-      if (t === 0x1C) { const mode = u16(ob, o + 0x24); if (mode) holes.push([x, z, mode]); continue; }
+      if (t === 0x1C || t === 0x90) { const mode = u16(ob, o + 0x24); if (mode) holes.push([x, z, mode]); continue; }
       const kind = KINDS[t];
       if (kind === 'goal' && tableRings) continue;
       if (!kind || !floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) continue;
@@ -2670,6 +2764,8 @@ const S3D = (() => {
       if (kind === 'monitor') e.kind = MONITOR_KINDS[u16(ob, o + 0x26) >> 7] || 'rings';
       if (kind === 'booster') e.dir = (u16(ob, o + 0x16) & 0x800) ? [0, 1] : [0, -1];
       if (kind === 'spring') e.power = springPower(vscale);
+      if (t === 0x8C) { e.power = launchFor(vscale, 94); e.absY = r3(s16(ob, o + 0xA) / CELL * vscale); }
+      if (kind === 'lift') { e.y = r3(s16(ob, o + 0xA) / CELL * vscale); e.drop = r3(84 / CELL * vscale); }
       if (kind !== 'goal') e.skin = t.toString(16).toUpperCase().padStart(3, '0');
       ents.push(e);
     }
@@ -2677,9 +2773,20 @@ const S3D = (() => {
       ents.push({ type: 'cannon', x: cx - x0, z: cz - z0, y: r3(mouth / CELL * vscale), h: r3(12 / CELL * vscale), vy: r3(up * mps * vscale), vz: r3(south * mps) });
     for (const [cells, top, dir] of gm.cracks || []) if (cells.every(([cx, cz]) => floorCell(cx, cz)))
       ents.push({ type: 'crack', cells: cells.map(([cx, cz, t]) => t ? [cx - x0, cz - z0, r3(t / CELL * vscale)] : [cx - x0, cz - z0]), top: r3(top / CELL * vscale), dir });
+    // pillars; a linked one sinks to its own floor when broken and lowers other cells with it (quiet cells: drawn as rock,
+    // not broken by touching them)
+    const hb = v => r3(v * STEP / CELL * vscale);
     if (gm.pillars) for (let k = 0, o = gm.pillars[0]; k < gm.pillars[1]; k++, o += 14) {
       const c = u16(d, o + 10) >> 1, cx = c % 128, cz = c >> 7;
-      if (floorCell(cx, cz)) ents.push({ type: 'crack', by: 'whirl', cells: [[cx - x0, cz - z0]], top: r3((d[o + 12] * STEP) / CELL * vscale) });
+      if (!floorCell(cx, cz)) continue;
+      const link = (gm.pillarLinks || []).find(q => q[0] === cx && q[1] === cz), cells = [[cx - x0, cz - z0]];
+      if (link) { cells[0].push(hb(d[o + 12]), hb(link[2])); for (const [lx, lz, top] of link[3]) cells.push([lx - x0, lz - z0, hb(top), null, 1]); }
+      ents.push({ type: 'crack', by: 'whirl', cells, top: hb(d[o + 12]) });
+    }
+    for (const [mark, dir] of gm.slides || []) {
+      const cells = [];
+      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) { const v = map[z * 128 + x]; if (v && (v & 0xFF) === mark) cells.push([x - x0, z - z0]); }
+      if (cells.length) ents.push({ type: 'slide', cells, dir });
     }
     if (gm.fans !== undefined) {
       const cells = [];
@@ -2696,7 +2803,7 @@ const S3D = (() => {
           exitY: r3(y / CELL * vscale), push: [r3(vx * mps), r3(vz * mps)], launch: 0 });
     }
     const r6 = v => Math.round(v * 1e6) / 1e6;
-    for (const [cx, cz, after, state, from, facing, vel] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
+    for (const [cx, cz, after, state, from, facing, vel, maxY] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
       const sc = rideScript(d, state), ride = {
         start: from ? [r3(from[0] / CELL - x0), r3(from[1] / CELL * vscale), r3(from[2] / CELL - z0)] : null, facing: facing === null ? null : compassOf(facing),
         vel: [r3(vel[0] * mps), r3(vel[1] * mps * vscale), r3(vel[2] * mps)],
@@ -2704,7 +2811,10 @@ const S3D = (() => {
         turns: sc.turns.map(([i, f]) => [i, compassOf(f)]),
         end: sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3(sc.end[1] / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
           vel: [r3(sc.end[4] * mps), r3(-sc.end[5] * mps * vscale), r3(sc.end[6] * mps)] } : null };
-      ents.push({ type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: after, ride });
+      // the routines look only at the cell (and a height), grounded or not
+      const e = { type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: after, air: true, ride };
+      if (maxY !== undefined) e.maxY = r3(maxY / CELL * vscale);
+      ents.push(e);
     }
     if (tableRings) for (let k = 0; k < 3; k++) {
       const x = s16(d, st + 0x14 + 6 * k), z = s16(d, st + 0x18 + 6 * k);
@@ -2714,17 +2824,22 @@ const S3D = (() => {
       if (put && floorCell(Math.floor(put[0] / CELL), Math.floor(put[1] / CELL))) g.put = [r3(put[0] / CELL - x0), r3(put[1] / CELL - z0), put[2]];
       ents.push(g);
     }
-    // a hole swallows the player inside x+3..x+27, z-7..z+17 (world units): centre (x+15, z+5). Closed holes open in
-    // record order, one per ring used, and throw the player out of the next hole in record order with a 127-unit rise
-    // (GG1 seen in the running game; the GG2 chain follows the same rule and leads ring to ring, not yet watched)
-    let opens = 0;
-    holes.forEach(([x, z, mode], i) => {
-      const nx = holes[i + 1];
-      if (mode !== 4 || !nx) return;
-      opens++;
-      ents.push({ type: 'hole', x: r3((x + 15) / CELL - x0), z: r3((z + 5) / CELL - z0), opens,
-        exit: [r3((nx[0] + 15) / CELL - x0), r3((nx[1] + 5) / CELL - z0)], launch: holeLaunch(vscale) });
-    });
+    // pads: Green Grove's holes (1C) and Rusty Ruin's teleport pads (090), one object pair each (the first has a mode).
+    // gm.pads lists [from, to (-1: that ring's pocket), after ring]; otherwise closed pads (mode 4) open in record order,
+    // one per ring, and lead to the next pad in record order (GG1 watched). The objects' own sequence (0xC75A in,
+    // 0xC642 out; watched in RR2): a slow, grounded player inside x+3..x+27, z-7..z+17 is held on the middle (x+15,
+    // z+5) for 100 frames, sinking 56 units, then waits 47 units under the other pad's floor and is thrown up (127 units
+    // in Green Grove, 138 in Rusty Ruin).
+    const padList = gm.pads || holes.map((q, i) => (q[2] === 4 && holes[i + 1] ? [i, i + 1] : null)).filter(Boolean).map((q, k) => [q[0], q[1], k + 1]);
+    for (const [from, to, after] of padList) {
+      const a = holes[from], b = to >= 0 ? holes[to] : null, put = to < 0 ? (gm.links || [])[after - 1] : null;
+      if (!a || !(b || put)) continue;
+      const e = { type: 'hole', x: r3((a[0] + 15) / CELL - x0), z: r3((a[1] + 5) / CELL - z0), opens: after,
+        exit: b ? [r3((b[0] + 15) / CELL - x0), r3((b[1] + 5) / CELL - z0)] : [r3(put[0] / CELL - x0), r3(put[1] / CELL - z0)],
+        launch: b ? launchFor(vscale, gm.padRise || 127) : 0, pad: { sink: r3(56 / CELL * vscale), bury: r3(47 / CELL * vscale) } };
+      if (!b) e.pad.pocket = true;
+      ents.push(e);
+    }
     // rings: 10-byte records from block offset 0x1936 to the end of the block (one leading empty record);
     // word 0 = sort key with a flag in bit 15, word 2 = screen y of the ring's base, word 4 = map offset of its cell
     for (let o = RING_TABLE; o + 10 <= ob.length; o += 10) {
@@ -4124,6 +4239,8 @@ const Art = (() => {
       cannon: () => { noise(0.4, 0.8, 600); tone('square', 160, 60, 0.5, 0.3); },
       crack: () => { noise(0.5, 0.9, 1400); noise(0.3, 0.5, 300); },
       whirl: () => tone('sawtooth', 300, 1100, 0.12, 0.12),
+      padIn: () => tone('triangle', 500, 120, 0.9, 0.2),
+      padOut: () => { tone('triangle', 180, 1400, 0.32, 0.4); noise(0.2, 0.3, 2000); },
       boost: () => { noise(0.35, 0.6, 2500); tone('square', 700, 120, 0.4, 0.25); },
       enemy: () => { noise(0.22, 0.7, 1400); tone('square', 520, 90, 0.2, 0.3); },
       boom: () => { noise(0.5, 0.9, 700); tone('sine', 120, 40, 0.5, 0.6); },
@@ -4506,7 +4623,7 @@ const Art = (() => {
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
   let mineSprites = [], turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
-  let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [];
+  let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [];
   const SPRING_REST = 0.3;   // how far the Jam spring's coil stands at rest (fired: 1)
   function buildLevelObjects() {
     if (levelGroup) {
@@ -4558,22 +4675,12 @@ const Art = (() => {
     // cracked walls: a column of plain rock (from the level's own cliffs in the ROM look) on each cell until broken;
     // pillars (broken by a whirl): a stone column on a pink base, about the original sprite's height
     crackMeshes = world.cracks.map(c => {
-      const g = new THREE.Group(), art = mesh.userData.art && levelArtFor(L);
-      if (c.by === 'whirl') {
-        for (const [cx, cz] of c.cells) {
-          const k = (cz * L.width + cx) * 4, floor = Math.min(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]);
-          const vs = L.rom ? L.rom.vscale : 1, hh = 1.7 * vs;
-          for (const [r, h, y, col] of [[0.42, 0.18 * vs, 0, 0xb07894], [0.32, hh, 0.18 * vs, 0xa8a492], [0.4, 0.14 * vs, 0.18 * vs + hh, 0xa8a492]]) {
-            const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 12), new THREE.MeshLambertMaterial({ color: col }));
-            m.position.set(cx + 0.5, floor + y + h / 2, cz + 0.5); g.add(m);
-          }
-        }
-        levelGroup.add(g); return g;
-      }
-      for (const [cx, cz, top] of c.cells) {
-        // drawn 3 m tall (the original's 480 units would be a 15 m chimney); no jump clears either
-        const vs = L.rom ? L.rom.vscale : 1, k = (cz * L.width + cx) * 4;
-        const floor = Math.min(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]), h = Math.min(top - floor, 3 * vs);
+      const g = new THREE.Group(), art = mesh.userData.art && levelArtFor(L), vs = L.rom ? L.rom.vscale : 1;
+      const floorOf = (cx, cz) => { const k = (cz * L.width + cx) * 4; return Math.min(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]); };
+      // a block of plain rock (from the level's own cliffs in the ROM look), at most 3 m tall (the original's 480 units
+      // would be a 15 m chimney); no jump clears either
+      const rock = (cx, cz, top) => {
+        const floor = floorOf(cx, cz), h = Math.min(top - floor, 3 * vs);
         let mat;
         const slot = art && L.rom ? art.baker.rockSlot(cx + L.rom.origin[0], cz + L.rom.origin[1]) : -1;
         if (slot >= 0) {
@@ -4585,11 +4692,37 @@ const Art = (() => {
         } else mat = new THREE.MeshLambertMaterial({ color: 0x8a6a48 });
         const m = new THREE.Mesh(new THREE.BoxGeometry(1, h, 1), mat);
         m.position.set(cx + 0.5, floor + h / 2, cz + 0.5); g.add(m);
+      };
+      for (const [cx, cz, top, after, quiet] of c.cells) {
+        if (c.by !== 'whirl' || quiet) { rock(cx, cz, top); continue; }
+        // a pillar: a stone column on a pink base, about the original sprite's height
+        const floor = floorOf(cx, cz), hh = 1.7 * vs;
+        for (const [r, h, y, col] of [[0.42, 0.18 * vs, 0, 0xb07894], [0.32, hh, 0.18 * vs, 0xa8a492], [0.4, 0.14 * vs, 0.18 * vs + hh, 0xa8a492]]) {
+          const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 12), new THREE.MeshLambertMaterial({ color: col }));
+          m.position.set(cx + 0.5, floor + y + h / 2, cz + 0.5); g.add(m);
+        }
+        // one that leaves a pit behind: a dark square over the drawn floor, shown once it breaks
+        if (after !== null && after < floor - 0.1) {
+          const pit = new THREE.Mesh(new THREE.PlaneGeometry(0.96, 0.96), new THREE.MeshBasicMaterial({ color: 0x0c0a08 }));
+          pit.rotation.x = -Math.PI / 2; pit.position.set(cx + 0.5, floor + 0.02, cz + 0.5); pit.visible = false;
+          levelGroup.add(pit); g.userData.pit = pit;
+        }
       }
       levelGroup.add(g); return g;
     });
     jamSprings = [];
+    // stone slabs: trampolines (raised springs) and sinking lifts, in the ruins' stone colours
+    const slab = (x, y, z, col) => {
+      const g = new THREE.Group(), t = 0.22;
+      const m = new THREE.Mesh(new THREE.BoxGeometry(1.15, t, 1.15), new THREE.MeshLambertMaterial({ color: col }));
+      m.position.y = -t / 2; g.add(m);
+      const top = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.03, 0.8), new THREE.MeshLambertMaterial({ color: 0x6f7a52 }));
+      top.position.y = 0.01; g.add(top);
+      g.position.set(x, y, z); levelGroup.add(g); return g;
+    };
+    liftMeshes = (world.lifts || []).map(f => slab(Math.floor(f.x) + 0.5, f.top, Math.floor(f.z) + 0.5, 0x9a9680));
     springSprites = world.springs.map(sp => {
+      if (sp.raised) { jamSprings.push(null); return slab(sp.x, sp.y, sp.z, 0xa8a492); }
       if (rom && jamOn()) {
         const c = jamCopy(jamProps.spring); c.g.position.set(sp.x, sp.y, sp.z); c.g.userData.jam = true;
         jamProps.spring.coil(c.nodes, SPRING_REST); jamSprings.push(c.nodes); levelGroup.add(c.g); return c.g;
@@ -5428,11 +5561,11 @@ const Art = (() => {
       if (world.events.includes('monitor')) toast(POWER_TEXT[world.power] || '', 2);
       if (world.events.includes('shieldLost')) toast('The shield took the hit.', 1.6);
       if (world.events.includes('needFlickies')) toast(`The ring needs ${L.flickies} Flickies. Free them from enemies and bring them here.`, 3);
-      if (world.events.includes('section')) toast(world.goals[world.section - 1].put ? 'Ring used. Find the way out of here.'
-        : world.holes.some(h => h.opens === world.section && h.exitY === null) ? 'Ring used. Step into the hole beneath it.' : 'Ring used. On to the next one.', 3);
+      if (world.events.includes('section')) toast(world.holes.some(h => h.opens === world.section && h.pad) ? 'Ring used. Stand still on the pad beneath it.'
+        : world.holes.some(h => h.opens === world.section && h.exitY === null && !h.ride) ? 'Ring used. Step into the hole beneath it.' : 'Ring used. On to the next one.', 3);
       if (world.events.includes('warp')) {
         prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
-        if (world.events.includes('ride') || (world.events.includes('section') && world.goals[world.section - 1].put)) { fadeCut(); resetCamera(); }
+        fadeCut(); resetCamera();   // the original cuts (and fades) whenever it moves Sonic somewhere else
       }
       acc -= STEP; steps++;
     }
@@ -5523,7 +5656,10 @@ const Art = (() => {
       if (Math.abs(sx) > 1e-4) s.userData.left = sx < 0;
       s.material = s.userData.rom ? s.userData.rom[s.userData.left ? 0 : 1] : enemyMat(Math.floor(t * 6) % 2, (Math.floor(t * 8) + q) % 3, !!s.userData.left);
     }
-    for (let q = 0; q < crackMeshes.length; q++) crackMeshes[q].visible = !world.cracks[q].broken;
+    for (let q = 0; q < crackMeshes.length; q++) {
+      const g = crackMeshes[q], broken = world.cracks[q].broken;
+      g.visible = !broken; if (g.userData.pit) g.userData.pit.visible = broken;
+    }
     for (let q = 0; q < ballSprites.length; q++) {
       const b = ballSprites[q], en = world.enemies[q];
       if (!b) continue;
@@ -5610,11 +5746,13 @@ const Art = (() => {
     }
     for (let q = 0; q < springSprites.length; q++) {
       const s = springSprites[q], fired = world.time - world.springs[q].firedAt < 0.25;
+      if (world.springs[q].raised) { s.position.y = world.springs[q].y - (fired ? 0.1 : 0); continue; }
       if (jamSprings[q]) jamProps.spring.coil(jamSprings[q], fired ? 1 : SPRING_REST);
       else if (s.userData.drum) { s.userData.drum.scale.y = fired ? 1.6 : 1; s.userData.drum.position.y = fired ? 0.2 : 0.15; }
       else if (s.userData.rom) s.scale.set(s.userData.size, s.userData.size * (fired ? 1.25 : 1), 1);
       else s.material = springMats[fired ? 1 : 0];
     }
+    for (let q = 0; q < liftMeshes.length; q++) liftMeshes[q].position.y = world.lifts[q].top;
     if (waterMesh) waterTex.offset.set(t * 0.08, t * 0.03);
 
     if (shownRings !== world.ringCount) { shownRings = world.ringCount; $('ringCount').textContent = String(world.ringCount); }
@@ -5623,7 +5761,7 @@ const Art = (() => {
 
     // a ride that goes through solid ground (a tunnel the original draws over Sonic): hide him and keep the camera on
     // the ground above, as the original keeps its view outside
-    const rideFloor = p.ride ? Sim.floorAt(L, rp.x, rp.z) : -Infinity, buried = p.ride && Number.isFinite(rideFloor) && rp.y < rideFloor - 0.3;
+    const rideFloor = p.ride || p.pad ? Sim.floorAt(L, rp.x, rp.z) : -Infinity, buried = (p.ride || p.pad) && Number.isFinite(rideFloor) && rp.y < rideFloor - 0.3;
     if (buried) { hero.visible = sil.visible = false; if (hero3d) hero3d.root.visible = false; camPt.set(rp.x, rideFloor, rp.z); }
     const cp = buried ? camPt : rp;
     if (view.mode === 'iso') updateIso(cp, dt); else updateChase(cp, dt, p);
@@ -5641,7 +5779,7 @@ const Art = (() => {
   }
   satReady = true; setSaturn(saturn);
   $('screenSel').addEventListener('change', () => setSaturn($('screenSel').value === 'saturn'));
-  window.__game = { MdSound, Sim, get hero3d() { return hero3d; }, get jamProps() { return jamProps; }, jamCopy, poseJam, get jamPalms() { return jamPalms; }, view, setMode, start, get world() { return world; }, get level() { return L; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
+  window.__game = { MdSound, Sim, resetCamera, get hero3d() { return hero3d; }, get jamProps() { return jamProps; }, jamCopy, poseJam, get jamPalms() { return jamPalms; }, view, setMode, start, get world() { return world; }, get level() { return L; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
   setMode(view.mode);
   requestAnimationFrame(frame);
 })();

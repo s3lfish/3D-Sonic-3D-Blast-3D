@@ -27,7 +27,19 @@ const S3D = (() => {
     7: { spikes: 0xFF, fans: 0x55, doors: [0x7994, 4], pillars: [0x7ACC, 23],
       links: [[1696, 1840, 90], [2576, 1216, 180]],
       rides: [[60, 48, 1, 0x36, [1888, 392, 768], 0x400, [0, 0, 5]], [80, 50, 2, 0x38, null, null, [0, 0, 0]]],
+      pads: [[0, -1, 1], [1, -1, 2]],
       cracks: [[[[88, 62]], 432, [-1, 0]], [[[100, 41], [100, 15, 560]], 432, [0, -1]]] },
+    // Rusty Ruin 2 (RunLevel 0x7CFC, labelled RRz1): teleport pads both ways after each ring (table 0x81B8 places
+    // Sonic at the other pad, which throws him 138 units up, measured); slides: grounded on a cell whose low byte is
+    // 0xC3 (falls east) or 0xF0 (falls south) pushes 0.25 units a frame per frame that way up to 4, and for 15 frames
+    // after; rides at four cells, one of them only after the pillar at (85, 101) breaks: the routine then drops that
+    // cell to 0x500 and lowers (99, 96) to its map value; it fires below 32 units (Sonic falls through the
+  // 0x500 floor to there; ours stops at 40, so the ride here fires at 40). Dash wall (101, 60).
+    6: { spikes: 0xFF, fans: 0x55, pillars: [0x8266, 23], padRise: 138, pads: [[0, 1, 1], [1, 0, 1], [2, 3, 2], [3, 2, 2]],
+      slides: [[0xC3, [1, 0]], [0xF0, [0, 1]]], pillarLinks: [[85, 101, 0x05, [[99, 96, 0x22]]]],
+      rides: [[98, 96, 0, 0x30, null, null, [0, 0, 0]], [85, 101, 0, 0x2E, null, null, [0, 0, 0], 40],
+        [100, 60, 0, 0x32, null, null, [0, 0, 0]], [91, 71, 0, 0x34, null, null, [0, 0, 0]]],
+      cracks: [[[[101, 60]], 336, [-1, 0]]] },
   };   // units: spike ball circle radius (measured) and height (estimated)
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
@@ -60,7 +72,9 @@ const S3D = (() => {
   // object types, identified by watching the game run: player start, springs, monitors, the act-end ring, main enemies
   const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
-    0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy' };
+    0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift' };
+  // Rusty Ruin 2, watched in the emulator: 08C is a stone trampoline at its own height (Sonic bounces 94 units up
+  // whatever he presses); 098 a stone slab over a gap that sinks 84 units about a second after Sonic lands on it
   const MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire'];
   const LEVELS = [
     [1, 'Green Grove 1'], [2, 'Green Grove 2'], [3, 'Green Grove 3'],
@@ -191,7 +205,6 @@ const S3D = (() => {
     return { gravity: r4(g), jumpV: r4(jump), jumpCut: r4(jump * 0.4), maxFall: r4(420 / CELL), stepUp: r4(12 / CELL), snapDown: r4(12 / CELL) };
   }
   const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };
-  const holeLaunch = vscale => launchFor(vscale, 127);
   const springPower = vscale => launchFor(vscale, 140);   // measured: a spring throws Sonic 140 units up
   function convert(d, id, vscale = 1) {
     const h = HEADERS + (id - 1) * HSIZE;
@@ -229,7 +242,7 @@ const S3D = (() => {
       if (!code) continue;
       const x = s16(ob, o + 6), z = s16(ob, o + 0xE);
       // holes (Green Grove): mode 1 = open from the start, 4 = opened by the next big ring; the second record of a pair is 0
-      if (t === 0x1C) { const mode = u16(ob, o + 0x24); if (mode) holes.push([x, z, mode]); continue; }
+      if (t === 0x1C || t === 0x90) { const mode = u16(ob, o + 0x24); if (mode) holes.push([x, z, mode]); continue; }
       const kind = KINDS[t];
       if (kind === 'goal' && tableRings) continue;
       if (!kind || !floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) continue;
@@ -246,6 +259,8 @@ const S3D = (() => {
       if (kind === 'monitor') e.kind = MONITOR_KINDS[u16(ob, o + 0x26) >> 7] || 'rings';
       if (kind === 'booster') e.dir = (u16(ob, o + 0x16) & 0x800) ? [0, 1] : [0, -1];
       if (kind === 'spring') e.power = springPower(vscale);
+      if (t === 0x8C) { e.power = launchFor(vscale, 94); e.absY = r3(s16(ob, o + 0xA) / CELL * vscale); }
+      if (kind === 'lift') { e.y = r3(s16(ob, o + 0xA) / CELL * vscale); e.drop = r3(84 / CELL * vscale); }
       if (kind !== 'goal') e.skin = t.toString(16).toUpperCase().padStart(3, '0');
       ents.push(e);
     }
@@ -253,9 +268,20 @@ const S3D = (() => {
       ents.push({ type: 'cannon', x: cx - x0, z: cz - z0, y: r3(mouth / CELL * vscale), h: r3(12 / CELL * vscale), vy: r3(up * mps * vscale), vz: r3(south * mps) });
     for (const [cells, top, dir] of gm.cracks || []) if (cells.every(([cx, cz]) => floorCell(cx, cz)))
       ents.push({ type: 'crack', cells: cells.map(([cx, cz, t]) => t ? [cx - x0, cz - z0, r3(t / CELL * vscale)] : [cx - x0, cz - z0]), top: r3(top / CELL * vscale), dir });
+    // pillars; a linked one sinks to its own floor when broken and lowers other cells with it (quiet cells: drawn as rock,
+    // not broken by touching them)
+    const hb = v => r3(v * STEP / CELL * vscale);
     if (gm.pillars) for (let k = 0, o = gm.pillars[0]; k < gm.pillars[1]; k++, o += 14) {
       const c = u16(d, o + 10) >> 1, cx = c % 128, cz = c >> 7;
-      if (floorCell(cx, cz)) ents.push({ type: 'crack', by: 'whirl', cells: [[cx - x0, cz - z0]], top: r3((d[o + 12] * STEP) / CELL * vscale) });
+      if (!floorCell(cx, cz)) continue;
+      const link = (gm.pillarLinks || []).find(q => q[0] === cx && q[1] === cz), cells = [[cx - x0, cz - z0]];
+      if (link) { cells[0].push(hb(d[o + 12]), hb(link[2])); for (const [lx, lz, top] of link[3]) cells.push([lx - x0, lz - z0, hb(top), null, 1]); }
+      ents.push({ type: 'crack', by: 'whirl', cells, top: hb(d[o + 12]) });
+    }
+    for (const [mark, dir] of gm.slides || []) {
+      const cells = [];
+      for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) { const v = map[z * 128 + x]; if (v && (v & 0xFF) === mark) cells.push([x - x0, z - z0]); }
+      if (cells.length) ents.push({ type: 'slide', cells, dir });
     }
     if (gm.fans !== undefined) {
       const cells = [];
@@ -272,7 +298,7 @@ const S3D = (() => {
           exitY: r3(y / CELL * vscale), push: [r3(vx * mps), r3(vz * mps)], launch: 0 });
     }
     const r6 = v => Math.round(v * 1e6) / 1e6;
-    for (const [cx, cz, after, state, from, facing, vel] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
+    for (const [cx, cz, after, state, from, facing, vel, maxY] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
       const sc = rideScript(d, state), ride = {
         start: from ? [r3(from[0] / CELL - x0), r3(from[1] / CELL * vscale), r3(from[2] / CELL - z0)] : null, facing: facing === null ? null : compassOf(facing),
         vel: [r3(vel[0] * mps), r3(vel[1] * mps * vscale), r3(vel[2] * mps)],
@@ -280,7 +306,10 @@ const S3D = (() => {
         turns: sc.turns.map(([i, f]) => [i, compassOf(f)]),
         end: sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3(sc.end[1] / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
           vel: [r3(sc.end[4] * mps), r3(-sc.end[5] * mps * vscale), r3(sc.end[6] * mps)] } : null };
-      ents.push({ type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: after, ride });
+      // the routines look only at the cell (and a height), grounded or not
+      const e = { type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: after, air: true, ride };
+      if (maxY !== undefined) e.maxY = r3(maxY / CELL * vscale);
+      ents.push(e);
     }
     if (tableRings) for (let k = 0; k < 3; k++) {
       const x = s16(d, st + 0x14 + 6 * k), z = s16(d, st + 0x18 + 6 * k);
@@ -290,17 +319,22 @@ const S3D = (() => {
       if (put && floorCell(Math.floor(put[0] / CELL), Math.floor(put[1] / CELL))) g.put = [r3(put[0] / CELL - x0), r3(put[1] / CELL - z0), put[2]];
       ents.push(g);
     }
-    // a hole swallows the player inside x+3..x+27, z-7..z+17 (world units): centre (x+15, z+5). Closed holes open in
-    // record order, one per ring used, and throw the player out of the next hole in record order with a 127-unit rise
-    // (GG1 seen in the running game; the GG2 chain follows the same rule and leads ring to ring, not yet watched)
-    let opens = 0;
-    holes.forEach(([x, z, mode], i) => {
-      const nx = holes[i + 1];
-      if (mode !== 4 || !nx) return;
-      opens++;
-      ents.push({ type: 'hole', x: r3((x + 15) / CELL - x0), z: r3((z + 5) / CELL - z0), opens,
-        exit: [r3((nx[0] + 15) / CELL - x0), r3((nx[1] + 5) / CELL - z0)], launch: holeLaunch(vscale) });
-    });
+    // pads: Green Grove's holes (1C) and Rusty Ruin's teleport pads (090), one object pair each (the first has a mode).
+    // gm.pads lists [from, to (-1: that ring's pocket), after ring]; otherwise closed pads (mode 4) open in record order,
+    // one per ring, and lead to the next pad in record order (GG1 watched). The objects' own sequence (0xC75A in,
+    // 0xC642 out; watched in RR2): a slow, grounded player inside x+3..x+27, z-7..z+17 is held on the middle (x+15,
+    // z+5) for 100 frames, sinking 56 units, then waits 47 units under the other pad's floor and is thrown up (127 units
+    // in Green Grove, 138 in Rusty Ruin).
+    const padList = gm.pads || holes.map((q, i) => (q[2] === 4 && holes[i + 1] ? [i, i + 1] : null)).filter(Boolean).map((q, k) => [q[0], q[1], k + 1]);
+    for (const [from, to, after] of padList) {
+      const a = holes[from], b = to >= 0 ? holes[to] : null, put = to < 0 ? (gm.links || [])[after - 1] : null;
+      if (!a || !(b || put)) continue;
+      const e = { type: 'hole', x: r3((a[0] + 15) / CELL - x0), z: r3((a[1] + 5) / CELL - z0), opens: after,
+        exit: b ? [r3((b[0] + 15) / CELL - x0), r3((b[1] + 5) / CELL - z0)] : [r3(put[0] / CELL - x0), r3(put[1] / CELL - z0)],
+        launch: b ? launchFor(vscale, gm.padRise || 127) : 0, pad: { sink: r3(56 / CELL * vscale), bury: r3(47 / CELL * vscale) } };
+      if (!b) e.pad.pocket = true;
+      ents.push(e);
+    }
     // rings: 10-byte records from block offset 0x1936 to the end of the block (one leading empty record);
     // word 0 = sort key with a flag in bit 15, word 2 = screen y of the ring's base, word 4 = map offset of its cell
     for (let o = RING_TABLE; o + 10 <= ob.length; o += 10) {

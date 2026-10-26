@@ -18,7 +18,7 @@ RING_TABLE, RING_HOVER = 0x1936, 18
 # object types identified from in-game photos (springs, monitors, the act-end ring, player start, main enemies)
 KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
          0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
-         0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy'}
+         0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift'}
 MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']
 
 
@@ -46,7 +46,14 @@ GIMMICKS = {
     7: {'spikes': 0xFF, 'fans': 0x55, 'doors': (0x7994, 4), 'pillars': (0x7ACC, 23),
         'links': [(1696, 1840, 90), (2576, 1216, 180)],
         'rides': [(60, 48, 1, 0x36, (1888, 392, 768), 0x400, (0, 0, 5)), (80, 50, 2, 0x38, None, None, (0, 0, 0))],
+        'pads': [(0, -1, 1), (1, -1, 2)],
         'cracks': [([(88, 62)], 432, [-1, 0]), ([(100, 41), (100, 15, 560)], 432, [0, -1])]},
+    # Rusty Ruin 2 (see s3d.js GIMMICKS)
+    6: {'spikes': 0xFF, 'fans': 0x55, 'pillars': (0x8266, 23), 'padRise': 138, 'pads': [(0, 1, 1), (1, 0, 1), (2, 3, 2), (3, 2, 2)],
+        'slides': [(0xC3, [1, 0]), (0xF0, [0, 1])], 'pillarLinks': [(85, 101, 0x05, [(99, 96, 0x22)])],
+        'rides': [(98, 96, 0, 0x30, None, None, (0, 0, 0)), (85, 101, 0, 0x2E, None, None, (0, 0, 0), 40),
+                  (100, 60, 0, 0x32, None, None, (0, 0, 0)), (91, 71, 0, 0x34, None, None, (0, 0, 0))],
+        'cracks': [([(101, 60)], 336, [-1, 0])]},
 }
 DOOR_PUSH = {0: (0, 4), 2: (-4, 0), 4: (0, -4)}
 SCRIPTS = 0x25DF2
@@ -113,7 +120,7 @@ def convert(rom, level_id, vscale=1.0):
         if not (hnd < 0x400000 and t < 0x400): break
         if not hnd: continue
         x, z = struct.unpack('>h', r[6:8])[0], struct.unpack('>h', r[0xE:0x10])[0]
-        if t == 0x1C:
+        if t in (0x1C, 0x90):
             mode = struct.unpack('>H', r[0x24:0x26])[0]
             if mode: holes.append((x, z, mode))
             continue
@@ -132,6 +139,9 @@ def convert(rom, level_id, vscale=1.0):
             e["kind"] = MONITOR_KINDS[k2] if k2 < len(MONITOR_KINDS) else 'rings'
         if kind == 'booster': e["dir"] = [0, 1] if struct.unpack('>H', r[0x16:0x18])[0] & 0x800 else [0, -1]
         if kind == 'spring': e["power"] = spring_power(vscale)
+        y_obj = struct.unpack('>h', r[0xA:0xC])[0]
+        if t == 0x8C: e["power"] = launch_for(vscale, 94); e["absY"] = jround(y_obj / CELL * vscale, 3)
+        if kind == 'lift': e["y"] = jround(y_obj / CELL * vscale, 3); e["drop"] = jround(84 / CELL * vscale, 3)
         if kind != 'goal': e["skin"] = f'{t:03X}'
         ents.append(e)
     # gimmicks run by the act's own routine (see s3d.js GIMMICKS)
@@ -143,13 +153,22 @@ def convert(rom, level_id, vscale=1.0):
         if all(floor_cell(c[0], c[1]) for c in cells):
             ents.append({"type": "crack", "cells": [[c[0] - x0, c[1] - z0] + ([jround(c[2] / CELL * vscale, 3)] if len(c) > 2 else []) for c in cells],
                          "top": jround(top / CELL * vscale, 3), "dir": dr})
+    hb = lambda v: jround(v * STEP / CELL * vscale, 3)
     if 'pillars' in gm:
         o, n = gm['pillars']
         for k in range(n):
             c = struct.unpack('>H', rom[o + 14 * k + 10:o + 14 * k + 12])[0] >> 1
             cx, cz = c % 128, c // 128
-            if floor_cell(cx, cz):
-                ents.append({"type": "crack", "by": "whirl", "cells": [[cx - x0, cz - z0]], "top": jround(rom[o + 14 * k + 12] * STEP / CELL * vscale, 3)})
+            if not floor_cell(cx, cz): continue
+            link = next((q for q in gm.get('pillarLinks', []) if q[0] == cx and q[1] == cz), None)
+            cells = [[cx - x0, cz - z0]]
+            if link:
+                cells[0] += [hb(rom[o + 14 * k + 12]), hb(link[2])]
+                for lx, lz, top in link[3]: cells.append([lx - x0, lz - z0, hb(top), None, 1])
+            ents.append({"type": "crack", "by": "whirl", "cells": cells, "top": hb(rom[o + 14 * k + 12])})
+    for mark, dr in gm.get('slides', []):
+        cells = [[x - x0, z - z0] for z in range(z0, z1 + 1) for x in range(x0, x1 + 1) if w[z * 128 + x] and (w[z * 128 + x] & 0xFF) == mark]
+        if cells: ents.append({"type": "slide", "cells": cells, "dir": dr})
     if 'fans' in gm:
         cells = [[x - x0, z - z0] for z in range(z0, z1 + 1) for x in range(x0, x1 + 1) if w[z * 128 + x] and (w[z * 128 + x] & 0xFF) == gm['fans']]
         if cells: ents.append({"type": "fan", "cells": cells})
@@ -165,7 +184,7 @@ def convert(rom, level_id, vscale=1.0):
                 ents.append({"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": 0, "exit": [jround(x / CELL - x0, 3), jround(z / CELL - z0, 3)],
                              "exitY": jround(y / CELL * vscale, 3), "push": [jround(vx * mps, 3), jround(vz * mps, 3)], "launch": 0})
     r3, r6 = (lambda v: jround(v, 3)), (lambda v: jround(v, 6))
-    for cx, cz, after, state, frm, facing, vel in gm.get('rides', []):
+    for cx, cz, after, state, frm, facing, vel, *rest in gm.get('rides', []):
         if floor_cell(cx, cz) and (frm is None or floor_cell(frm[0] // CELL, frm[2] // CELL)):
             path, turns, end = ride_script(rom, state)
             ride = {"start": [r3(frm[0] / CELL - x0), r3(frm[1] / CELL * vscale), r3(frm[2] / CELL - z0)] if frm else None,
@@ -175,7 +194,9 @@ def convert(rom, level_id, vscale=1.0):
                     "turns": [[i, compass_of(f)] for i, f in turns],
                     "end": {"at": [r3(end[0] / CELL - x0), r3(end[1] / CELL * vscale), r3(end[2] / CELL - z0)], "facing": compass_of(end[3]),
                             "vel": [r3(end[4] * mps), r3(-end[5] * mps * vscale), r3(end[6] * mps)]} if end else None}
-            ents.append({"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": after, "ride": ride})
+            e = {"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": after, "air": True, "ride": ride}
+            if rest: e["maxY"] = r3(rest[0] / CELL * vscale)
+            ents.append(e)
     if table_rings:
         for k in range(3):
             x, z = struct.unpack('>h', rom[st + 0x14 + 6 * k:st + 0x16 + 6 * k])[0], struct.unpack('>h', rom[st + 0x18 + 6 * k:st + 0x1A + 6 * k])[0]
@@ -186,13 +207,20 @@ def convert(rom, level_id, vscale=1.0):
             if k < len(links) and floor_cell(links[k][0] // CELL, links[k][1] // CELL):
                 g["put"] = [jround(links[k][0] / CELL - x0, 3), jround(links[k][1] / CELL - z0, 3), links[k][2]]
             ents.append(g)
-    opens = 0
-    for i, (x, z, mode) in enumerate(holes):
-        if mode != 4 or i + 1 >= len(holes): continue
-        nx = holes[i + 1]
-        opens += 1
-        ents.append({"type": "hole", "x": jround((x + 15) / CELL - x0, 3), "z": jround((z + 5) / CELL - z0, 3), "opens": opens,
-                     "exit": [jround((nx[0] + 15) / CELL - x0, 3), jround((nx[1] + 5) / CELL - z0, 3)], "launch": launch_for(vscale, 127)})
+    # pads (see s3d.js): listed, or closed ones in record order leading to the next
+    pad_list = gm.get('pads') or [(i, i + 1, k + 1) for k, i in enumerate([i for i, q in enumerate(holes) if q[2] == 4 and i + 1 < len(holes)])]
+    for frm, to, after in pad_list:
+        a = holes[frm] if frm < len(holes) else None
+        b = holes[to] if 0 <= to < len(holes) else None
+        links = gm.get('links', [])
+        put = links[after - 1] if to < 0 and after - 1 < len(links) else None
+        if not a or not (b or put): continue
+        e = {"type": "hole", "x": jround((a[0] + 15) / CELL - x0, 3), "z": jround((a[1] + 5) / CELL - z0, 3), "opens": after,
+             "exit": [jround((b[0] + 15) / CELL - x0, 3), jround((b[1] + 5) / CELL - z0, 3)] if b else [jround(put[0] / CELL - x0, 3), jround(put[1] / CELL - z0, 3)],
+             "launch": launch_for(vscale, gm.get('padRise', 127)) if b else 0,
+             "pad": {"sink": jround(56 / CELL * vscale, 3), "bury": jround(47 / CELL * vscale, 3)}}
+        if not b: e["pad"]["pocket"] = True
+        ents.append(e)
     # rings: 10-byte records at block offset 0x1936; word 0 = sort key (flag in bit 15), word 2 = screen y of the base,
     # word 4 = map offset of the cell. Height above the cell floor = key - |screen y| - floor.
     o = RING_TABLE
