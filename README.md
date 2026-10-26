@@ -1,8 +1,10 @@
-# Blast Grid
+# 3D Sonic 3D Blast 3D³ 
+
+This is the game that would've saved the Saturn.
 
 A true 3D take on an isometric Mega Drive platformer, playable in your browser. It reads the level layouts, level
 art and sprites from **your own copy** of the Mega Drive *Sonic 3D Blast* ROM, and falls back to crude original
-scribbled art and a built-in level when you have no ROM.
+scribbled art and a built-in level when you have no ROM. Cuck coded with Claude (I made suggestions and got excited when it worked out the way I wanted). 
 
 ## ▶ [Play it in your browser](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/)
 
@@ -12,10 +14,9 @@ No install. Works with keyboard, mouse, touch or a controller.
 
 1. Open the game and choose **Choose ROM file** on the start card. A plain ROM (`.bin`, `.md`), an `.smd` dump, or
    either one inside a `.zip` all work.
-2. Pick a level, choose **True shape** or **Half height**, and press **Play this level**.
+2. Pick a level, choose **True shape** to experience the true majesty of THREE DIMENSIONS or **Half height** so that it's actually playable, and press **Play this level**.
 
-The ROM never leaves your device. The page reads it with JavaScript in your browser and keeps a copy in the
-browser's own storage (IndexedDB) so the sprites load next time; **Forget ROM** removes it. This repository contains
+The page reads the ROM with JavaScript in your browser and keeps a copy in the browser's own storage (IndexedDB) so the sprites load next time; **Forget ROM** removes it. This repository contains
 no ROM data, no extracted levels and no pictures made from the ROM: only the rules for reading it.
 
 Known good ROM: SHA-1 `89957568386a5023d198ac2251ded9dfb2ab65e7` (the 4 MB Mega Drive release). Other releases are
