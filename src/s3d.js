@@ -317,7 +317,9 @@ const S3D = (() => {
   // x; measured at half a unit a frame, as Gene Gadget's 05C and Panic Puppet's 178: the handlers add one every other
   // frame); jet lifts (12C, handler 0x177F6): a box 32 x 48 units from the record (48 x 32 with bit 3
   // of byte +0x16) rising a unit a frame from +0x24 to +0x26 while stood on; fire (120): burns unless the fire shield
-  const PATROL = new Set([0x100, 0x108, 0x5C, 0x178]);   // (Gene Gadget's 05C: handler 0x17E80; Panic Puppet's 178: 0x15E20)
+  const PATROL = new Set([0x100, 0x108, 0x148, 0x5C, 0x178]);   // (0x108 and Spring Stadium's 0x148 share handler 0x16528)
+  // handler 0x17346 (094, 144, 10C, 17C): wanders; 0x17CB6 (060, 14C, 104; 0C4 joins it): roams and chases
+  const WANDER = new Set([0x94, 0x144, 0x10C, 0x17C]), ROAM = new Set([0x60, 0x14C, 0x104, 0xC4]);   // (Gene Gadget's 05C: handler 0x17E80; Panic Puppet's 178: 0x15E20)
   // Spring Stadium's balloons (150, handler 0x164B0): bob 8 units about word +0x26 (phase +0x24, 16 a frame of 2048);
   // touched, they pop and throw Sonic about 43 units up (measured), and are back about 70 frames later
   // Rusty Ruin's spiked crawler (0AC), watched in the emulator: it rolls 1 unit a frame along the foot of a wall between
@@ -540,9 +542,13 @@ const S3D = (() => {
       // Panic Puppet's 178 (handler 0x15E20): every 32 frames (global count $0B04) a shot from 12 units up and 16 out,
       // 2 units a frame east, south, west and north in turn from the index in word +0x2A / 12, one unit a frame up
       if (t === 0x178) e.shoot = (u16(ob, o + 0x2A) / 12) & 3;
-      // Panic Puppet 2's 17C (handler 0x17346): wanders a unit a call (every other frame) a random way for up to 15 calls,
+      // wanderers (handler 0x17346: 094, 144, 10C, 17C): a unit a call (every other frame) a random way for up to 15 calls,
       // kept in the 64-unit square from words +0x28, +0x2A
-      if (t === 0x17C) { e.wander = [r3(s16(ob, o + 0x28) / CELL - x0), r3(s16(ob, o + 0x2A) / CELL - z0), 2]; e.speed = r3(30 / CELL); }
+      if (WANDER.has(t)) { e.wander = [r3(s16(ob, o + 0x28) / CELL - x0), r3(s16(ob, o + 0x2A) / CELL - z0), 2]; e.speed = r3(30 / CELL); }
+      // roamers (handler 0x17CB6, Sim enemy `roam`): the 0x7C square from words +0x28 and +0x2A (its top bit is the chase
+      // flag) in the original's units, angle +0x24; 064 (0x17BC8) turns toward Sonic and shoots (`aim`)
+      if (ROAM.has(t)) e.roam = { box: [s16(ob, o + 0x28), u16(ob, o + 0x2A) & 0x7FFF], a: u16(ob, o + 0x24) & 0x7FE };
+      if (t === 0x64) e.aim = { a: u16(ob, o + 0x24) & 0x7FE };
       // Panic Puppet 2's beam posts (180, handler 0x15F60): animation index from word +0x1E / 2 (24 steps of 9 frames; shown
       // frame 0 in steps 13..20), shooting 2 units a frame along z (x with bit 3 of byte +0x16) from 16 out, 16 under
       // the record, every 8 frames while on (watched)
@@ -947,6 +953,10 @@ const S3D = (() => {
       if (!floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) continue;
       const g = { type: 'goal', x: r3(x / CELL - x0), z: r3(z / CELL - z0) }, put = (gm.links || [])[k];
       if (put && floorCell(Math.floor(put[0] / CELL), Math.floor(put[1] / CELL))) g.put = [r3(put[0] / CELL - x0), r3(put[1] / CELL - z0), put[2]];
+      // the next section's start [x, z, facing] from the table: where a lost life puts him back (the original restarts
+      // a section there; watched in Volcano Valley 1 for the act's start)
+      const nx = s16(d, st + 6 * (k + 1)), nz = s16(d, st + 6 * (k + 1) + 2), nd = s16(d, st + 6 * (k + 1) + 4);
+      if ((nx || nz) && floorCell(Math.floor(nx / CELL), Math.floor(nz / CELL))) g.spawn = [r3(nx / CELL - x0), r3(nz / CELL - z0), compassOf(nd & 0x7FF)];
       ents.push(g);
     }
     // pads: Green Grove's holes (1C) and Rusty Ruin's teleport pads (090), one object pair each (the first has a mode).
@@ -977,9 +987,10 @@ const S3D = (() => {
     }
     // start: the start table (where the emulator's Sonic stands at every act's start), else the start object (030:
     // not where the game starts Sonic in ten acts), else the floor cell nearest the middle
+    let fromTable = false;
     {
       const sx = s16(d, st), sz = s16(d, st + 2);
-      if ((sx || sz) && floorCell(Math.floor(sx / CELL), Math.floor(sz / CELL))) start = [sx / CELL, sz / CELL];
+      if ((sx || sz) && floorCell(Math.floor(sx / CELL), Math.floor(sz / CELL))) { start = [sx / CELL, sz / CELL]; fromTable = true; }
     }
     if (!start) {
       const mx = sumX / nFloor, mz = sumZ / nFloor; let best = Infinity;
@@ -990,6 +1001,7 @@ const S3D = (() => {
     const st0 = { type: 'start', x: start[0] - x0, z: start[1] - z0 };
     // in a boss arena the player starts facing the boss (compass degrees)
     if (bs) st0.facing = (Math.floor(Math.atan2(bs.at[0] / CELL - start[0], start[1] - bs.at[2] / CELL) * 180 / Math.PI + 0.5) + 360) % 360;
+    else if (fromTable) st0.facing = compassOf(s16(d, st + 4) & 0x7FF);   // (the table's facing, as every act starts)
     ents.unshift(st0);
     const name = (LEVELS.find(l => l[0] === id) || [id, 'Level ' + id])[1];
     return {
@@ -1172,7 +1184,7 @@ const S3D = (() => {
     musicFor: (d, level) => u16(d, 0x24F78 + 2 * level),
     sfx: { jump: [0x62], charge: [0xAB], dash: [0xB6], ring: [0x33], spring: [0x68], enemy: [0x3D, 0x38], monitor: [0x3D],
       hurt: [0xB9], shot: [0x4D], boom: [0x9A], goal: [0x6A], boostIn: [0xAB], boost: [0xB6], goldDash: [0xB6],
-      shieldLost: [0xB9], section: [0xAC] /* near the big ring routine */,
+      shieldLost: [0x35], dying: [0x35] /* 0x1B6F0, 0x1B744 */, section: [0xAC] /* near the big ring routine */,
       cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */,
       bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */,
       bossSlam: [0x5F], bossCap: [0x9E] /* RR3's routine */,

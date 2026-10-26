@@ -816,7 +816,7 @@ test('original movement: a wall stops a point at its cell edge and keeps the oth
   near(half(0x240), -Sim.P.orig.turn / 60, 1e-6, 'after a turn down from 0x240 to 0x200, a half turn goes up (ours down)');
 });
 // a converted-style level (rom set): flat at 1 m with walls round, and a ramp row z 3 (north edge `up` steps higher)
-const ROMLV = (up = 1, split = 0, ents = []) => {
+const ROMLV = (up = 1, split = 0, ents = [], vs = 1) => {
   const W = 8, D = 6, tiles = [];
   for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
     if (x === 0 || z === 0 || x === W - 1 || z === D - 1) { tiles.push({ c: [3, 3, 3, 3], t: 'F' }); continue; }
@@ -825,8 +825,12 @@ const ROMLV = (up = 1, split = 0, ents = []) => {
     tiles.push(t);
   }
   return world({ version: 1, format: 'tiles', width: W, depth: D, tiles, entities: [{ type: 'start', x: 1.5, z: 4.5, facing: 90 }].concat(ents),
-    physics: Object.assign({}, ORIG.physics, { orig: 1 }), rom: { level: 1, origin: [0, 0], vscale: 1 } });
+    physics: Object.assign({}, ORIG.physics, { orig: 1 }), rom: { level: 1, origin: [0, 0], vscale: vs } });
 };
+test('a half-height level keeps the original\'s speeds across', () => {
+  const sp = vs => { const w = ROMLV(0, 0, [], vs); place(w, 1.5, 4.5); w.p.facing = Math.PI / 2; run(w, 40, { mx: 1 }); return w.p.vx; };
+  near(sp(0.5), sp(1), 1e-9, 'same speed');
+});
 test('the original\'s floor and slopes: triangles in whole units, the pull on steep ones, a jump thrown downhill', () => {
   let w = ROMLV(1);
   near(Sim.floorAt(w.L, 3.5, 3.5), 1 + 3 / 32, 1e-9, 'a one-step ramp: whole units on its triangle (bilinear would be 1.125)');
@@ -860,6 +864,24 @@ test('the original\'s hit: thrown back along his facing till he lands, rings out
   assert.ok(landed > 0 && ww.p.grounded && ww.p.vx === 0, 'landed and stopped');
   assert.ok(ww.ringOut === 0 && ww.loose.length + ww.ringCount <= 25, `all out: ${ww.loose.length} + ${ww.ringCount}`);
   near(ww.p.invuln, 2 - (59 - landed) / 60, 0.05, 'safe 2 s from landing');
+});
+test('the original\'s death: thrown 8 up, held at the top, the act again 57 frames after the hit', () => {
+  const w = ROMLV(0, 0, [{ type: 'mine', x: 4.5, z: 4.5 }]); place(w, 3.9, 4.5); w.p.facing = Math.PI / 2; w.ringCount = 0;
+  let hit = -1, back = -1, top = 0;
+  run(w, 90, (f, x) => { if (hit < 0 && x.events.includes('dying')) hit = f; if (back < 0 && x.events.includes('respawn')) back = f; if (hit >= 0 && back < 0) top = Math.max(top, x.p.y); return hit < 0 ? { mx: 1 } : {}; });
+  assert.ok(hit >= 0 && back - hit === 57, `back ${back - hit} frames after the hit`);
+  near((top - 1) * 32, 124, 1, 'rose 124 units');
+});
+test('the original\'s monitors are solid boxes: walking stops at a side, a roll or the ball onto it breaks it', () => {
+  const mon = [{ type: 'monitor', x: 4.5, z: 4.5, kind: 'rings' }];
+  let w = ROMLV(0, 0, mon); place(w, 3.2, 4.5); w.p.facing = Math.PI / 2;
+  run(w, 40, { mx: 1 }); assert.ok(!w.monitors[0].broken && Math.abs(w.p.x * 32 - (4.5 * 32 - 14 + 65535 / 65536)) < 0.01, `stopped at its side: ${(w.p.x * 32).toFixed(3)}`);
+  w = ROMLV(0, 0, mon); place(w, 3.2, 4.5); w.p.facing = Math.PI / 2; run(w, 15, { mx: 1 });
+  run(w, 10, { mx: 1, dash: true }); assert.ok(w.monitors[0].broken && w.ringCount === 10, 'a roll breaks it');
+  w = ROMLV(0, 0, mon); place(w, 4.5, 4.5); w.p.y += 2; w.p.grounded = false; w.p.ball = true;
+  run(w, 40, {}); assert.ok(w.monitors[0].broken, 'the ball onto it breaks it');
+  w = ROMLV(0, 0, mon); place(w, 4.5, 4.5); w.p.y += 2; w.p.grounded = false;
+  run(w, 40, {}); assert.ok(!w.monitors[0].broken && w.p.grounded && Math.abs(w.p.y - (1 + 24 / 32)) < 1e-6, `stands on it: ${w.p.y}`);
 });
 test('Diamond Dust: ice spikes hurt until a roll breaks them; a low roof stops a jump', () => {
   let w = ORIGM([{ type: 'iceSpikes', cells: [[5, 2]] }]); w.ringCount = 5; place(w, 3.5, 2.5); w.p.facing = Math.PI / 2;

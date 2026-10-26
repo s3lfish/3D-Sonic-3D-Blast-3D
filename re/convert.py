@@ -27,7 +27,8 @@ KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 
          0x178: 'enemy', 0x19C: 'capsule', 0x194: 'lever', 0x184: 'prop', 0x17C: 'enemy', 0x180: 'beamPost', 0x18C: 'jetLift',
          0x15C: 'friend', 0x160: 'friend', 0x44: 'head'}
 PROP_FRAME = {0x70: 6, 0x74: 0, 0x184: 7}
-PATROL = {0x100, 0x108, 0x5C, 0x178}   # half a unit a frame (measured; see s3d.js)
+PATROL = {0x100, 0x108, 0x148, 0x5C, 0x178}   # half a unit a frame (measured; see s3d.js)
+WANDER, ROAM = {0x94, 0x144, 0x10C, 0x17C}, {0x60, 0x14C, 0x104, 0xC4}   # handlers 0x17346 and 0x17CB6 (see s3d.js)
 MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']
 
 
@@ -272,8 +273,11 @@ def convert(rom, level_id, vscale=1.0):
             ln = (r[0x16] >> 5) & 3
             if ln != 3: e["line"] = ln
         if t == 0x178: e["shoot"] = (struct.unpack('>H', r[0x2A:0x2C])[0] // 12) & 3
-        if t == 0x17C:   # wanders in the 64-unit square from +0x28, +0x2A (see s3d.js)
+        if t in WANDER:   # wanders in the 64-unit square from +0x28, +0x2A (see s3d.js)
             wx, wz = struct.unpack('>hh', r[0x28:0x2C]); e["wander"] = [jround(wx / CELL - x0, 3), jround(wz / CELL - z0, 3), 2]; e["speed"] = jround(30 / CELL, 3)
+        if t in ROAM:   # roams its 0x7C square from +0x28, +0x2A & 0x7FFF, chasing once near (see s3d.js)
+            rx, rz = struct.unpack('>hH', r[0x28:0x2C]); e["roam"] = {"box": [rx, rz & 0x7FFF], "a": struct.unpack('>H', r[0x24:0x26])[0] & 0x7FE}
+        if t == 0x64: e["aim"] = {"a": struct.unpack('>H', r[0x24:0x26])[0] & 0x7FE}
         if kind == 'beamPost':
             e["y"] = jround((struct.unpack('>h', r[0xA:0xC])[0] - 8) / CELL * vscale, 3); e["dir"] = [1, 0] if (r[0x16] >> 3) & 1 else [0, 1]
             e["phase"] = (struct.unpack('>H', r[0x1E:0x20])[0] >> 1) % 24
@@ -686,6 +690,8 @@ def convert(rom, level_id, vscale=1.0):
             links = gm.get('links', [])
             if k < len(links) and floor_cell(links[k][0] // CELL, links[k][1] // CELL):
                 g["put"] = [jround(links[k][0] / CELL - x0, 3), jround(links[k][1] / CELL - z0, 3), links[k][2]]
+            nx, nz, nd = struct.unpack('>hhh', rom[st + 6 * (k + 1):st + 6 * (k + 2)])   # the next section's start (see s3d.js)
+            if (nx or nz) and floor_cell(nx // CELL, nz // CELL): g["spawn"] = [jround(nx / CELL - x0, 3), jround(nz / CELL - z0, 3), compass_of(nd & 0x7FF)]
             ents.append(g)
     # pads (see s3d.js): listed, or closed ones in record order leading to the next
     pad_list = gm.get('pads') or [(i, i + 1, k + 1) for k, i in enumerate([i for i, q in enumerate(holes) if q[2] == 4 and i + 1 < len(holes)])]
@@ -712,8 +718,9 @@ def convert(rom, level_id, vscale=1.0):
         if not (x0 <= cx <= x1 and z0 <= cz <= z1): continue
         y_world = a - abs(c) + RING_HOVER
         ents.append({"type": "ring", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "absY": jround(y_world / CELL * vscale, 4)})
-    sx, sz = struct.unpack('>hh', rom[start_tab:start_tab + 4])   # the start table first (see s3d.js)
-    if (sx or sz) and floor_cell(sx // CELL, sz // CELL): start = (sx / CELL, sz / CELL)
+    sx, sz, sdir = struct.unpack('>hhh', rom[start_tab:start_tab + 6])   # the start table first (see s3d.js)
+    from_table = False
+    if (sx or sz) and floor_cell(sx // CELL, sz // CELL): start = (sx / CELL, sz / CELL); from_table = True
     if start is None:
         cells = [(i % 128, i // 128) for i, v in enumerate(w) if v]
         mx, mz = sum(c[0] for c in cells) / len(cells), sum(c[1] for c in cells) / len(cells)
@@ -722,6 +729,7 @@ def convert(rom, level_id, vscale=1.0):
     st0 = {"type": "start", "x": start[0] - x0, "z": start[1] - z0}
     if bs:   # in a boss arena the player starts facing the boss (compass degrees)
         st0["facing"] = (math.floor(math.atan2(bs['at'][0] / CELL - start[0], start[1] - bs['at'][2] / CELL) * 180 / math.pi + 0.5) + 360) % 360
+    elif from_table: st0["facing"] = compass_of(sdir & 0x7FF)
     ents.insert(0, st0)
     return {"version": 1, "format": "tiles", "name": f"ROM level {level_id}", "width": W, "depth": D,
             "killY": jround(min(min(t["c"]) for t in tiles if t["t"] != "W") - 3, 2), "tiles": tiles, "entities": ents,

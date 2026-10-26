@@ -415,6 +415,7 @@
       monitor: () => { noise(0.15, 0.6, 2000); arp([784, 988, 1175], 0.07, 'triangle', 0.35); },
       hurt: () => { tone('square', 700, 180, 0.35, 0.3); arp([1568, 1397, 1175, 988], 0.05, 'square', 0.12); },
       shieldLost: () => { tone('sine', 600, 150, 0.3, 0.4); noise(0.2, 0.3, 4000); },
+      dying: () => { tone('square', 700, 90, 0.6, 0.35); },
       goldDash: () => { noise(0.2, 0.5, 4000); tone('sawtooth', 1200, 300, 0.2, 0.2); },
       warp: () => tone('sine', 1400, 200, 0.5, 0.35),
       section: () => arp([523, 659, 784, 1047, 1319, 1568], 0.06, 'triangle', 0.35),
@@ -2712,7 +2713,7 @@
         prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
         for (let q = 0; q < ringSprites.length; q++) ringSprites[q].visible = !world.rings[q].got;
         setLives(lives - 1);
-        if (lives < 0) gameOver(); else toast(lives ? `${lives} ${lives === 1 ? 'life' : 'lives'} left.` : 'Last life.', 1.6);
+        if (lives < 0) gameOver(); else { toast(lives ? `${lives} ${lives === 1 ? 'life' : 'lives'} left.` : 'Last life.', 1.6); fadeCut(); resetCamera(); }   // (the original reloads through black)
       }
       if (world.events.includes('monitor') && world.power === 'oneup') setLives(Math.min(9, lives + 1));
       if (world.events.includes('head')) gotHead();

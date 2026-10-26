@@ -162,6 +162,31 @@ original art. The browser code carries reading rules only.
   at the edge and turns that part back; then z the same; vy += $22 (0x2000), y -= vy; the floor (triangles, NW-SE
   split always) under it while falling: y = floor, vy = -(vy - vy/4), each horizontal part 0x1000 toward 0, and a
   landing with both already 0 ends it; $32 counts the life down (0xF0).
+- Global counts: $0AFC, $0AFE, $0B00, $0B02, $0B04, $0B06 count down every frame with periods 6, 8, 10, 16, 32, 60,
+  from 5, 7, 9, 15, 31, 59 when an act starts (held during the title card). Objects off screen do not run.
+- Enemy handlers: 0x17CB6 (060, 14C, 104; 0C4 enters at 0x17CE6): angle $24 moves it (sin, cos) words a frame (16.16:
+  half a unit), turning $26 by 0x10 a frame (0x20 chasing) the short way; not chasing, a random eighth when $0B06 is 0;
+  Sonic within 0x40 on both axes: chasing (bit 15 of $2A), speed doubled, angle & 0xFFE0, aim at his octant when $0B00
+  is 0 (0xDBAE: by octant and halving, table 0xDBEE); the box from $28 and $2A & 0x7FFF, 0x7C, sets the aim inward at
+  its edges. 0x17BC8 (064): aim = Sonic's octant every frame, turning 0x10; while turning $28 = 30; facing, $28 counts
+  to 0, then 120 and a shot (template 0xD9CA, type 5, from (sin, cos) >> 11 out, + 2 in x, 9 up, (sin, cos) x 2 a
+  frame, no gravity, until a wall; sound 0x4D). 0x17346 (094, 144, 10C, 17C): wanders (random way per axis -1/+1/0 for
+  0..15 calls, a random -1/0/+1 jitter, its 0x40 square). 0x16528 (108, 148): to and fro along x (bit 3 of $16) or z
+  between $24 and $26. 0x174B4 (07C sprinkler): armed within 80 units, turns 0x10 a frame, a shot when $0B02 is 0 (from
+  (sin, cos) >> 11 out, + 1 in x, 0x11 up, (sin, cos) x 4, 0.25 up, gravity 1/32); a 16 x 16 solid box, not breakable.
+  0x16B40 (0C8): shoots at animation frames (not ported).
+- Monitors (0x18674): a box in the solid list $CC02 (one entry for all), x - 14, top y + 24, z - 6, 0x1B x 0x15, its
+  break flag $2A; broken: an airborne Sonic is thrown 5 up in the ball, sound 0x3D, the power 40 frames later.
+- Solid boxes (0x3788; 8 entries of 0x12 at $CC02): Sonic inside the footprint and between top - 48 and top: from a
+  side, walking, that speed cleared and he is put at the edge (x0 + 0.99998 or x0 + w); rolling, a break flag is set
+  if the box has one, else reflected 0x4000 slower with the facing mirrored; from above (his last height at or over
+  the top): in the ball (or rolling) the flag is set, else he stands on it ($8A = the box: carried); from under it
+  rising, he is put under it going down 0.25; a box coming down on him grounded kills him.
+- Bumpers (0x9974, Spring Stadium): entering an 0xFF cell near its floor sets one speed part to +-5 by the cell's
+  diagonals and turns the ice flag $0ACA on for 20 counts of the helper (cleared at 0); triangle bumpers (0x9810) set
+  their speed and the same ice. The pad stays.
+- Dying: 0x1B6C2 (facing 0x700, 8 up, $42 = 0x22); the rise slows to 0 and stops there; the act reloads 57 frames
+  after the hit (52 frames blank), Sonic back at the section's start table entry facing its dir.
 - Touches (0x1B846): skipped while Sonic's $94 is 9 or $3E < 0 (thrown back); objects and particles in the depth-sorted
   list near Sonic's sort key; particles (0x1B9F0) by a box on the picture: x within -0x1C..+0xC of his, y 0..0x30 (sort
   key and screen y); type 0 (a lost ring) is caught at once (0x1BAE0: rings + 1, sound 0x33), types 1-4 are Flickies.

@@ -213,6 +213,11 @@ serves index.html from main.
   or has stopped; 4 hits an arm. Beaten arenas 1 and 2: a pad cell lifts the player (`b.lift`: held 16 frames, put at
   `to`, falls; 55 frames). Arena 3 beaten: 360 frames, then 'goal'. Converters: `mapSet`/`mapClear` (InitLevel's map
   writes: PP3's start cell, and its first 370 bytes, the serpent's path buffer); the art baker applies them too.
+- Enemy handlers ported (converters mark them): roamers `roam` (handler 0x17CB6: 060, 14C, 104, 0C4; `origRoam`:
+  half a unit a frame in their 0x7C square, a random eighth every 60 frames, chasing within 0x40 at a unit a frame,
+  re-aimed every 10), 064 `aim` (0x17BC8, `origAim`: turns 0x10 a frame to Sonic's octant (`octantTo`, table
+  0xDBEE), 30 frames after facing him a level shot at a unit a frame, then every 120), wanderers 094/144/10C/17C
+  (0x17346), patrols 100/108/148/05C/178. Open: 0C8 (shots timed by its animation), 09C, 058's exact chase.
 - Converted levels, all zones: corner pieces (one corner two steps over three level ones, both neighbours by it without
   floor; `L.diag`, findDiagonals) are diagonal walls (that half solid, rest flat), met as a point (`P.rDiag`). Walls,
   floors, slopes and bounces are the original's: see Original movement.
@@ -222,8 +227,9 @@ serves index.html from main.
   toward Sonic + 16, not under `minY`), nine segments along its path (`b.segs`); drawn with object 138's frames (line 3).
   `GIMMICKS[14]` lava. Not modelled: the vents' fire ball hopping (0xA0A8) and its fight with the serpent.
 - Original movement (`physics.orig` = 1; converted levels, `L.rom` set), ported to the original's own fixed point and
-  matched exactly (to 1/100 unit, heights too) over four emulator traces (GG1 walk/walls/jumps, GG1 spin dash/rolls/
-  bounces, GG2 slopes/roll jumps/air walls, DD2 diagonal bounce/landing; private movetrace.py + move_parity.js):
+  matched exactly (to 1/100 unit, heights too) over emulator traces in GG1 (two), GG2, DD2, RR1, SS1 and GnG1 (a shot,
+  a hit, a monitor); private movetrace.py (records the global counts too) + move_parity.js. Horizontal speeds are in
+  units of 1/32 m whatever the height scale (vscale only scales heights and vertical speeds):
   * `origTurn` (0x3134): facing in 0x800 a turn, 0x40 a frame the short way; a half turn goes up when the facing
     before the last turn step (`p.face36`, the original's $36, untouched by bounces) is above the facing now, else
     down; stick let go, a turn finishes to the next eighth from its target (`p.turnTgt`).
@@ -249,6 +255,17 @@ serves index.html from main.
     neighbours one walks in from; past the line he is put on it; walking, his speed becomes its part along the line
     (0xB5 fixed point); rolling, it is mirrored off it and his facing turned (0x200 - f or 0x600 - f).
   * Jump 5.625 units a frame; let go while rising: over 3.125 loses 1.5, then halves, no gravity that frame.
+  * A roll keeps its table in the air and bounces off walls there too. Bumpers (SS) set one speed part to 5 and turn
+    the ice flag on for their helper's 20 counts (`bumped`, `w.bumpIce`); the pad keeps working.
+  * Monitors are solid boxes (`monSides`, `monTop`, 0x3788): 27 x 21 from x - 14, z - 6, top 24 up; walking into a
+    side stops him at it, a roll into a side or the ball onto it breaks it (an airborne player then thrown 5 up).
+  * Dying (no rings): 8 up, rising slowed by gravity to a stop, held; the act again 57 frames after the hit, then 52
+    frames of nothing (`p.dying`, `w.wait`); the page fades. The start and each section's restart take the start
+    table's [x, z, facing] (`goal.spawn`).
+  * Global counts (`gZero(w, n)`): $0AFC..$0B06 count down with periods 6, 8, 10, 16, 32, 60 from the act's start;
+    roamers, sprinklers ($0B02) and PP's 178 ($0B04) act on them. Objects run only on the original's screen round
+    Sonic (`onScreen`: 176 across, 128 down in its picture), so a sprinkler's turn starts when it comes into view
+    (its camera is not modelled: a frame or two off).
   * A hit (`origKnock`, 0x1B6B2; a shield too): facing cut to an eighth, thrown back along it at 0x7800 x 4 and 5 up,
     that speed set each frame (`p.knockT`, pad ignored) till he lands (100 frames at most), then 120 frames safe, no
     blinking while thrown; lost rings: 25 at most, one a frame (`w.ringOut`), 1 unit a frame out (angle + 0x480 each),
@@ -331,9 +348,10 @@ serves index.html from main.
   `heads`, `continues`); out of lives: a continue restarts the act, else game over and the first act. Score: Sim
   `w.score` (hundreds: enemy 1, boss 10, FF 50, Flickies into a ring 1/2/4/8/16; `step` wraps `stepInner` to count
   events) plus game.js `score` (acts' bonuses, special stages), shown on the results screens.
-- 2026-10-27: movement ported to the original's fixed point and matched exactly over three emulator traces (above):
-  turn, velocity, dash button and roll, floors and slopes by triangle, point walls, roll bounces; the hit and lost
-  rings as the original's. 129 sim tests.
+- 2026-10-27: movement ported to the original's fixed point and matched exactly over emulator traces in six zones
+  (above): turn, velocity, dash button and roll, floors and slopes by triangle, point walls, diagonal pieces, roll
+  bounces, landing; the hit, lost rings, dying and reloading; bumpers, monitors as boxes; roamers, aimers, sprinklers
+  on the original's counts and screen. 132 sim tests.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;
   the Jam Flicky body is a flat quad (edge-on from the side).
