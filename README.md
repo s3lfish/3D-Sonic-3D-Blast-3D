@@ -4,7 +4,7 @@ This is the game that would've saved the Saturn.
 
 A true 3D take on an isometric Mega Drive platformer, playable in your browser. It reads the level layouts, level
 art and sprites from **your own copy** of the Mega Drive *Sonic 3D Blast* ROM, and falls back to crude original
-scribbled art and a built-in level when you have no ROM. Cuck coded with Claude (I made suggestions and got excited when it worked out the way I wanted). 
+scribbled art and a built-in level when you have no ROM. Shamlessly vibe coded with Claude because I have absolutely no skills to do any of this.  
 
 ## ▶ [Play it in your browser](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/)
 
