@@ -292,6 +292,10 @@ serves index.html from main.
 - In the emulator, freed particle slots keep their old bytes: find new shots by the life word (+0x32) going up.
 
 ## Status
+- Open (2026-10-27): lives, continues and game over (lives $0680 from 3, 1-up monitors only, continues $06AA from ten
+  044 heads; a death reloads the act, as the return from a special stage does: ours keeps the act as it is); SS
+  objects 13C/140/154; what (86, 74) does after DD1's sled; PP1's belt reversal animation; FF hatch and pad frames;
+  the Jam Flicky body is a flat quad (edge-on from the side).
 - 2026-10-27: Tails and Knuckles (`friend` {who, y, show}: hidden until `show` {section | cell [x, z] + maxY | cannon};
   0xCF1E's gift: `w.friendRings` per act, `p.friend` walk, `bonusIn` when a gift passes 50) and the special stage:
   `S3D.bonusStage(rom, n)` reads the track/items/palettes, `Sim.bonusStart`/`bonusStep` is the original's frame in
@@ -322,41 +326,37 @@ serves index.html from main.
   tests; flow.py: PP1 can be finished.
 - 2026-10-27: Gene Gadget 3 boss (the belt, its loads, bombs, the pod low to hit); 108 sim tests. Gene Gadget done.
 - 2026-10-27: Gene Gadget 2 (chute, supercharger hop, doors, platforms, slides, spikes); 107 sim tests; all 22 levels
-  load in the page (alllevels.probe.js, private). Next: the GnG3 boss (0x11126).
+  load in the page (alllevels.probe.js, private).
 - 2026-10-27: Gene Gadget 1 (hover cells, zap floors, pyramid bumpers, barriers and gates, sprinklers, tubes with the
   Flicky way, the supercharger run round the arch); rolls bounce off walls and corner pieces are diagonal walls in every
-  converted level; 105 sim tests. flow.py: GnG1 can be finished. Next: GnG2 (0x115E2), GnG3 boss (0x11126).
+  converted level; 105 sim tests. flow.py: GnG1 can be finished.
 - 2026-10-27: Volcano Valley 1 and 2 (lava, rocks, vents, jet lifts, fire, spouts, fire runs, moving platforms, spiked
-  balls, pads, cracked walls, patrols) and the VV3 boss; 98 sim tests. Next: Gene Gadget.
+  balls, pads, cracked walls, patrols) and the VV3 boss; 98 sim tests.
 - 2026-10-27: DD3 boss; freezing as the original's hops; 93 sim tests.
 - 2026-10-27: the original's movement tables on converted levels (run up, stop, turn, ice, jump ball, roll, spin dash
   steps, all measured); Diamond Dust 2 gimmicks; ice, ice spikes, low roofs, spikes and bumpers in both DD acts;
-  92 sim tests. flow.py: DD2 can be finished. Open: DD2 gate cells (raised until the supercharger fires), DD3 boss.
+  92 sim tests. flow.py: DD2 can be finished.
 - 2026-10-27: Diamond Dust 1: chute, dash, sled, currents, snowdrift springs, snowblowers that freeze, CC pads, rides
   mirrored correctly, start from the start table, airborne step-up; 87 sim tests. flow.py says DD1 can be finished.
-  Open in DD1: warp holes (57,50)<->(59,72), the 0x4C4C wall, gates. Next: DD2 (RunLevel_DDz2 0xFA06), DD3 boss.
 - 2026-10-27: Spring Stadium 1 and 2: superchargers fixed (way and spot from the routine), loops and held runs,
   floor springs, bumpers, spike fields, tubes, balloons, triangle bumpers, spears, spiked wall; SS enemies 05C/14C;
-  SS3 boss; 86 sim tests; private flow.py says SS1 and SS2 can be finished. Open in SS: 13C/140.
+  SS3 boss; 86 sim tests; private flow.py says SS1 and SS2 can be finished.
 - 2026-10-27: RR3 boss (statue arms, slams, fist rides; checked in the emulator and the page); spiked crawler 0AC
   (`crawler` {y, axis, range}: 1 unit a frame, hurts, ROM look draws type art 0xAC frames 0-7); 82 sim tests.
 - 2026-10-27 early: RR2 gimmicks; pads with the original sequence (GG too); maces (`mace`: tables 0x75C2/0x80B8, ball 64
   units out, 2048 a turn) and flamethrowers (`flame`: tables 0x7548/0x7EC4, box 128x64 units, a fireball every 6
-  frames, `w.puffs`); GG3 boss; 80 sim tests. Open: 0AC crawler (patrols 1 unit a frame, hurts), other bosses.
+  frames, `w.puffs`); GG3 boss; 80 sim tests.
 - 2026-10-26 late: Jam discs as CHD, ECM, zip, .img, .mdf, .nrg (all checked byte for byte against the files).
-- 2026-10-26 evening: Rusty Ruin 1 gimmicks (above); 75 sim tests. Open in RR: maces (084/088 orbit, helper 0x86B0),
-  flamethrowers (helper 0x84F2, sound 0x7F), green dome buttons (0xAA cells, cosmetic), RR2 rides (states 2E-34),
-  conveyor cells (0xC3/0xF0), RR2 pillars and wall, RR3 boss.
+- 2026-10-26 evening: Rusty Ruin 1 gimmicks (above); 75 sim tests.
 - 2026-10-26: ROM results screen, Saturn screen option, ROM music and effects by emulation (GG1 music checked against
   the reference emulator: same notes at the same tempo, top-note agreement 0.53 vs 0.14 chance). 3D Sonic from Bill's Sonic Jam USA disc (formats from Sonic Retro SCHG),
   with skid, and Jam palms (GG 16/36/4), springs, big ring and Flickies; European disc; monitor boxes. 66 sim tests.
   Hunter spike ball measured and in. Animated water/lava, single flowers, rock on hidden cliffs, GG cannons and cracked
-  walls (GG1 cannon lands where the original does; GG2 about 2 m further). 70 sim tests. Open: Flicky body is a flat quad
-  (edge-on from the side).
+  walls (GG1 cannon lands where the original does; GG2 about 2 m further). 70 sim tests.
 - 2026-10-26: Springs measured (140 units), monitors with ROM icons and effects, mines, turrets, superchargers, Scouters
   chase, Hunters stand, Flickies coloured in turn, act end moves to the next act, sound effects, spin dash on hold. 64 sim tests.
 - 2026-10-26: Published on GitHub (s3lfish/3D-Sonic-3D-Blast-3D), Pages at https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/.
   All 22 levels convert; level art, foliage, zone skies, ROM sprites, measured physics, zip/SMD ROMs, controller.
   Green Grove sections, rings, holes and Flickies work (GG1 playable to the end). 54 sim tests, pad test, render test.
-  Gaps then: other zones' section gimmicks, bosses; palms on cliff edges stay painted;
-  stretched texture on steep slopes facing away from the original camera; GG2 foliage bake about 1.25 s.
+  Known since: palms on cliff edges stay painted; stretched texture on steep slopes facing away from the original
+  camera; GG2 foliage bake about 1.25 s.
