@@ -141,6 +141,13 @@ original art. The browser code carries reading rules only.
     it comes back. Not a wall: in the air, under that floor and falling: lands; rising: put on it, still in the air.
     Grounded: a floor more than 2 under him leaves the ground.
   * Jump 0x5A000; letting go while rising: a speed over 3.125 loses 1.5, then halves, and that frame skips gravity.
+- A hit (0x1B63E, d0 = -1 new, -2 thrown, else counting): with the shield ($0AC2): it goes, sound 0x35; with no rings:
+  dying ($42 = 0x22, $94 = 0x11, facing 0x700, 8 up, sound 0x35); else min(rings, 25) into $0A52, rings 0, sound 0xB9.
+  Then (all but dying) $94 = 8, facing's low byte cleared, 5 up, $3E = -2, $40 = 100, state cleared. Each frame thrown:
+  in the air, $40 - 1 (0 ends it), x/z = table 0x1B826 by facing >> 8 (backward: [0, -0x7800], [0x54DA, -0x54DA],
+  ...) x 4; grounded: $3E = 120, speed 0; counting down, blinking. Lost rings (0x19E36): one a frame while $0A52,
+  a particle (template 0xD94C, life 0xF0 frames) at Sonic with x/z = sin/cos($0A54) x 2 (16.16) and 3 up, $0A54 +=
+  0x480. Their flight (bounces, catching) is not read yet.
 
 ## Sections, rings and holes
 

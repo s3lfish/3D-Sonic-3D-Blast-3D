@@ -1756,7 +1756,7 @@
   function updateHero3d(p, rp, dt, t) {
     const h = hero3d, sp = Math.hypot(p.vx, p.vz), run = runRef();
     h.root.position.copy(rp); h.root.rotation.y = p.facing + Math.PI / 2;   // the model faces its -x
-    h.root.visible = !(p.invuln > 0 && Math.floor(t * 16) % 2);
+    h.root.visible = !(p.invuln > 0 && !(p.knockT > 0) && Math.floor(t * 16) % 2);   // (no blinking while thrown back)
     const balled = p.charge > 0 || p.ball || p.rolling;
     h.ball.visible = balled; h.anim.visible = !balled;
     if (balled) { h.ball.rotation.z -= dt * Math.max(sp, p.charge > 0 ? 14 : 8) * 1.6; return; }
@@ -2774,7 +2774,7 @@
     }
     if (heroMat.map !== map) { heroMat.map = map; silMat.map = map; }
     hero.position.copy(rp); sil.position.copy(rp);
-    hero.visible = !(p.invuln > 0 && Math.floor(t * 16) % 2);
+    hero.visible = !(p.invuln > 0 && !(p.knockT > 0) && Math.floor(t * 16) % 2);
     const use3d = !!hero3d && heroMode === '3d';
     if (hero3d) hero3d.root.visible = use3d;
     if (use3d) { hero.visible = false; sil.visible = false; updateHero3d(p, rp, dt, t); } else sil.visible = true;

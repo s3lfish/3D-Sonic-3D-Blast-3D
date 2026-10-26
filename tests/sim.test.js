@@ -816,7 +816,7 @@ test('original movement: a wall stops a point at its cell edge and keeps the oth
   near(half(-1), -Sim.P.orig.turn / 60, 1e-6, 'after a turn down, a half turn goes up (ours down)');
 });
 // a converted-style level (rom set): flat at 1 m with walls round, and a ramp row z 3 (north edge `up` steps higher)
-const ROMLV = (up = 1, split = 0) => {
+const ROMLV = (up = 1, split = 0, ents = []) => {
   const W = 8, D = 6, tiles = [];
   for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
     if (x === 0 || z === 0 || x === W - 1 || z === D - 1) { tiles.push({ c: [3, 3, 3, 3], t: 'F' }); continue; }
@@ -824,7 +824,7 @@ const ROMLV = (up = 1, split = 0) => {
     if (split && z === 3) t.s = split;
     tiles.push(t);
   }
-  return world({ version: 1, format: 'tiles', width: W, depth: D, tiles, entities: [{ type: 'start', x: 1.5, z: 4.5, facing: 90 }],
+  return world({ version: 1, format: 'tiles', width: W, depth: D, tiles, entities: [{ type: 'start', x: 1.5, z: 4.5, facing: 90 }].concat(ents),
     physics: Object.assign({}, ORIG.physics, { orig: 1 }), rom: { level: 1, origin: [0, 0], vscale: 1 } });
 };
 test('the original\'s floor and slopes: triangles in whole units, the pull on steep ones, a jump thrown downhill', () => {
@@ -848,6 +848,18 @@ test('the original\'s dash button: a roll with any speed, the launch frame stand
   let before = 0; for (let f = 0; f < 20 && w.p.vx > 0; f++) { before = w.p.vx; run(w, 1, {}); }
   assert.ok(w.p.vx < 0, 'came back');
   near(-w.p.vx / UF(1), before / UF(1) - 0x11 / 0x1000 - 0.25, 0.002, 'a quarter unit slower');
+});
+test('the original\'s hit: thrown back along his facing till he lands, rings out one a frame (25 at most), then 2 s safe', () => {
+  const ww = ROMLV(0, 0, [{ type: 'mine', x: 4.5, z: 4.5 }]);
+  place(ww, 3.9, 4.5); ww.p.facing = Math.PI / 2; ww.ringCount = 30;
+  let hitAt = -1; run(ww, 12, (f, x) => { if (hitAt < 0 && x.events.includes('hurt')) hitAt = f; return hitAt < 0 ? { mx: 1 } : {}; });
+  assert.ok(hitAt >= 0, 'hit');
+  near(ww.p.vx / UF(1), -0x7800 * 4 / 65536, 1e-9, 'back at 1.875 units a frame'); near(ww.p.vz, 0, 1e-9, 'straight back');
+  assert.ok(ww.ringCount === 0 && ww.loose.length > 0 && ww.loose.length < 25, `rings coming out: ${ww.loose.length}`);
+  let landed = -1; run(ww, 60, (f, x) => { if (landed < 0 && x.p.grounded && !(x.p.knockT > 0)) landed = f; return {}; });
+  assert.ok(landed > 0 && ww.p.grounded && ww.p.vx === 0, 'landed and stopped');
+  assert.ok(ww.loose.length + ww.ringCount === 25, `25 rings out (some caught again): ${ww.loose.length} + ${ww.ringCount}`);
+  near(ww.p.invuln, 2 - (59 - landed) / 60, 0.05, 'safe 2 s from landing');
 });
 test('Diamond Dust: ice spikes hurt until a roll breaks them; a low roof stops a jump', () => {
   let w = ORIGM([{ type: 'iceSpikes', cells: [[5, 2]] }]); w.ringCount = 5; place(w, 3.5, 2.5); w.p.facing = Math.PI / 2;

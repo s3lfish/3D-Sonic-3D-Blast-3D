@@ -1974,7 +1974,7 @@ const Sim = (() => {
       L, time: 0, ringCount: 0, deaths: 0, events: [],
       rings: L.entities.filter(e => e.type === 'ring').map(e => ({ x: e.x, y: e.y, z: e.z, got: false, gotAt: 0 })),
       springs: L.entities.filter(e => e.type === 'spring').map(e => ({ x: e.x, y: e.y, z: e.z, power: e.power, cool: 0, firedAt: -9, skin: e.skin, raised: e.raised })),
-      enemies: [], monitors: [], goals: [], loose: [], cleared: false, section: 0, spawn: null,
+      enemies: [], monitors: [], goals: [], loose: [], ringOut: 0, ringAng: 0, cleared: false, section: 0, spawn: null,
       holes: L.entities.filter(e => e.type === 'hole'),
       boosters: L.entities.filter(e => e.type === 'booster').map(e => ({ x: e.x, y: e.y, z: e.z, dir: e.dir, firedAt: -9, skin: e.skin })),
       mines: [], turrets: [], shots: [], lives: 3,
@@ -2028,7 +2028,7 @@ const Sim = (() => {
   // special stage, where he was: `at`)
   function reloadAct(w, at) {
     for (const g of w.rings) g.got = false;
-    w.loose.length = 0; w.ringCount = 0;
+    w.loose.length = 0; w.ringCount = 0; w.ringOut = 0;
     w.flickies = w.flickies.filter(f => f.state === 'gone');
     objectsBack(w);
     const keep = w.spawn;
@@ -2040,7 +2040,7 @@ const Sim = (() => {
   // put every ring, enemy and monitor back and the player at the start
   function resetLevel(w) {
     const L = w.L;
-    w.ringCount = 0; w.loose.length = 0; w.cleared = false; w.clearAt = 0; w.section = 0; w.spawn = null; w.inGoal = false; w.warpedAt = -9; w.padOff = null;
+    w.ringCount = 0; w.loose.length = 0; w.ringOut = 0; w.cleared = false; w.clearAt = 0; w.section = 0; w.spawn = null; w.inGoal = false; w.warpedAt = -9; w.padOff = null;
     w.flickies = []; w.delivered = 0; w.saved = 0; w.trail = []; w.seed = 12345; w.score = 0; w.flickyK = 0;
     for (const g of w.rings) g.got = false;
     objectsBack(w);
@@ -3015,6 +3015,11 @@ const Sim = (() => {
       if (p.auto.t > 0) { p.auto.t -= dt; inp = {}; }
       else { const dx = p.auto.x - p.x, dz = p.auto.z - p.z, l = Math.hypot(dx, dz) || 1; inp = { mx: dx / l, mz: dz / l }; }
     }
+    // knocked back (converted levels, 0x1B7CC): the pad does nothing, the speed is set each frame until he lands
+    if (p.knockT > 0) {
+      if (p.grounded || --p.knockT <= 0) { p.knockT = 0; p.vx = p.vz = 0; p.invuln = 120 / 60; }
+      else { p.vx = p.knock[0]; p.vz = p.knock[1]; inp = {}; }
+    }
     let mx = inp.mx || 0, mz = inp.mz || 0;
     let m = Math.hypot(mx, mz);
     if (m > 1) { mx /= m; mz /= m; m = 1; }
@@ -3300,7 +3305,7 @@ const Sim = (() => {
     if (p.skid && !wasSkid) w.events.push('skid');
     if (charging) { /* braking handled above */ }
     else if (O && !p.whirl && !(p.flyT > 0)) {   // (a cannon's flight keeps its speed: no steering, no drag)
-      if (!holdO) origVelocity(w, L, p, m, p.force && p.force.dir ? p.force.top : 0, jumpedNow);
+      if (!holdO && !(p.knockT > 0)) origVelocity(w, L, p, m, p.force && p.force.dir ? p.force.top : 0, jumpedNow);
     }
     else if (p.whirl) {
       if (m > 0.01) {
@@ -4033,6 +4038,13 @@ const Sim = (() => {
       if (f.age > 0.6 && dx * dx + dz * dz < 0.64 && Math.abs(p.y - f.y) < 1.2) { f.state = 'follow'; w.events.push('flicky'); }
     }
     // thrown rings bounce on the floor and can be caught again after a moment
+    // lost rings come out one a frame (0x19E36): 1 unit a frame out at an angle stepping 0x480, 3 up
+    if (w.ringOut > 0) {
+      w.ringOut--;
+      const U = 60 / 32 * (L.rom ? L.rom.vscale : 1), a = w.ringAng >> 1, s = P.orig.sin;
+      w.loose.push({ x: p.x, y: p.y + 0.3, z: p.z, vx: s[a] * 2 / 65536 * U, vy: 3 * U, vz: s[a + 0x100] * 2 / 65536 * U, age: 0 });
+      w.ringAng = (w.ringAng + 0x480) & 0x7FF;
+    }
     for (let i = w.loose.length - 1; i >= 0; i--) {
       const r = w.loose[i];
       r.age += dt;
@@ -4062,18 +4074,32 @@ const Sim = (() => {
       f.state = 'free'; f.age = 0; f.dir = rand(w) * 6.283; f.vy = 5; f.vx = Math.cos(f.dir) * 3; f.vz = Math.sin(f.dir) * 3;
     }
   }
+  // The original's knock-back (0x1B74C): facing cut to an eighth, thrown back along it at 0x7800 x 4 (0x54DA a part on
+  // diagonals) and 5 up, set each frame till he lands (100 frames at most), then 120 frames safe (step's p.knockT)
+  function origKnock(w) {
+    const p = w.p, U = 60 / 32 * w.L.rom.vscale, k = Math.floor(origFace(p) / 0x100) & 7, m = (k & 1 ? 0x54DA : 0x7800) * 4 / 65536;
+    let a = -k / 8 * 2 * Math.PI; if (a <= -Math.PI) a += 2 * Math.PI;
+    p.facing = a;
+    p.knock = [[0, 1, 1, 1, 0, -1, -1, -1][k] * m * U, [-1, -1, 0, 1, 1, 1, 0, -1][k] * m * U]; p.knockT = 100;
+    p.vx = p.knock[0]; p.vz = p.knock[1]; p.vy = 5 * U;
+    p.grounded = false; p.jumping = false; p.ball = false; p.rolling = false; p.charge = 0; p.crouch = 0; p.revN = -1;
+    p.invuln = 99;   // (safe while thrown; 120 frames from landing)
+  }
   function hurt(w, awayX, awayZ) {
     const p = w.p, m0 = Math.hypot(awayX, awayZ) || 1;
     if (p.inv > 0) return;
     p.whirl = false; p.whirlHold = 0;
+    const OH = w.L.rom && w.L.phys.orig;   // (converted levels: the original's hit, 0x1B6B2)
     // a shield takes the hit instead: no rings or Flickies lost
     if (p.shield) {
+      if (OH) { p.shield = null; origKnock(w); w.events.push('shieldLost'); return; }
       p.shield = null; p.vx = (awayX / m0) * 4; p.vz = (awayZ / m0) * 4; p.vy = 5;
       p.grounded = false; p.jumping = false; p.ball = false; p.rolling = false; p.charge = 0;
       p.invuln = P.hurtTime; w.events.push('shieldLost'); return;
     }
     scatterFlickies(w);
     if (w.ringCount <= 0) { death(w); return; }
+    if (OH) { w.ringOut = Math.min(25, w.ringCount); w.ringCount = 0; origKnock(w); w.events.push('hurt'); return; }
     const n = Math.min(P.scatterMax, w.ringCount);
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2, sp = 2.5 + (i % 3);
@@ -8669,7 +8695,7 @@ const Art = (() => {
   function updateHero3d(p, rp, dt, t) {
     const h = hero3d, sp = Math.hypot(p.vx, p.vz), run = runRef();
     h.root.position.copy(rp); h.root.rotation.y = p.facing + Math.PI / 2;   // the model faces its -x
-    h.root.visible = !(p.invuln > 0 && Math.floor(t * 16) % 2);
+    h.root.visible = !(p.invuln > 0 && !(p.knockT > 0) && Math.floor(t * 16) % 2);   // (no blinking while thrown back)
     const balled = p.charge > 0 || p.ball || p.rolling;
     h.ball.visible = balled; h.anim.visible = !balled;
     if (balled) { h.ball.rotation.z -= dt * Math.max(sp, p.charge > 0 ? 14 : 8) * 1.6; return; }
@@ -9687,7 +9713,7 @@ const Art = (() => {
     }
     if (heroMat.map !== map) { heroMat.map = map; silMat.map = map; }
     hero.position.copy(rp); sil.position.copy(rp);
-    hero.visible = !(p.invuln > 0 && Math.floor(t * 16) % 2);
+    hero.visible = !(p.invuln > 0 && !(p.knockT > 0) && Math.floor(t * 16) % 2);
     const use3d = !!hero3d && heroMode === '3d';
     if (hero3d) hero3d.root.visible = use3d;
     if (use3d) { hero.visible = false; sil.visible = false; updateHero3d(p, rp, dt, t); } else sil.visible = true;

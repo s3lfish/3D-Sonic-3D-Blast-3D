@@ -242,6 +242,10 @@ serves index.html from main.
     crosses zero) with its facing mirrored. Rising into a cell within 8 lifts him onto it; a drop over 2 units leaves
     the ground (stepUp 8, snapDown 2 units). One move a frame. game.js draws him `WALL_SKIN` 0.15 m off tall faces.
   * Jump 5.625 units a frame; let go while rising: over 3.125 loses 1.5, then halves, no gravity that frame.
+  * A hit (`origKnock`, 0x1B6B2; a shield too): facing cut to an eighth, thrown back along it at 0x7800 x 4 and 5 up,
+    that speed set each frame (`p.knockT`, pad ignored) till he lands (100 frames at most), then 120 frames safe, no
+    blinking while thrown; lost rings: 25 at most, one a frame (`w.ringOut`), 1 unit a frame out (angle + 0x480 each),
+    3 up.
   A cannon's flight skips it. `runRef()` in game.js scales animation and camera thresholds.
 - Object handlers: the table at 0x1BF42 + type (bra.w per type); `re/NOTES.md` lists the ones read.
 - Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
@@ -319,7 +323,8 @@ serves index.html from main.
   `w.score` (hundreds: enemy 1, boss 10, FF 50, Flickies into a ring 1/2/4/8/16; `step` wraps `stepInner` to count
   events) plus game.js `score` (acts' bonuses, special stages), shown on the results screens.
 - 2026-10-27: movement ported to the original's fixed point and matched exactly over three emulator traces (above):
-  turn, velocity, dash button and roll, floors and slopes by triangle, point walls, roll bounces. 128 sim tests.
+  turn, velocity, dash button and roll, floors and slopes by triangle, point walls, roll bounces; the hit and lost
+  rings as the original's. 129 sim tests.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;
   the Jam Flicky body is a flat quad (edge-on from the side).
