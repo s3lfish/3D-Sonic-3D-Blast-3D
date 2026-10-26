@@ -22,7 +22,8 @@ KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 
          0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',
          0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall',
          0x7C: 'sprinkler', 0x6C: 'pylon', 0x78: 'movePlat', 0x70: 'prop', 0x74: 'prop',
-         0x178: 'enemy', 0x19C: 'capsule', 0x194: 'lever', 0x184: 'prop', 0x17C: 'enemy', 0x180: 'beamPost', 0x18C: 'jetLift'}
+         0x178: 'enemy', 0x19C: 'capsule', 0x194: 'lever', 0x184: 'prop', 0x17C: 'enemy', 0x180: 'beamPost', 0x18C: 'jetLift',
+         0x15C: 'friend', 0x160: 'friend'}
 PROP_FRAME = {0x70: 6, 0x74: 0, 0x184: 7}
 PATROL = {0x100, 0x108, 0x5C, 0x178}   # half a unit a frame (measured; see s3d.js)
 MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']
@@ -61,7 +62,7 @@ GIMMICKS = {
         'tubes2': (0x11998, 6, [], [(0, 1), (5, 2)]),
         'chutes': [(50, 53, 83, 108, [0, 1], 0.25, 1664, 8.19, 200)],
         'rides': [(52, 107, 0, 0x20, None, None, (0, 5.5, 0), None, (40, None)), (21, 105, 0, 0x1E, None, None, (0, 5.5, 0), None, (40, None), 1)]},
-    1: {'cannons': [(116, 12, 248, 9, 7.067)], 'cracks': [([(108, 17)], 480, [0, -1])]},
+    1: {'cannons': [(116, 12, 248, 9, 7.067)], 'cracks': [([(108, 17)], 480, [0, -1])], 'friends': {'tails': {'section': 1}, 'knuckles': {'cannon': (116, 12)}}},
     2: {'cannons': [(21, 48, 576, 9, 6.1)], 'cracks': [([(59, 47)], 784, [-1, 0]), ([(108, 41), (109, 41)], 688, [0, -1])]},
     # Rusty Ruin 1 (see s3d.js GIMMICKS): spike and fan cell marks, door and pillar tables, pockets after rings, rides
     7: {'spikes': 0xFF, 'fans': 0x55, 'doors': (0x7994, 4), 'pillars': (0x7ACC, 23), 'maces': (0x75C2, 5), 'flames': (0x7548, 5),
@@ -70,7 +71,7 @@ GIMMICKS = {
         'pads': [(0, -1, 1), (1, -1, 2)],
         'cracks': [([(88, 62)], 432, [-1, 0]), ([(100, 41), (100, 15, 560)], 432, [0, -1])]},
     # Rusty Ruin 2 (see s3d.js GIMMICKS)
-    6: {'spikes': 0xFF, 'fans': 0x55, 'pillars': (0x8266, 23), 'maces': (0x80B8, 6), 'flames': (0x7EC4, 9), 'padRise': 138, 'pads': [(0, 1, 1), (1, 0, 1), (2, 3, 2), (3, 2, 2)],
+    6: {'friends': {'tails': {'cell': (85, 101), 'maxY': 32}}, 'spikes': 0xFF, 'fans': 0x55, 'pillars': (0x8266, 23), 'maces': (0x80B8, 6), 'flames': (0x7EC4, 9), 'padRise': 138, 'pads': [(0, 1, 1), (1, 0, 1), (2, 3, 2), (3, 2, 2)],
         'slides': [(0xC3, [1, 0]), (0xF0, [0, 1])], 'pillarLinks': [(85, 101, 0x05, [(99, 96, 0x22)])],
         'rides': [(98, 96, 0, 0x30, None, None, (0, 0, 0)), (85, 101, 0, 0x2E, None, None, (0, 0, 0), 40),
                   (100, 60, 0, 0x32, None, None, (0, 0, 0)), (91, 71, 0, 0x34, None, None, (0, 0, 0))],
@@ -96,7 +97,7 @@ GIMMICKS = {
         'gates': [([(88, 54), (89, 54)], 0x6D, 0, 1), ([(90, 47), (91, 47)], 0x6D, 0, 1), ([(86, 75), (87, 75)], 0x59, 0, 2), ([(78, 67), (79, 67)], 0x65, 0, 2)],
         'passOff': [(91, 46), (86, 74, 2)], 'shuts': [([(38, 76)], [(37, 75), (38, 75)], 0x7D)],
         'warps': [(57, 50, 0x770, 0x1E0, 0x910, 0x320), (59, 72, 0x730, 0x340, 0x650, 0x1C0)]},   # Diamond Dust 1 (see s3d.js)
-    12: {'pads': [(0, 1, 1)], 'lava': 0x55, 'rocks': (0xB484, 27), 'roofs': 0xB386, 'vents': (0xB394, 8), 'spouts': (0xB286, 16), 'fireRuns': (0xB194, 5), 'fireBars': (0xB25C, 3),
+    12: {'friends': {'knuckles': {'cell': (86, 99)}}, 'pads': [(0, 1, 1)], 'lava': 0x55, 'rocks': (0xB484, 27), 'roofs': 0xB386, 'vents': (0xB394, 8), 'spouts': (0xB286, 16), 'fireRuns': (0xB194, 5), 'fireBars': (0xB25C, 3),
          'cracks': [([(55, 61)], 744, [0, -1]), ([(94, 114)], 424, [-1, 0])], 'balls': (0xE80, 56, 8), 'ventOff': [(0x63AC, 0x56A8)]},
     13: {'pads': [(0, 1, 1), (2, 3, 2)], 'lava': 0x55, 'rocks': (0xAB42, 42), 'roofs': 0xAA4A, 'vents': (0xA8F6, 6), 'spouts': (0xA9AA, 10), 'fireRuns': (0xAA5E, 5), 'fireBars': (0xAB26, 2),
          'cracks': [([(59, 55)], 680, [-1, 0]), ([(65, 63)], 584, [-1, 0])]},
@@ -287,6 +288,15 @@ def convert(rom, level_id, vscale=1.0):
             e.update({"x0": jround((x - 1) / CELL - x0, 3), "x1": jround((x - 1 + sx) / CELL - x0, 3), "z0": jround((z - 1) / CELL - z0, 3), "z1": jround((z - 1 + sz) / CELL - z0, 3),
                       "y0": jround((a + 8) / CELL * vscale, 3), "y1": jround((b + 8) / CELL * vscale, 3)})
         if kind == 'fireSpot': e["y"] = jround((y_obj + 8) / CELL * vscale, 3)
+        if kind == 'friend':   # see s3d.js
+            e["who"] = 'tails' if t == 0x15C else 'knuckles'; e["y"] = jround((y_obj + 8) / CELL * vscale, 3)
+            sh = gm.get('friends', {}).get(e["who"])
+            if sh:
+                if 'section' in sh: e["show"] = {"section": sh['section']}
+                else:
+                    sk = 'cannon' if 'cannon' in sh else 'cell'; c = sh[sk]
+                    e["show"] = {sk: [c[0] - x0, c[1] - z0]}
+                    if 'maxY' in sh: e["show"]["maxY"] = jround((sh['maxY'] + 8) / CELL * vscale, 3)
         if kind == 'prop':
             e["y"] = jround((y_obj + 8) / CELL * vscale, 3); e["frame"] = PROP_FRAME.get(t, 0)
             if t == 0x184:

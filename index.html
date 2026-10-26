@@ -80,6 +80,9 @@ body {
 .clearcard p { margin: 10px 0 0; font: 700 16px/1.5 var(--font-ui); color: #fff; white-space: pre-line; text-shadow: 0 2px 0 var(--void); }
 .tally { position: fixed; inset: 0; z-index: 28; display: grid; place-items: center; pointer-events: none; }
 .tally canvas { width: min(100vw, calc(100vh * 320 / 224)); height: auto; image-rendering: pixelated; }
+.bonusmsg { position: fixed; left: 50%; top: 12%; transform: translateX(-50%); text-align: center; pointer-events: none; z-index: 20;
+  font: 400 clamp(24px, 6vw, 48px)/1.1 var(--font-display); color: #fff; text-shadow: 0 3px 0 var(--void), 0 0 14px rgba(0,0,0,0.6); text-transform: uppercase; white-space: pre-line; }
+.bonusmsg.count { font-size: clamp(40px, 11vw, 88px); color: var(--gold); }
 .flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 25; }
 .flash.on { animation: flash 0.5s ease-out; }
 .fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 24; }
@@ -112,6 +115,7 @@ body {
 <div class="hud hud-tl">
   <div class="chip" aria-live="polite"><span class="label">Rings</span><span class="count" id="ringCount">0</span><span class="total" id="ringTotal">/ 0</span></div>
   <div class="chip" id="flickyHud" hidden aria-label="Flickies: filled are in the ring, outlined are following you"><span class="label">Flickies</span><span class="dots" id="flickyDots"></span></div>
+  <div class="chip" id="emeraldHud" hidden><span class="label">Emeralds</span><span class="count" id="emeraldCount">0</span><span class="total">/ 7</span></div>
 </div>
 <div class="hud hud-tr">
   <button class="iconbtn mode" id="camMode" aria-label="Switch to the isometric view">ISO</button>
@@ -190,6 +194,7 @@ body {
 </div>
 
 <div class="toast" id="toast" hidden></div>
+<div class="bonusmsg" id="bonusMsg" hidden></div>
 <div class="clearcard" id="clearCard" hidden><h2 id="clearTitle"></h2><p id="clearInfo"></p></div>
 <div class="flash" id="flash"></div>
 <div class="fade" id="fade"></div>
@@ -1533,6 +1538,15 @@ const Sim = (() => {
           L.entities.push({ type: e.type, x0: e.x0, x1: e.x1, z0: e.z0, z1: e.z1, x: e.x, z: e.z, y: e.y, axis: e.axis, centre: e.centre, amp: e.amp, w: e.w, phase: e.phase, lin, skin: skinOf(e) });
           break;
         }
+        case 'friend': {
+          const cellOk = c => Array.isArray(c) && inBounds(c[0], c[1]);
+          if (!inBounds(e.x, e.z) || !Number.isFinite(e.y) || (e.who !== 'tails' && e.who !== 'knuckles')) { errs.push(`A friend at (${e.x}, ${e.z}) needs a height "y" and "who" ("tails" or "knuckles").`); break; }
+          const sh = e.show;
+          if (sh !== undefined && !(sh && (Number.isInteger(sh.section) || cellOk(sh.cell) || cellOk(sh.cannon)))) { errs.push(`A friend's "show" needs "section", "cell" [x, z] or "cannon" [x, z].`); break; }
+          L.entities.push({ type: 'friend', x: e.x, y: e.y, z: e.z, who: e.who, skin: e.skin,
+            show: sh ? { section: sh.section, cell: sh.cell && sh.cell.map(Math.floor), cannon: sh.cannon && sh.cannon.map(Math.floor), maxY: sh.maxY } : null });
+          break;
+        }
         case 'fireSpot': {
           if (!inBounds(e.x, e.z) || !Number.isFinite(e.y)) { errs.push(`A fire spot at (${e.x}, ${e.z}) needs a place and a height "y".`); break; }
           L.entities.push({ type: 'fireSpot', x: e.x, y: e.y, z: e.z, r: e.r > 0 ? e.r : 0.4 });
@@ -1882,6 +1896,9 @@ const Sim = (() => {
     w.rocks = new Map(w.rockList); for (const [t, top] of w.rocks) L.up.set(t, top);
     w.fireballs = []; w.fireT = 0; w.spoutT = 0;
     w.fireBars = L.entities.filter(e => e.type === 'fireBar'); w.barA = 0; w.barBalls = [];
+    // Tails and Knuckles: hidden until the act's routine shows them; rings given count up for the act
+    w.friends = L.entities.filter(e => e.type === 'friend').map(e => ({ ...e, shown: !e.show, t: 0, flag: false }));
+    w.friendRings = { tails: 0, knuckles: 0 }; w.bonusWho = null;
     w.jets = L.entities.filter(e => e.type === 'jetLift').map(e => ({ ...e, top: e.y0 }));
     w.movers = L.entities.filter(e => e.type === 'movePlat').map(e => ({ ...e, top: e.y, off: 0, lin: e.lin && { ...e.lin, p0: e.axis === 'x' ? e.x0 : e.z0 } }));
     if (w.movers.some(q => q.lin)) for (const q of w.movers) if (q.lin) q.lin.pos = q.lin.p0;
@@ -2771,8 +2788,9 @@ const Sim = (() => {
     w.p = { x: s.x, y: floorAt(w.L, s.x, s.z), z: s.z, vx: 0, vy: 0, vz: 0, grounded: true, coyote: 0,
       rolling: false, ball: false, sprung: false, charge: 0, facing: s.facing, jumping: false, prevJump: false, prevDash: false, invuln: 0,
       shield: null, inv: 0, fast: 0, boost: null, goldUsed: false, dashHeld: 0, cannon: null, flyT: 0, whirl: false, whirlHold: 0,
-      ride: null, auto: null, pad: null, slideT: 0, slideDir: null, lock: 0, force: null, bumpCell: -1, chute: null, sled: null, frozen: 0, dashCell: -1, vent: null, carry: null, hidden: false };
+      ride: null, auto: null, pad: null, slideT: 0, slideDir: null, lock: 0, force: null, bumpCell: -1, chute: null, sled: null, frozen: 0, dashCell: -1, vent: null, carry: null, hidden: false, friend: null };
     if (s.auto) w.p.auto = autoWalk(w);
+    for (const f of w.friends || []) { f.t = 0; f.flag = false; }
     if (w.boss) initBoss(w);
     for (const g of w.gates || []) if (g.shut) g.closed = false;   // (the cells that shut behind the player open again)
     w.passOn.clear();
@@ -2813,6 +2831,12 @@ const Sim = (() => {
     }
     // a chute or a sled: the pad is let go and the player is carried along
     if (p.chute || p.sled) inp = {};
+    // beside Tails or Knuckles: walked to the side of them, the pad the routine's
+    if (p.friend) {   // (a unit a frame here; the original's own walk is not measured)
+      const dx = p.friend.x - p.x, dz = p.friend.z - p.z, l = Math.hypot(dx, dz), s = Math.min(l, 1 / 32);
+      if (l > 1e-6) { p.x += dx / l * s; p.z += dz / l * s; p.facing = Math.atan2(dx, dz); }
+      p.vx = p.vz = 0; inp = {};
+    }
     if (p.auto && !p.ride) {
       if (p.auto.t > 0) { p.auto.t -= dt; inp = {}; }
       else { const dx = p.auto.x - p.x, dz = p.auto.z - p.z, l = Math.hypot(dx, dz) || 1; inp = { mx: dx / l, mz: dz / l }; }
@@ -3415,6 +3439,28 @@ const Sim = (() => {
     // up at the other vent and is thrown out (the routine's own speed); the pad is the routine's meanwhile
     if (!p.vent && w.vents.length && p.grounded && speed <= 2 * 60 / 32 + 1e-6 && !p.ride && !p.frozen)
       for (const v of w.vents) if (Math.floor(v.x) + Math.floor(v.z) * L.width === cell && !(v.offWhileRock && w.rocks.has(v.offWhileRock[0] + v.offWhileRock[1] * L.width))) { p.vent = { v, t: 0 }; p.rolling = false; p.charge = 0; w.events.push('ventIn'); break; }
+    // Tails and Knuckles (routine 0xCF1E): a grounded player with rings within 8 units of one in x and z gives them
+    // all; the routine walks him beside it and holds the pad 120 frames, takes the rings 70 frames in (sound 0xB0),
+    // and if this gift took its count for the act to 50 or more, the special stage follows
+    for (const f of w.friends) {
+      const sh = f.show;
+      if (!f.shown && (sh.section ? w.section >= sh.section
+        : sh.cell ? cell === sh.cell[0] + sh.cell[1] * L.width && (sh.maxY === undefined || p.y <= sh.maxY + 1e-6)
+        : p.cannon && Math.floor(p.cannon.x) === sh.cannon[0] && Math.floor(p.cannon.z) === sh.cannon[1])) { f.shown = true; w.events.push('friendShown'); }
+      if (!f.shown) continue;
+      if (f.t > 0) {
+        f.t--;
+        if (f.t === 50) { w.ringCount = 0; w.events.push('friend'); }
+        if (f.t === 0) { p.friend = null; if (f.flag) { f.flag = false; w.bonusWho = f.who; w.events.push('bonusIn'); } }
+        continue;
+      }
+      if (p.grounded && w.ringCount > 0 && !p.friend && Math.abs(p.x - f.x) <= 8 / 32 && Math.abs(p.z - f.z) <= 8 / 32) {
+        const before = w.friendRings[f.who]; w.friendRings[f.who] += w.ringCount;
+        f.flag = before < 50 && w.friendRings[f.who] >= 50; f.t = 120;
+        p.friend = { f, x: f.x + (f.x > p.x ? -16 : 16) / 32, z: f.z };
+        p.rolling = false; p.charge = 0; w.events.push('friendGive');
+      }
+    }
     // ice spikes (helpers 0x10EA6, 0x10CC4): a grounded roll breaks one; otherwise standing in one hurts
     if (w.iceSpikes.size && p.grounded && w.iceSpikes.get(cell)) {
       if (p.rolling) { w.iceSpikes.set(cell, false); w.events.push('iceBreak'); }
@@ -3816,7 +3862,135 @@ const Sim = (() => {
     p.invuln = P.hurtTime; w.events.push('hurt');
   }
 
-  return { P, LevelError, importLevel, floorAt, gradientAt, tileTopNear, createWorld, resetLevel, respawn, step, rrArm, ppLinks };
+  // ---- special stage (entry 0x1E218; a frame is 0x1CBE4 then the end checks at 0x1E618), in the original's units
+  // and its 16.16 fixed point, y down. Sonic runs into the screen (z) along a track 64 units wide (x of its left edge
+  // per record), steers and jumps; rings count up, a spiked ball costs 10 (all if fewer; with none he is thrown off
+  // and the stage fails). Gates want 50, then 100, then 150 rings in all, or the stage fails when he passes one.
+  // `data` is S3D.bonusStage's: track [count/stripe, distance, x, y] farthest first, items [distance, x, y, kind].
+  const BF = 65536;
+  function bonusStart(data, noEmerald) {
+    return { data, noEm: !!noEmerald, speed: data.speed,
+      track: data.track.map(r => ({ d: r[1], x: r[2], y: r[3] })), items: data.items.map(r => ({ d: r[0], x: r[1], y: r[2], k: r[3], gone: false })),
+      x: 32 * BF, y: 0, z: -448 * BF, vx: 0, vy: 0, vz: 0, gr: 1, held: 0, hitT: 0, minZ: -448 * BF, lastZ: -448 * BF, stopZ: 0x7FFF, stopX: null,
+      fail: 0, end: 0, out: 0, intro: 92, bump: 0, gate: 0, gateT: 0, req: 50, rings: 0, remain: 50, msg: 2, msgT: 120, floorY: 0, lost: 0,
+      camX: 32 * BF, camY: -200 * BF, camZ: (-448 - 180) * BF, frame: 0, done: null, events: [] };
+  }
+  // the original's scale for a depth (0x1E1E6's table: 0x40000 / depth, kept as a 12-bit fraction): gates arm at 60,
+  // the emerald at 48
+  const bonusScale = depth => depth < 10 ? 0x666 : Math.floor(Math.floor(0x40000 / depth) / 16);
+  function bonusStep(b, inp) {
+    const ev = b.events = [], t = b.track, sp = b.speed;
+    b.frame++; b.lost = 0;
+    // before the frame (0x1E5C2): the opening count and the bump
+    if (b.intro) { if (b.msgT < 0x50) b.msgT = 0x23; b.intro--; }
+    if (b.bump) b.bump--;
+    if (b.stopZ <= (b.z >> 16)) b.z = b.stopZ * BF + (b.z & 0xFFFF);
+    let moved = false;
+    if (!b.intro) {
+      if (b.stopX !== null && !b.gate && !b.fail) {   // the emerald in sight: steered to its x
+        const d0 = ((b.x >> 16) - b.stopX) >> 3;
+        if (d0) b.vx = -d0 * BF;
+        else { const df = (b.x >> 16) - b.stopX; b.vx = df > 0 ? -BF : df < 0 ? BF : 0; }
+      } else {
+        if (inp.jump) { if (b.gr && !b.held) { ev.push('jump'); b.gr = 0; b.vy = -368640; b.held = 1; } }
+        else if (b.held) { b.held = 0; let d = b.vy; if (d < -204800) d += 98304; b.vy = d >> 1; }
+        if (b.hitT >= 0) { if (inp.right) b.vx += 0x6000; if (inp.left) b.vx -= 0x6000; }
+      }
+      if (b.end) { if (b.end >= 0x50) { if (b.end === 0x50) ev.push('bonusRise'); b.y -= 2 * BF; } }
+      else if (b.out) { b.y += b.vy; b.vy += 0x4000; b.camY += ((b.y - 0xBE0000) - b.camY) >> 3; }
+      else moved = true;
+      if (moved) {
+        let d = b.vx;
+        if (d > 0) { d = Math.max(0, d - 0x3000); if (d > sp) d = sp; } else if (d < 0) { d = Math.min(0, d + 0x3000); if (d < -sp) d = -sp; }
+        b.x += d; b.vx = d;
+        b.y += b.vy; b.vy = Math.min(7 * BF, b.vy + 0x4000);
+        d = b.vz;
+        if (b.fail >= 3) { if (b.fail === 3) ev.push('bonusFail'); d = Math.max(0, d - 0x1000); }
+        else { d = Math.min(sp, d + 0x1000); if (d < -4 * BF) d = -4 * BF; }
+        b.z += d; b.vz = d;
+      }
+    }
+    if (b.intro || moved) {
+      if (b.minZ > b.z) b.z = b.minZ;
+      // floor and walls: the record at or behind Sonic and the one ahead; two at one distance make a step, which
+      // stops him unless he is over its top (2 units' grace) or was already past it
+      let i = 0;
+      for (;;) {
+        const zi = b.z >> 16;
+        while (i < t.length - 1 && t[i].d > zi) i++;
+        const cur = t[i], ahead = t[Math.max(0, i - 1)], d1 = (b.y >> 16) - 2;
+        if ((d1 > cur.y || d1 > ahead.y) && i + 1 < t.length && cur.d <= t[i + 1].d && cur.d > (b.lastZ >> 16)) {
+          b.z = (cur.d - 1) * BF; b.vz = 0; b.bump = 8; continue;
+        }
+        if (ahead.d === cur.d && i + 1 < t.length) { i++; continue; }
+        b.lastZ = b.z;
+        const d4 = ahead.d - zi, d3 = ahead.d - cur.d || 1;
+        const fy = Math.trunc((cur.y - ahead.y) * d4 / d3) + ahead.y;
+        b.floorY = fy;
+        if (b.gr || b.y >= fy * BF) { b.y = fy * BF; b.gr = 1; b.vy = 0; if (b.hitT < 0) b.hitT = 120; } else b.gr = 0;
+        const fx = Math.trunc((cur.x - ahead.x) * d4 / d3) + ahead.x;
+        if (b.x < fx * BF) b.x = fx * BF; else if (b.x > (fx + 64) * BF) b.x = (fx + 64) * BF;
+        break;
+      }
+      b.camZ = b.z - 180 * BF;
+      b.camX += (b.x - b.camX) >> 3;
+      b.camY += ((b.y - 200 * BF) - b.camY) >> 2;
+      // touching: items within 6 units behind to Sonic's distance, x within 12, y from 46 above to 8 below
+      if (!(b.fail > 0)) {
+        const zi = b.z >> 16, xi = b.x >> 16, yi = b.y >> 16;
+        for (const it of b.items) {
+          if (it.d < zi - 6) continue;
+          if (it.d > zi) break;
+          if (it.gone) continue;
+          const dx = it.x - (xi - 12), dy = it.y - (yi - 46);
+          if (dx < 0 || dx > 24 || dy < 0 || dy > 54) continue;
+          if (it.k === 1) { it.gone = true; b.rings = Math.min(999, b.rings + 1); ev.push('ring'); }
+          else if (it.k === 7) { it.gone = true; b.end = 1; ev.push(b.noEm ? 'emeraldNo' : 'emerald'); }
+          else if (it.k === 0 && !b.hitT) {
+            b.gr = 0; b.hitT = -1; b.vy = -6 * BF; b.vz = -3 * BF;
+            if (b.rings >= 10) { b.rings -= 10; b.lost = 10; ev.push('hurt'); }
+            else if (b.rings) { b.lost = b.rings; b.rings = 0; ev.push('hurt'); }
+            else { ev.push('bonusFail'); b.out = 1; b.vx = 0; b.vy = -8 * BF; b.vz = 0; break; }
+          }
+        }
+      }
+      b.remain = Math.max(0, b.req - b.rings);
+    }
+    // the drawing pass (0x1D8E0): timers, then items in sight (more than 96 and at most 496 ahead of the camera, on
+    // screen in y) arm the gate, the emerald and the counts; then a passed gate is checked
+    if (b.gateT > 0) b.gateT--;
+    if (b.msgT > 0 && --b.msgT === 0) b.msg = 0;
+    if (b.hitT > 0) b.hitT--;
+    const cz = b.camZ >> 16, cy = b.camY >> 16;
+    for (const it of b.items) {
+      if (it.gone) continue;
+      const depth = it.d - cz;
+      if (depth <= 96) continue;
+      if (depth > 496) break;
+      const sy = Math.trunc((it.y - cy) * 256 / depth);
+      if (sy < 0x68 || sy > 0x15C) continue;
+      const sc = bonusScale(depth);
+      if (it.k === 2) { if (sc >= 60) { b.msg = 0; b.gate = it.d; } b.gateT = 15; }
+      else if (it.k === 7) { if (sc >= 48) { b.stopX = it.x; b.stopZ = it.d; } if (b.msg) b.msg = 0; }
+      else if (it.k === 3) { if (b.msg !== 1) b.msg = 1; }
+      else if (it.k === 4 || it.k === 5) {
+        const want = it.k === 4 ? 100 : 150;
+        if (b.msg !== 2 && !b.fail && b.msg !== 1 && !b.gate && b.req !== want) { b.req = want; b.msgT = 120; b.msg = 2; b.minZ = b.z; ev.push('newCount'); }
+      }
+    }
+    if (b.hitT > 0) b.hitT--;
+    if (b.gate && b.gate < (b.z >> 16)) {
+      if (b.remain) { b.gate = 0; b.fail = 1; }
+      else if (!b.gateT) { b.gate = 0; ev.push('gate'); }
+    }
+    // after the frame (0x1E618): the endings
+    if (b.fail && ++b.fail > 0x3C) b.done = 'fail';
+    if (b.end && ++b.end > 0xA0) b.done = 'emerald';
+    if (b.out && ++b.out >= 0x28) b.done = 'fail';
+    return b;
+  }
+
+  return { P, LevelError, importLevel, floorAt, gradientAt, tileTopNear, createWorld, resetLevel, respawn, step, rrArm, ppLinks, bonusStart, bonusStep };
 })();
 </script>
 
@@ -4391,7 +4565,9 @@ const S3D = (() => {
   // there first, keeping velocity [vx, vy, vz] units a frame (y up) for when the move ends.
   // cracks: [cells (optionally [x, z, own raised height]), raised height, the way a dash must go].
   const GIMMICKS = {
-    1: { cannons: [[116, 12, 248, 9, 7.067]], cracks: [[[[108, 17]], 480, [0, -1]]] },
+    // friends: InitLevel hides Tails ($D948) and Knuckles ($D97C) unless $068A says the routine showed them already;
+    // RunLevel shows Tails once ring 1's hole opens (0xE5F4) and Knuckles while the cannon at (116, 12) fires (0xE766)
+    1: { cannons: [[116, 12, 248, 9, 7.067]], cracks: [[[[108, 17]], 480, [0, -1]]], friends: { tails: { section: 1 }, knuckles: { cannon: [116, 12] } } },
     2: { cannons: [[21, 48, 576, 9, 6.1]], cracks: [[[[59, 47]], 784, [-1, 0]], [[[108, 41], [109, 41]], 688, [0, -1]]] },
     7: { spikes: 0xFF, fans: 0x55, doors: [0x7994, 4], pillars: [0x7ACC, 23], maces: [0x75C2, 5], flames: [0x7548, 5],
       links: [[1696, 1840, 90], [2576, 1216, 180]],
@@ -4404,7 +4580,7 @@ const S3D = (() => {
     // after; rides at four cells, one of them only after the pillar at (85, 101) breaks: the routine then drops that
     // cell to 0x500 and lowers (99, 96) to its map value; it fires below 32 units (Sonic falls through the
   // 0x500 floor to there; ours stops at 40, so the ride here fires at 40). Dash wall (101, 60).
-    6: { spikes: 0xFF, fans: 0x55, pillars: [0x8266, 23], maces: [0x80B8, 6], flames: [0x7EC4, 9], padRise: 138, pads: [[0, 1, 1], [1, 0, 1], [2, 3, 2], [3, 2, 2]],
+    6: { friends: { tails: { cell: [85, 101], maxY: 32 } } /* 0x7FBE: the ride from (85, 101) at y 32 or under */, spikes: 0xFF, fans: 0x55, pillars: [0x8266, 23], maces: [0x80B8, 6], flames: [0x7EC4, 9], padRise: 138, pads: [[0, 1, 1], [1, 0, 1], [2, 3, 2], [3, 2, 2]],
       slides: [[0xC3, [1, 0]], [0xF0, [0, 1]]], pillarLinks: [[85, 101, 0x05, [[99, 96, 0x22]]]],
       rides: [[98, 96, 0, 0x30, null, null, [0, 0, 0]], [85, 101, 0, 0x2E, null, null, [0, 0, 0], 40],
         [100, 60, 0, 0x32, null, null, [0, 0, 0]], [91, 71, 0, 0x34, null, null, [0, 0, 0]]],
@@ -4475,7 +4651,7 @@ const S3D = (() => {
     // Volcano Valley 2 (RunLevel 0xAE20, labelled VVz1): pads 0xB10C/0xB130 (record 2 <-> 4 after ring 1); cracked walls
     // at (55, 61) (a roll north) and (94, 114) (west); spiked balls 118 swing about z 0xE80; the vent at 0x63AC is off
     // while the rock on its partner (0x56A8) stands (map low byte 0xFF)
-    12: { pads: [[0, 1, 1]], lava: 0x55, rocks: [0xB484, 27], roofs: 0xB386, vents: [0xB394, 8], spouts: [0xB286, 16], fireRuns: [0xB194, 5], fireBars: [0xB25C, 3],
+    12: { friends: { knuckles: { cell: [86, 99] } } /* 0xB00C */, pads: [[0, 1, 1]], lava: 0x55, rocks: [0xB484, 27], roofs: 0xB386, vents: [0xB394, 8], spouts: [0xB286, 16], fireRuns: [0xB194, 5], fireBars: [0xB25C, 3],
       cracks: [[[[55, 61]], 744, [0, -1]], [[[94, 114]], 424, [-1, 0]]], balls: [0xE80, 56, 8], ventOff: [[0x63AC, 0x56A8]] },
     13: { pads: [[0, 1, 1], [2, 3, 2]], lava: 0x55, rocks: [0xAB42, 42], roofs: 0xAA4A, vents: [0xA8F6, 6], spouts: [0xA9AA, 10], fireRuns: [0xAA5E, 5], fireBars: [0xAB26, 2],
       cracks: [[[[59, 55]], 680, [-1, 0]], [[[65, 63]], 584, [-1, 0]]] },
@@ -4667,7 +4843,8 @@ const S3D = (() => {
     0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',   // 0DC: Diamond Dust's snowdrift springs
     0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall',
     0x7C: 'sprinkler', 0x6C: 'pylon', 0x78: 'movePlat', 0x70: 'prop', 0x74: 'prop',
-    0x178: 'enemy', 0x19C: 'capsule', 0x194: 'lever', 0x184: 'prop', 0x17C: 'enemy', 0x180: 'beamPost', 0x18C: 'jetLift' };
+    0x178: 'enemy', 0x19C: 'capsule', 0x194: 'lever', 0x184: 'prop', 0x17C: 'enemy', 0x180: 'beamPost', 0x18C: 'jetLift',
+    0x15C: 'friend', 0x160: 'friend' };   // Tails and Knuckles (0xCF1E: fifty rings in all open a special stage)
   // drawn only: Gene Gadget's doors (070, frame 0x18 / 4 shut) and pads (074); Panic Puppet's door (184, frame 7 shut,
   // opened while the key of the gate beside it is held)
   const PROP_FRAME = { 0x70: 6, 0x74: 0, 0x184: 7 };
@@ -4924,6 +5101,16 @@ const S3D = (() => {
           y0: r3((s16(ob, o + 0x24) + 8) / CELL * vscale), y1: r3((s16(ob, o + 0x26) + 8) / CELL * vscale) });
       }
       if (kind === 'fireSpot') e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
+      if (kind === 'friend') {   // hidden until the act's routine shows it (see GIMMICKS' friends)
+        e.who = t === 0x15C ? 'tails' : 'knuckles'; e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
+        const sh = (gm.friends || {})[e.who];
+        if (sh && sh.section) e.show = { section: sh.section };
+        else if (sh) {
+          const sk = sh.cannon ? 'cannon' : 'cell', c = sh[sk];
+          e.show = { [sk]: [c[0] - x0, c[1] - z0] };
+          if (sh.maxY !== undefined) e.show.maxY = r3((sh.maxY + 8) / CELL * vscale);
+        }
+      }
       if (kind === 'prop') {
         e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); e.frame = PROP_FRAME[t] || 0;
         if (t === 0x184) for (const [cells, , , , key] of gm.gates || []) if (key && cells.some(([cx, cz]) => Math.hypot(cx + 0.5 - x / CELL, cz + 0.5 - z / CELL) < 2)) e.key = key;
@@ -5507,9 +5694,25 @@ const S3D = (() => {
       shut: [0xC9], beam: [0x78], liftUp: [0x3C], liftGo: [0xB6], lift: [0xD2] /* Panic Puppet 2's */,
       armGo: [0x5A], armRise: [0xC3], armSlam: [0x81], armOpen: [0x92], armDown: [0x54], blast: [0x59] /* Panic Puppet 3's routine */,
       ffDoor: [0xB8], ffBeep: [0xAD], timeUp: [0x78], ffAway: [0x60], ffHum: [0xC6], ffReady: [0x9D], laser: [0x5E], ffRise: [0xD0],
-      ffSink: [0x73], ffLetGo: [0xB6], ffAim: [0x53], ffSlam: [0x5F], ffTarget: [0x51] /* Final Fight's routine */ },
+      ffSink: [0x73], ffLetGo: [0xB6], ffAim: [0x53], ffSlam: [0x5F], ffTarget: [0x51] /* Final Fight's routine */,
+      friend: [0xB0] /* 0xCF1E */, bonusFail: [0xB2], gate: [0x63], emerald: [0x1A], emeraldNo: [0x19], bonusRise: [0x6A] /* the special stage */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
+  // Special stages (entry 0x1E218, set up by 0x1C2AA): table 0x1CA94, 14 entries of 24 bytes [look (1: stone over
+  // lava, Knuckles' stages 0-6; 0: a grating over a river, Tails' 7-13), top speed (x 16 / 0x10000 units a frame),
+  // track (RNC1), items (RNC1), three palettes (scenery, track, items)]. Track: 8-byte records [stripe, distance, x of
+  // the left edge (64 wide), y (down)], farthest first, two at one distance for a step; items: [distance, x, y, kind]
+  // (0 spiked ball, 1 ring, 2 gate post, 3 the count sign, 4/5 new counts 100/150, 7 the emerald), nearest first.
+  const BONUS = { table: 0x1CA94, music: 0x10 };
+  function bonusStage(d, n) {
+    const o = BONUS.table + 24 * n, s16s = (b, i) => { const v = (b[i] << 8) | b[i + 1]; return v & 0x8000 ? v - 0x10000 : v; };
+    const rec = (b, f) => { const out = []; for (let i = 0; i + 8 <= b.length; i += 8) out.push(f(i)); return out; };
+    const a = rncUnpack(d, u32(d, o + 4)), b = rncUnpack(d, u32(d, o + 8));
+    const track = rec(a, i => [s16s(a, i), s16s(a, i + 2), s16s(a, i + 4), s16s(a, i + 6)]);
+    const items = rec(b, i => [s16s(b, i), s16s(b, i + 2), s16s(b, i + 4), s16s(b, i + 6)]);
+    const pal = [12, 16, 20].map(k => { const p = u32(d, o + k), c = []; for (let j = 0; j < 16; j++) { const v = u16(d, p + 2 * j); c.push([((v >> 1) & 7) * 255 / 7 | 0, ((v >> 5) & 7) * 255 / 7 | 0, ((v >> 9) & 7) * 255 / 7 | 0]); } return c; });
+    return { n, look: u16(d, o) ? 'lava' : 'river', speed: u16(d, o + 2) * 16, track, items, pal };
+  }
   function ringImage(d, k, pal, size = 16) {
     const px = new Uint8ClampedArray(size * size * 4);
     blit(px, size, d.subarray(RING_ART + k * 0x80, RING_ART + k * 0x80 + 128), 2, 2, 0, 0, false, false, pal);
@@ -6097,7 +6300,7 @@ const S3D = (() => {
   }
 
   const typeArt = (d, t) => u32(d, 0x280E8 + t);   // an object type's art block (Green Grove's boss: 48 pod, 50 ball)
-  return { LEVELS, check, openRomFile, objImage, typeArt, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, levelPalettes, OCTANT, HERO };
+  return { LEVELS, BONUS, bonusStage, check, openRomFile, objImage, typeArt, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, levelPalettes, OCTANT, HERO };
 })();
 </script>
 
@@ -6402,7 +6605,25 @@ const Art = (() => {
     shaky(ctx, R, [[44, 79], [42, 88]], 3.5); shaky(ctx, R, [[54, 79], [56, 88]], 3.5);
     return c;
   }
-  return { hero, ring, palm, bush, flower, spring, sky, tile, water, enemy, monitor, goal, flicky };
+  // the two friends who take rings for the bonus run: round pals of our own (a mint one with a bow, a lilac one in a
+  // cap), waving; `kind` 0 or 1, `phase` 0..3 the wave, `boil` the redraw
+  function pal(kind, phase, boil) {
+    const { c, ctx } = makeCanvas(128, 128), R = rng(7700 + kind * 97 + boil * 13);
+    const body = kind ? '#c7a6ff' : '#5fe0b4', dark = kind ? '#8f6ad8' : '#2fa883', cx = 64, cy = 74;
+    blob(ctx, R, cx - 14, 116, 12, 7, dark, 0.3, 4); blob(ctx, R, cx + 14, 116, 12, 7, dark, 0.3, 4);
+    const hand = [[cx + 44, cy - 34], [cx + 50, cy - 18], [cx + 44, cy - 40], [cx + 48, cy - 26]][phase & 3];
+    shaky(ctx, R, [[cx - 30, cy + 4], [cx - 44, cy + 22]], 6); blob(ctx, R, cx - 46, cy + 24, 8, 8, body, 0.3, 4);
+    blob(ctx, R, cx, cy, 38, 40, body, 0.16, 6);
+    hatch(ctx, R, cx - 12, cy + 16, 18, 16, dark, 10, 3);
+    blob(ctx, R, cx - 12, cy - 10, 12, 14, '#ffffff', 0.14, 4); blob(ctx, R, cx + 12, cy - 12, 10, 12, '#ffffff', 0.14, 4);
+    blob(ctx, R, cx - 10 + (R() - 0.5) * 6, cy - 8, 4, 5, INK, 0.2, 0); blob(ctx, R, cx + 13 + (R() - 0.5) * 5, cy - 10, 4, 4, INK, 0.2, 0);
+    shaky(ctx, R, [[cx - 12, cy + 12], [cx, cy + 18], [cx + 12, cy + 11]], 4);
+    if (kind) { blob(ctx, R, cx, cy - 40, 26, 10, '#ffd34a', 0.2, 5); blob(ctx, R, cx + 22, cy - 34, 14, 5, '#ffd34a', 0.3, 4); }
+    else { blob(ctx, R, cx - 12, cy - 42, 12, 8, '#ff6fa8', 0.3, 4); blob(ctx, R, cx + 12, cy - 42, 12, 8, '#ff6fa8', 0.3, 4); blob(ctx, R, cx, cy - 42, 5, 5, '#ff6fa8', 0.3, 4); }
+    shaky(ctx, R, [[cx + 30, cy - 4], hand], 6); blob(ctx, R, hand[0], hand[1], 8, 8, body, 0.3, 4);
+    return c;
+  }
+  return { hero, ring, palm, bush, flower, spring, sky, tile, water, enemy, monitor, goal, flicky, pal };
 })();
 </script>
 
@@ -6496,6 +6717,7 @@ const Art = (() => {
   const tileTex = tex(Art.tile()); tileTex.wrapS = tileTex.wrapT = THREE.RepeatWrapping;
   const waterTex = tex(Art.water()); waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping;
   const spriteMat = cnv => new THREE.SpriteMaterial({ map: tex(cnv), alphaTest: 0.5 });
+  const palMats = new Map(), palMat = (kind, phase, boil) => { const k = kind * 100 + phase * 10 + boil; if (!palMats.has(k)) palMats.set(k, spriteMat(Art.pal(kind, phase, boil))); return palMats.get(k); };
   const ringMats = [0, 1, 2].map(b => spriteMat(Art.ring(b)));
   const springMats = [spriteMat(Art.spring(false)), spriteMat(Art.spring(true))];
   const decorMats = {
@@ -6833,6 +7055,12 @@ const Art = (() => {
       flicky: () => tone('sine', 1800, 2600, 0.12, 0.25),
       tick: () => tone('square', 2200, 2200, 0.03, 0.12),
       skid: () => noise(0.25, 0.35, 900),
+      friend: () => arp([659, 784, 988], 0.06, 'triangle', 0.3),
+      gate: () => arp([784, 988, 1175, 1568], 0.06, 'triangle', 0.3),
+      emerald: () => arp([523, 784, 1047, 1319, 1568, 2093], 0.09, 'triangle', 0.35),
+      emeraldNo: () => arp([523, 784, 1047, 1319], 0.09, 'triangle', 0.3),
+      bonusRise: () => tone('sine', 400, 1600, 0.8, 0.3),
+      bonusFail: () => arp([392, 330, 262, 196], 0.12, 'square', 0.25),
     };
     function play(name) {
       if (muted) return;
@@ -7198,7 +7426,7 @@ const Art = (() => {
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
-  let sprinklerObjs = [], pylonObjs = [], zapObjs = [], beamObjs = [], capsuleObjs = [], leverObjs = [], beamPostObjs = [];
+  let sprinklerObjs = [], pylonObjs = [], zapObjs = [], beamObjs = [], capsuleObjs = [], leverObjs = [], beamPostObjs = [], friendObjs = [], friendBubble = null;
   // Panic Puppet 2's beam posts (180): the frame shown in each of the 24 animation steps (list 0x16030, frame offsets / 4)
   const BEAM_FRAMES = [4, 4, 4, 4, 3, 3, 3, 2, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3];
   let rockObjs = [], jetObjs = [], moverObjs = [], spikeBallObjs = [], fireObjs = [], fireballObjs = [], iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
@@ -7892,6 +8120,18 @@ const Art = (() => {
     // Panic Puppet's Flicky capsules (19C: the original's frame) or a glass jar of our own with the bird inside; gone once
     // broken. Levers (194) at the middle of their switch cells: frame 0 for 0, 7 for 1, swung in between; or a post and a
     // knob of our own tilted the way the belt goes
+    // Tails and Knuckles: their own frames from the ROM (palette line 2), or our two pals; a bubble shows the rings
+    // given while one takes them
+    friendObjs = world.friends.map(f => {
+      const s = rom ? bottomSprite(romBossMat(f.who === 'tails' ? 0x15C : 0x160, 0, ROM_CANVAS, 80, 2), f.x, f.y, f.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT)
+        : bottomSprite(palMat(f.who === 'tails' ? 0 : 1, 0, 0), f.x, f.y, f.z, 1.1, 1.1, 0.04);
+      s.userData = { who: f.who, rom }; return s;
+    });
+    {
+      const c = document.createElement('canvas'); c.width = 128; c.height = 64;
+      friendBubble = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+      friendBubble.scale.set(0.9, 0.45, 1); friendBubble.renderOrder = 6; friendBubble.visible = false; friendBubble.userData = { canvas: c, n: -1 }; levelGroup.add(friendBubble);
+    }
     capsuleObjs = world.capsules.map(c => {
       if (rom) return bottomSprite(romBossMat(0x19C, 0, ROM_CANVAS, 80, c.line), c.x, c.y, c.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT);
       const g = new THREE.Group(), floor = Sim.floorAt(L, c.x, c.z), h = c.top - floor, r = c.half;
@@ -8674,7 +8914,7 @@ const Art = (() => {
   // act results: in the ROM look the original's own results screen (fonts and layout from the ROM, bonuses counted
   // into the score), otherwise a plain card; then the next act in the original's order (ROM levels)
   // Bonus rules are mine (the original's tables are not decoded): time 10000 under a minute, less after; 100 a ring
-  // and 100 a Flicky saved; Knuckles and Tails bonuses need special stages, which this game does not have.
+  // and 100 a Flicky saved; the Knuckles and Tails bonuses are left at 0 (their rule is not decoded).
   let tally = null;
   function timeBonus(secs) { return secs < 60 ? 10000 : secs < 120 ? 5000 : secs < 180 ? 3000 : secs < 240 ? 2000 : secs < 300 ? 1000 : secs < 600 ? 500 : 0; }
   function drawTally(now) {
@@ -8690,7 +8930,10 @@ const Art = (() => {
   }
   function actClear() {
     const idx = L.rom ? S3D.LEVELS.findIndex(l => l[0] === L.rom.level) : -1, here = idx >= 0 ? S3D.LEVELS[idx][1] : L.name;
-    const next = idx >= 0 && romBytes ? S3D.LEVELS[idx + 1] : null, secs = Math.floor(world.time);
+    // (the Final Fight comes after Panic Puppet 3 only with all seven Chaos Emeralds, as in the original)
+    let next = idx >= 0 && romBytes ? S3D.LEVELS[idx + 1] : null;
+    const locked = next && next[0] === 22 && emeraldCount() < 7, secs = Math.floor(world.time);
+    if (locked) next = null;
     const time = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
     let wait = 5000;
     if (romOn() && L.rom) {
@@ -8705,7 +8948,7 @@ const Art = (() => {
     clearTimeout(clearTimer);
     clearTimer = setTimeout(() => {
       clearCardOff();
-      if (!next) { if (tally) toast('That was the last act. Open ? to play again or choose another level.', 5); return; }
+      if (!next) { if (locked) toast(`The Final Fight needs all seven Chaos Emeralds (you have ${emeraldCount()}). Give Tails and Knuckles fifty rings an act. It is also in the level list.`, 8); else if (tally) toast('That was the last act. Open ? to play again or choose another level.', 5); return; }
       try {
         const raw = S3D.convert(romBytes, next[0], L.rom.vscale);
         useLevel(Sim.importLevel(raw), true);
@@ -8749,6 +8992,263 @@ const Art = (() => {
     }
   }
 
+  // ---- the special stage: Tails or Knuckles took fifty rings in this act (ROM levels only: the stages are the
+  // player's ROM's). The run is the original's own (Sim.bonusStep: its units, its 16.16 fixed point, checked frame
+  // by frame against the original), drawn in 3D: the track from its records (64 units wide, y down), the items where
+  // the original puts them, and a camera with the original's projection (a focal length of 256 pixels for 224
+  // lines, 180 units behind Sonic and eased to 200 above him, its horizon 120 lines over the top of the screen).
+  // The track's stone and grating, the river beneath, the spiked balls, the gate posts and the emerald are our own
+  // drawing in the stage's own palette colours. ----
+  const EM_KEY = 'blastgrid.emeralds';
+  const emeraldCount = () => Math.max(0, Math.min(7, Number(store.get(EM_KEY)) || 0));
+  const EM_COLORS = [0x37c8ff, 0xffe14a, 0xff5ab0, 0x5cff72, 0xb07aff, 0xff7a3a, 0xf0f0ff];   // ours
+  const BU = 1 / 32, bx = x => -x * BU, by = y => -y * BU, bz = z => z * BU;   // (-x: the camera looks along +z)
+  let bonus = null;
+  const bonusCam = new THREE.PerspectiveCamera(50, 1, 0.1, 40);
+  function bonusProjection() {
+    const W = window.innerWidth, H = window.innerHeight, f = Math.min(H * 256 / 224, W);
+    const py = H * 164 / 224 - f * 200 / 180;   // the principal point: Sonic's feet where the original draws them
+    const fullH = 2 * Math.max(H - py, py);
+    bonusCam.fov = 2 * Math.atan(fullH / 2 / f) * 180 / Math.PI; bonusCam.aspect = W / fullH;
+    bonusCam.setViewOffset(W, fullH, 0, fullH / 2 - py, W, H); bonusCam.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', () => { if (bonus) bonusProjection(); });
+  const css = c => `rgb(${c[0]},${c[1]},${c[2]})`, hex3 = c => (c[0] << 16) | (c[1] << 8) | c[2];
+  function bonusTex(draw, w = 64, h = 64) {
+    const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; return t;
+  }
+  // our own surfaces in the stage's colours: stone slabs (Knuckles' stages) or a steel grating (Tails'), rock or grass
+  // banks, and lava or water
+  function bonusLook(data) {
+    const [scen, trk] = data.pal, lava = data.look === 'lava';
+    let s = 7;
+    const R = () => (s = (s * 16807) % 2147483647) / 2147483647;
+    const deck = bonusTex((g, w, h) => {
+      if (lava) {
+        g.fillStyle = css(trk[12]); g.fillRect(0, 0, w, h);
+        for (let k = 0; k < 40; k++) { g.fillStyle = css(trk[10 + (k % 5)]); g.fillRect(R() * w, R() * h, 2 + R() * 6, 2 + R() * 4); }
+        g.fillStyle = css(trk[6]); g.fillRect(0, 0, w, 3); g.fillRect(0, 0, 3, h); g.fillRect(w / 2, 0, 2, h);
+        g.strokeStyle = css(trk[8]); g.lineWidth = 1; g.beginPath(); g.moveTo(8 + R() * 20, 6); g.lineTo(14 + R() * 10, 30); g.lineTo(6 + R() * 20, 50); g.stroke();
+      } else {
+        g.clearRect(0, 0, w, h); g.fillStyle = css(trk[10]);
+        for (let k = 0; k < 4; k++) g.fillRect(0, k * 16, w, 4);
+        for (let k = 0; k < 8; k++) g.fillRect(k * 8 + 2, 0, 3, h);
+        g.fillStyle = css(trk[14]); for (let k = 0; k < 4; k++) g.fillRect(0, k * 16, w, 1);
+        g.fillStyle = css(trk[6]); g.fillRect(0, 0, 5, h); g.fillRect(w - 5, 0, 5, h);
+      }
+    });
+    const bank = bonusTex((g, w, h) => {
+      g.fillStyle = css(scen[lava ? 3 : 4]); g.fillRect(0, 0, w, h);
+      for (let k = 0; k < 70; k++) { g.fillStyle = css(scen[1 + Math.floor(R() * (lava ? 6 : 5))]); g.beginPath(); g.ellipse(R() * w, R() * h, 2 + R() * 7, 1 + R() * 4, R() * 3, 0, 7); g.fill(); }
+    });
+    const flow = bonusTex((g, w, h) => {
+      g.fillStyle = css(scen[lava ? 10 : 11]); g.fillRect(0, 0, w, h);
+      for (let k = 0; k < 40; k++) { g.fillStyle = css(scen[lava ? 8 + Math.floor(R() * 4) : 9 + Math.floor(R() * 6)]); g.beginPath(); g.ellipse(R() * w, R() * h, 3 + R() * 10, 1 + R() * 2, 0, 0, 7); g.fill(); }
+    });
+    bank.repeat.set(1 / 3, 1 / 3);
+    return { deck, bank, flow, lava, fog: hex3(scen[lava ? 5 : 2]), side: hex3(trk[lava ? 7 : 5]), items: data.pal[2] };
+  }
+  // the track: a slab per record pair (two records at one distance make a step), its sides down 40 units (stone) or
+  // 10 (the grating)
+  function bonusTrack(data, look) {
+    const t = data.track, P = [], U = [], C = [], top = [], side = [], deep = look.lava ? 40 : 10;
+    const v = (x, y, z, u, w, c) => { P.push(bx(x), by(y), bz(z)); U.push(u, w); C.push(c, c, c); };
+    const quad = (list, a, b, c, d, sh) => {   // a b c d: [x, y, z, u, v] round the face
+      const i0 = P.length / 3; for (const q of [a, b, c, d]) v(q[0], q[1], q[2], q[3], q[4], sh);
+      list.push(i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3);
+    };
+    for (let i = 0; i + 1 < t.length; i++) {
+      const far = { x: t[i][2], y: t[i][3], d: t[i][1] }, near = { x: t[i + 1][2], y: t[i + 1][3], d: t[i + 1][1] };
+      if (far.d === near.d) {   // a step: its face
+        if (far.y !== near.y) quad(side, [near.x, near.y, near.d, 0, 0], [near.x + 64, near.y, near.d, 1, 0], [near.x + 64, far.y, near.d, 1, 1], [near.x, far.y, near.d, 0, 1], 0.72);
+        continue;
+      }
+      const sh = (t[i][0] & 1) ? 0.86 : 1, v0 = near.d / 32, v1 = far.d / 32;
+      quad(top, [near.x, near.y, near.d, 0, v0], [near.x + 64, near.y, near.d, 1, v0], [far.x + 64, far.y, far.d, 1, v1], [far.x, far.y, far.d, 0, v1], sh);
+      for (const e of [0, 64]) quad(side, [near.x + e, near.y, near.d, 0, v0], [far.x + e, far.y, far.d, 0, v1], [far.x + e, far.y + deep, far.d, 1, v1], [near.x + e, near.y + deep, near.d, 1, v0], 0.55);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+    g.setIndex(top.concat(side)); g.addGroup(0, top.length, 0); g.addGroup(top.length, side.length, 1);
+    return new THREE.Mesh(g, [new THREE.MeshBasicMaterial({ map: look.deck, vertexColors: true, side: THREE.DoubleSide, alphaTest: 0.5 }),
+      look.lava ? new THREE.MeshBasicMaterial({ map: look.deck, vertexColors: true, side: THREE.DoubleSide }) : new THREE.MeshBasicMaterial({ color: look.side, vertexColors: true, side: THREE.DoubleSide })]);
+  }
+  // the river (lava or water) under the track's path, and the banks: drawn 160 units under Sonic, wherever he is
+  function bonusGround(data, look) {
+    const g = new THREE.Group(), t = data.track.filter((r, i, a) => !i || r[1] !== a[i - 1][1]), P = [], U = [], I = [];
+    t.unshift([0, t[0][1] + 1600, t[0][2], 0]); t.push([0, t[t.length - 1][1] - 1600, t[t.length - 1][2], 0]);   // (on past both ends)
+    t.forEach((r, i) => { const cx = r[2] + 32; P.push(bx(cx - 110), 0, bz(r[1]), bx(cx + 110), 0, bz(r[1])); U.push(0, r[1] / 128, 1, r[1] / 128); if (i) { const a = (i - 1) * 2; I.push(a, a + 1, a + 3, a, a + 3, a + 2); } });
+    const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); rg.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); rg.setIndex(I);
+    const river = new THREE.Mesh(rg, new THREE.MeshBasicMaterial({ map: look.flow, side: THREE.DoubleSide }));
+    river.position.y = 0.03;
+    const bankMesh = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshBasicMaterial({ map: look.bank }));
+    bankMesh.rotation.x = -Math.PI / 2; look.bank.repeat.set(80 / 3, 80 / 3);
+    g.add(bankMesh, river); g.userData = { bankMesh, river };
+    return g;
+  }
+  const spikeGeo = (() => {   // a ball with twelve spikes, ours
+    const P = new THREE.IcosahedronGeometry(1, 0).attributes.position, dirs = [];
+    for (let i = 0; i < P.count; i++) { const d = new THREE.Vector3().fromBufferAttribute(P, i).normalize(); if (!dirs.some(q => q.distanceTo(d) < 1e-3)) dirs.push(d); }
+    return { ball: new THREE.SphereGeometry(0.2, 14, 10), spike: new THREE.ConeGeometry(0.06, 0.16, 6), dirs };
+  })();
+  function bonusItems(data, look, group) {
+    const it = look.items, objs = [];
+    const spikeMat = new THREE.MeshLambertMaterial({ color: hex3(it[4]) }), tipMat = new THREE.MeshLambertMaterial({ color: hex3(it[7]) });
+    const postMat = new THREE.MeshLambertMaterial({ color: hex3(it[12]) }), capMat = new THREE.MeshLambertMaterial({ color: hex3(it[7]), emissive: 0x222222 });
+    const gemMat = new THREE.MeshLambertMaterial({ color: EM_COLORS[data.n % 7], emissive: EM_COLORS[data.n % 7], emissiveIntensity: 0.35 });
+    const pairs = new Map();
+    data.items.forEach((r, q) => {
+      const [d, x, y, k] = r;
+      let o = null;
+      if (k === 1) { o = new THREE.Sprite(romOn() ? romArt.rings[0] : ringMats[0]); o.scale.set(0.55, 0.55, 1); o.position.set(bx(x), by(y - 8), bz(d)); }
+      else if (k === 0) {
+        o = new THREE.Group(); o.add(new THREE.Mesh(spikeGeo.ball, spikeMat));
+        for (const dir of spikeGeo.dirs) { const c = new THREE.Mesh(spikeGeo.spike, tipMat); c.position.copy(dir).multiplyScalar(0.24); c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir); o.add(c); }
+        o.position.set(bx(x), by(y - 10), bz(d));
+      } else if (k === 2) {
+        o = new THREE.Group();
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 1.9, 10), postMat); pole.position.y = 0.95;
+        const cap = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 8), capMat); cap.position.y = 1.95;
+        o.add(pole, cap); o.position.set(bx(x), by(y), bz(d));
+        if (pairs.has(d)) {   // a beam between the pair: the gate, gone once passed
+          const a = pairs.get(d), len = Math.abs(a.position.x - o.position.x);
+          const beam = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, 0.06), new THREE.MeshBasicMaterial({ color: 0xfff27a, transparent: true, opacity: 0.8 }));
+          beam.position.set((a.position.x + o.position.x) / 2, (a.position.y + o.position.y) / 2 + 1.7, bz(d)); group.add(beam);
+          o.userData.beam = beam; a.userData.beam = beam;
+        } else pairs.set(d, o);
+        o.userData.cap = cap;
+      } else if (k === 3) {
+        const c = document.createElement('canvas'); c.width = 128; c.height = 64;
+        o = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), alphaTest: 0.1 })); o.scale.set(1.4, 0.7, 1);
+        o.position.set(bx(x), by(y - 70), bz(d)); o.userData.canvas = c; o.userData.shown = -1;
+      } else if (k === 7) {
+        o = new THREE.Group();
+        const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.32, 0.14, 8), gemMat), pav = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.4, 8), gemMat);
+        crown.position.y = 0.07; pav.rotation.x = Math.PI; pav.position.y = -0.2; o.add(crown, pav); o.position.set(bx(x), by(y - 24), bz(d));
+      }
+      if (o) { o.userData.k = k; o.userData.q = q; group.add(o); objs.push(o); }
+    });
+    return objs;
+  }
+  function signDraw(o, n) {
+    if (o.userData.shown === n) return;
+    o.userData.shown = n;
+    const g = o.userData.canvas.getContext('2d'); g.clearRect(0, 0, 128, 64);
+    g.fillStyle = 'rgba(16,12,30,0.75)'; g.fillRect(4, 4, 120, 56); g.strokeStyle = '#ffd34a'; g.lineWidth = 4; g.strokeRect(4, 4, 120, 56);
+    g.fillStyle = '#ffd34a'; g.font = '700 40px "Chakra Petch", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(n), 64, 34);
+    o.material.map.needsUpdate = true;
+  }
+  function startBonus(who) {
+    const em = emeraldCount(), n = Math.min(em, 6) + (who === 'tails' ? 7 : 0);
+    let data;
+    try { data = S3D.bonusStage(romBytes, n); } catch (e) { toast('The special stage could not be read from this ROM: ' + e.message + '.', 4); return; }
+    const look = bonusLook(data), scene2 = new THREE.Scene(), group = new THREE.Group();
+    scene2.background = new THREE.Color(look.fog); scene2.fog = new THREE.Fog(look.fog, 11, 17.5);
+    scene2.add(new THREE.HemisphereLight(0xffffff, 0x5a4a60, 0.9), (() => { const d = new THREE.DirectionalLight(0xffffff, 0.6); d.position.set(-0.4, 1, -0.6); return d; })());
+    const track = bonusTrack(data, look), ground = bonusGround(data, look);
+    group.add(track, ground); scene2.add(group);
+    const objs = bonusItems(data, look, group);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: heroTexture('back', 'run', 0, 0, false), alphaTest: 0.5 }));
+    const shade = new THREE.Mesh(new THREE.CircleGeometry(0.3, 18), new THREE.MeshBasicMaterial({ color: 0x100818, transparent: true, opacity: 0.4, depthWrite: false }));
+    shade.rotation.x = -Math.PI / 2; scene2.add(sprite, shade);
+    const use3d = !!hero3d && heroMode === '3d';
+    if (use3d) scene2.add(hero3d.root);
+    const b = Sim.bonusStart(data, em >= 7);
+    bonus = { b, data, look, scene: scene2, group, ground, objs, sprite, shade, use3d, who, n, noEm: em >= 7, prev: { x: b.x, y: b.y, z: b.z, cx: b.camX, cy: b.camY, cz: b.camZ },
+      acc: 0, cycle: 0, done: null, doneAt: 0, popped: new Map(), lastMsg: '' };
+    bonusProjection();
+    $('flickyHud').hidden = true; $('ringCount').textContent = '0'; $('ringTotal').textContent = '';
+    if (MdSound.on && !Sfx.muted) MdSound.playMusic(S3D.BONUS.music);
+    fadeCut();
+  }
+  function endBonus() {
+    const B = bonus, won = B.done === 'emerald';
+    if (B.use3d && hero3d) scene.add(hero3d.root);
+    B.scene.traverse(o => { if (o.geometry && o.geometry !== spikeGeo.ball && o.geometry !== spikeGeo.spike) o.geometry.dispose(); });
+    for (const t of [B.look.deck, B.look.bank, B.look.flow]) t.dispose();
+    let title, info = `Ring bonus ${B.b.rings * 100}`;
+    if (won && !B.noEm) {
+      const n = emeraldCount() + 1; store.set(EM_KEY, String(n));
+      title = 'Sonic got a Chaos Emerald'; info += `\nEmerald bonus 10000\n${n} of 7`;
+    } else title = won ? 'Special stage clear' : 'No emerald this time';
+    bonus = null;
+    $('bonusMsg').hidden = true;
+    $('clearTitle').textContent = title; $('clearInfo').textContent = info; $('clearCard').hidden = false;
+    clearTimeout(clearTimer); clearTimer = setTimeout(clearCardOff, 4000);
+    $('ringCount').textContent = String(world.ringCount); shownRings = world.ringCount; $('ringTotal').textContent = `/ ${world.rings.length}`;
+    $('flickyHud').hidden = !L.flickies; flickyHudKey = -1; showEmeralds();
+    levelMusic(); fadeCut(); resetCamera();
+  }
+  function showEmeralds() { const n = emeraldCount(); $('emeraldHud').hidden = !n; $('emeraldCount').textContent = String(n); }
+  showEmeralds();
+  function frameBonus(now, dt) {
+    const B = bonus, b = B.b, inp = readInput(dt);
+    B.acc += dt;
+    let steps = 0;
+    while (B.acc >= STEP && steps < 5) {
+      Object.assign(B.prev, { x: b.x, y: b.y, z: b.z, cx: b.camX, cy: b.camY, cz: b.camZ });
+      if (started && !B.done) {
+        Sim.bonusStep(b, { left: inp.ix < -0.3, right: inp.ix > 0.3, jump: inp.jump });
+        for (const ev of b.events) Sfx.play(ev);
+        if (b.done) { B.done = b.done; B.doneAt = now / 1000; }
+      }
+      B.acc -= STEP; steps++;
+    }
+    if (steps === 5) B.acc = 0;
+    if (B.done && now / 1000 - B.doneAt > 0.6) { endBonus(); return; }
+    const a = B.acc / STEP, t = now / 1000, lerp = (p, q) => p + (q - p) * a, P = B.prev;
+    const x = lerp(P.x, b.x) / 65536, y = lerp(P.y, b.y) / 65536, z = lerp(P.z, b.z) / 65536;
+    bonusCam.position.set(bx(lerp(P.cx, b.camX) / 65536), by(lerp(P.cy, b.camY) / 65536), bz(lerp(P.cz, b.camZ) / 65536));
+    bonusCam.lookAt(bonusCam.position.x, bonusCam.position.y, bonusCam.position.z + 1);
+    // Sonic: running away from the camera, a ball in the air, blinking after a hit
+    const air = !b.gr, sp = b.vz / 65536 * 60 / 32;
+    B.cycle += dt * (4 + sp * 2.2);
+    const blink = b.hitT > 0 && Math.floor(t * 16) % 2;
+    if (B.use3d) {
+      B.sprite.visible = false;
+      updateHero3d({ vx: 0, vz: Math.max(0, sp), facing: 0, grounded: !air, ball: air, charge: 0, rolling: false, invuln: b.hitT > 0 ? 1 : 0, sprung: false, hover: false, whirl: false, skid: false }, new THREE.Vector3(bx(x), by(y), bz(z)), dt, t);
+    } else {
+      let map;
+      if (romOn()) {
+        const q = air ? S3D.HERO.ball() : S3D.HERO.run(4);
+        map = romHeroTex(q[Math.floor(B.cycle) % q.length], false);
+        B.sprite.scale.set(ROM_SIZE, ROM_SIZE, 1); B.sprite.center.set(0.5, HERO_FOOT);
+      } else {
+        map = air ? heroTexture('front', 'ball', Math.floor(B.cycle) % 4, Math.floor(t * 8) % 3, false) : heroTexture('back', 'run', Math.floor(B.cycle) % 4, Math.floor(t * 8) % 3, false);
+        B.sprite.scale.set(1.3, 1.3, 1); B.sprite.center.set(0.5, 0.04);
+      }
+      B.sprite.material.map = map;
+      B.sprite.position.set(bx(x), by(y), bz(z)); B.sprite.visible = !blink && !b.out;
+    }
+    B.shade.position.set(bx(x), by(b.floorY) + 0.02, bz(z)); B.shade.visible = !b.out && !b.end;
+    // the river and banks 160 units under the camera's height above Sonic
+    B.ground.position.y = by(lerp(P.cy, b.camY) / 65536 + 360);
+    const bank = B.ground.userData.bankMesh; bank.position.set(bonusCam.position.x, 0, bonusCam.position.z + 10);
+    B.look.bank.offset.set(-bank.position.x / 3, bank.position.z / 3); B.look.flow.offset.set(0, t * (B.look.lava ? 0.15 : 0.4));
+    // items: rings turn (ROM frames) and pop when taken; a gate's beam goes once passed; the emerald spins
+    const rom = romOn(), rf = Math.floor(t * 15) % 16;
+    for (const o of B.objs) {
+      const it = b.items[o.userData.q], k = o.userData.k;
+      if (k === 1) {
+        if (it.gone) {
+          if (!B.popped.has(o)) B.popped.set(o, t);
+          const p = (t - B.popped.get(o)) / 0.2; o.visible = p < 1; if (p < 1) o.scale.setScalar(0.55 * (1 + p));
+        } else o.material = rom ? romArt.rings[rf] : ringMats[Math.floor(t * 8) % 3];
+      } else if (k === 0) o.rotation.y = t * 2;
+      else if (k === 7) { o.visible = !it.gone; o.rotation.y = t * 1.5; }
+      else if (k === 3) signDraw(o, b.remain);
+      else if (k === 2 && o.userData.beam) o.userData.beam.visible = z < it.d;
+    }
+    // the messages: "Collect 50 rings" (a new count), the count still wanted while a sign is in sight
+    const msg = b.msg === 2 ? `Collect ${b.req}\nrings` : b.msg === 1 && b.remain ? String(b.remain) : '';
+    if (msg !== B.lastMsg) { B.lastMsg = msg; const m = $('bonusMsg'); m.textContent = msg; m.hidden = !msg; m.classList.toggle('count', b.msg === 1); }
+    if (shownRings !== b.rings) { shownRings = b.rings; $('ringCount').textContent = String(b.rings); }
+    if (toastTimer > 0) { toastTimer -= dt; if (toastTimer <= 0) $('toast').hidden = true; }
+    renderer.render(B.scene, bonusCam);
+    frames++;
+  }
+
   // ---- loop: fixed 60 Hz sim, interpolated render ----
   const STEP = Sim.P.dt;
   const prev = { x: world.p.x, y: world.p.y, z: world.p.z };
@@ -8756,6 +9256,7 @@ const Art = (() => {
   const g2 = [0, 0], nrmV = new THREE.Vector3(), zAxis = new THREE.Vector3(0, 0, 1), rp = new THREE.Vector3();
   function frame(now) {
     const dt = Math.min(0.25, (now - last) / 1000); last = now;
+    if (bonus) { frameBonus(now, dt); requestAnimationFrame(frame); return; }
     acc += dt;
     let steps = 0;
     const inp = toWorld(readInput(dt));
@@ -8773,6 +9274,11 @@ const Art = (() => {
         flash();
       }
       if (world.events.includes('goal')) actClear();
+      if (world.events.includes('friendGive')) {
+        const f = world.friends.find(q => q.t === 120), name = f && (romOn() ? (f.who === 'tails' ? 'Tails' : 'Knuckles') : 'Your pal'), n = f ? world.friendRings[f.who] : 0;
+        if (f) toast(n >= 50 ? `${name} has ${n} rings. Off to the special stage!` : `${name} has ${n} rings. Fifty in this act open the special stage.`, 3);
+      }
+      if (world.events.includes('bonusIn')) { if (romBytes) { startBonus(world.bonusWho); if (bonus) break; } }
       if (world.events.includes('monitor')) toast(POWER_TEXT[world.power] || '', 2);
       if (world.events.includes('shieldLost')) toast('The shield took the hit.', 1.6);
       if (world.events.includes('needFlickies')) toast(`The ring needs ${L.flickies} Flickies. Free them from enemies and bring them here.`, 3);
@@ -8965,6 +9471,29 @@ const Art = (() => {
     // Panic Puppet: capsules gone once broken; levers swing a frame every 3 ticks to their value; doors slide into the
     // floor while their gate is open
     capsuleObjs.forEach((o, q) => { o.visible = world.capsules[q].alive; });
+    // the friends: Tails runs through his frames, Knuckles stands and now and then goes through his (our cycles; the
+    // original's scripts at 0x16216 and 0x162CA also wait on a wave of its own)
+    let giving = null;
+    friendObjs.forEach((o, q) => {
+      const f = world.friends[q]; o.visible = f.shown;
+      if (!f.shown) return;
+      if (f.t > 0) giving = f;
+      if (o.userData.rom) {
+        const tails = f.who === 'tails', c = Math.floor(t * 10 + q * 7);
+        const fr = tails ? c % 16 : (c % 90 < 60 ? 0 : c % 90 < 66 ? [0, 1, 2, 2, 1, 0][c % 90 - 60] : 3 + (c % 90 - 66) % 13);
+        o.material = romBossMat(tails ? 0x15C : 0x160, fr, ROM_CANVAS, 80, 2);
+      } else o.material = palMat(f.who === 'tails' ? 0 : 1, Math.floor(t * 4) % 4, Math.floor(t * 8) % 3);
+    });
+    friendBubble.visible = !!giving;
+    if (giving) {
+      const n = world.friendRings[giving.who], u = friendBubble.userData;
+      friendBubble.position.set(giving.x, giving.y + 1.5 + (120 - giving.t) / 120 * 0.4, giving.z);
+      if (u.n !== n) {
+        u.n = n; const g = u.canvas.getContext('2d'); g.clearRect(0, 0, 128, 64);
+        g.fillStyle = '#ffd34a'; g.strokeStyle = '#15121f'; g.lineWidth = 8; g.font = '700 44px "Chakra Petch", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        g.strokeText(String(n), 64, 34); g.fillText(String(n), 64, 34); friendBubble.material.map.needsUpdate = true;
+      }
+    }
     beamPostObjs.forEach((o, q) => {
       const b = world.beams[q], f = BEAM_FRAMES[b.idx], u = o.userData;
       if (u.f === f) return;
@@ -9096,7 +9625,7 @@ const Art = (() => {
   }
   satReady = true; setSaturn(saturn);
   $('screenSel').addEventListener('change', () => setSaturn($('screenSel').value === 'saturn'));
-  window.__game = { MdSound, Sim, resetCamera, get hero3d() { return hero3d; }, get jamProps() { return jamProps; }, jamCopy, poseJam, get jamPalms() { return jamPalms; }, view, setMode, start, get world() { return world; }, get level() { return L; }, get levelGroup() { return levelGroup; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
+  window.__game = { MdSound, Sim, resetCamera, startBonus, get bonus() { return bonus; }, get hero3d() { return hero3d; }, get jamProps() { return jamProps; }, jamCopy, poseJam, get jamPalms() { return jamPalms; }, view, setMode, start, get world() { return world; }, get level() { return L; }, get levelGroup() { return levelGroup; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
   setMode(view.mode);
   requestAnimationFrame(frame);
 })();

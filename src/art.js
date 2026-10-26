@@ -298,5 +298,23 @@ const Art = (() => {
     shaky(ctx, R, [[44, 79], [42, 88]], 3.5); shaky(ctx, R, [[54, 79], [56, 88]], 3.5);
     return c;
   }
-  return { hero, ring, palm, bush, flower, spring, sky, tile, water, enemy, monitor, goal, flicky };
+  // the two friends who take rings for the bonus run: round pals of our own (a mint one with a bow, a lilac one in a
+  // cap), waving; `kind` 0 or 1, `phase` 0..3 the wave, `boil` the redraw
+  function pal(kind, phase, boil) {
+    const { c, ctx } = makeCanvas(128, 128), R = rng(7700 + kind * 97 + boil * 13);
+    const body = kind ? '#c7a6ff' : '#5fe0b4', dark = kind ? '#8f6ad8' : '#2fa883', cx = 64, cy = 74;
+    blob(ctx, R, cx - 14, 116, 12, 7, dark, 0.3, 4); blob(ctx, R, cx + 14, 116, 12, 7, dark, 0.3, 4);
+    const hand = [[cx + 44, cy - 34], [cx + 50, cy - 18], [cx + 44, cy - 40], [cx + 48, cy - 26]][phase & 3];
+    shaky(ctx, R, [[cx - 30, cy + 4], [cx - 44, cy + 22]], 6); blob(ctx, R, cx - 46, cy + 24, 8, 8, body, 0.3, 4);
+    blob(ctx, R, cx, cy, 38, 40, body, 0.16, 6);
+    hatch(ctx, R, cx - 12, cy + 16, 18, 16, dark, 10, 3);
+    blob(ctx, R, cx - 12, cy - 10, 12, 14, '#ffffff', 0.14, 4); blob(ctx, R, cx + 12, cy - 12, 10, 12, '#ffffff', 0.14, 4);
+    blob(ctx, R, cx - 10 + (R() - 0.5) * 6, cy - 8, 4, 5, INK, 0.2, 0); blob(ctx, R, cx + 13 + (R() - 0.5) * 5, cy - 10, 4, 4, INK, 0.2, 0);
+    shaky(ctx, R, [[cx - 12, cy + 12], [cx, cy + 18], [cx + 12, cy + 11]], 4);
+    if (kind) { blob(ctx, R, cx, cy - 40, 26, 10, '#ffd34a', 0.2, 5); blob(ctx, R, cx + 22, cy - 34, 14, 5, '#ffd34a', 0.3, 4); }
+    else { blob(ctx, R, cx - 12, cy - 42, 12, 8, '#ff6fa8', 0.3, 4); blob(ctx, R, cx + 12, cy - 42, 12, 8, '#ff6fa8', 0.3, 4); blob(ctx, R, cx, cy - 42, 5, 5, '#ff6fa8', 0.3, 4); }
+    shaky(ctx, R, [[cx + 30, cy - 4], hand], 6); blob(ctx, R, hand[0], hand[1], 8, 8, body, 0.3, 4);
+    return c;
+  }
+  return { hero, ring, palm, bush, flower, spring, sky, tile, water, enemy, monitor, goal, flicky, pal };
 })();

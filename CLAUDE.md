@@ -292,6 +292,14 @@ serves index.html from main.
 - In the emulator, freed particle slots keep their old bytes: find new shots by the life word (+0x32) going up.
 
 ## Status
+- 2026-10-27: Tails and Knuckles (`friend` {who, y, show}: hidden until `show` {section | cell [x, z] + maxY | cannon};
+  0xCF1E's gift: `w.friendRings` per act, `p.friend` walk, `bonusIn` when a gift passes 50) and the special stage:
+  `S3D.bonusStage(rom, n)` reads the track/items/palettes, `Sim.bonusStart`/`bonusStep` is the original's frame in
+  its 16.16 units (bit-exact against 4 emulator traces: private sstrace.py + bonus_parity.js), game.js draws it
+  (`startBonus`, `frameBonus`, `endBonus`; own slabs/grating/river/spikes/posts/gem in the stage's palette colours,
+  ROM rings and hero; camera with the original's projection via setViewOffset). Emeralds in localStorage
+  `blastgrid.emeralds` (HUD `#emeraldHud`); the Final Fight follows PP3 only with 7. VV2 vent 0x63AC off while its
+  partner's rock stands (`offWhileRock`). 123 sim tests.
 - 2026-10-27: DD1 warp holes (`warpHole`: land on (57, 50), fall through, thrown out of the other; watched and matched to
   the unit). On original-movement levels an airborne wall stop keeps Sonic's speed (watched).
 - 2026-10-27: Diamond Dust gates (DD1 supercharger and sled gates, DD2 supercharger gates; `pass` 1 or 2 with
@@ -328,8 +336,7 @@ serves index.html from main.
   Open in DD1: warp holes (57,50)<->(59,72), the 0x4C4C wall, gates. Next: DD2 (RunLevel_DDz2 0xFA06), DD3 boss.
 - 2026-10-27: Spring Stadium 1 and 2: superchargers fixed (way and spot from the routine), loops and held runs,
   floor springs, bumpers, spike fields, tubes, balloons, triangle bumpers, spears, spiked wall; SS enemies 05C/14C;
-  SS3 boss; 86 sim tests; private flow.py says SS1 and SS2 can be finished. Open in SS: gates (038, raised cells),
-  13C/140, Tails and Knuckles.
+  SS3 boss; 86 sim tests; private flow.py says SS1 and SS2 can be finished. Open in SS: 13C/140.
 - 2026-10-27: RR3 boss (statue arms, slams, fist rides; checked in the emulator and the page); spiked crawler 0AC
   (`crawler` {y, axis, range}: 1 unit a frame, hurts, ROM look draws type art 0xAC frames 0-7); 82 sim tests.
 - 2026-10-27 early: RR2 gimmicks; pads with the original sequence (GG too); maces (`mace`: tables 0x75C2/0x80B8, ball 64
@@ -343,8 +350,8 @@ serves index.html from main.
   the reference emulator: same notes at the same tempo, top-note agreement 0.53 vs 0.14 chance). 3D Sonic from Bill's Sonic Jam USA disc (formats from Sonic Retro SCHG),
   with skid, and Jam palms (GG 16/36/4), springs, big ring and Flickies; European disc; monitor boxes. 66 sim tests.
   Hunter spike ball measured and in. Animated water/lava, single flowers, rock on hidden cliffs, GG cannons and cracked
-  walls (GG1 cannon lands where the original does; GG2 about 2 m further). 70 sim tests. Open: Knuckles/Tails and the
-  bonus stage, Flicky body is a flat quad (edge-on from the side), other zones' gimmicks.
+  walls (GG1 cannon lands where the original does; GG2 about 2 m further). 70 sim tests. Open: Flicky body is a flat quad
+  (edge-on from the side).
 - 2026-10-26: Springs measured (140 units), monitors with ROM icons and effects, mines, turrets, superchargers, Scouters
   chase, Hunters stand, Flickies coloured in turn, act end moves to the next act, sound effects, spin dash on hold. 64 sim tests.
 - 2026-10-26: Published on GitHub (s3lfish/3D-Sonic-3D-Blast-3D), Pages at https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/.

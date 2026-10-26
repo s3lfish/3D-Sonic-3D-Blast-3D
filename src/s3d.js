@@ -22,7 +22,9 @@ const S3D = (() => {
   // there first, keeping velocity [vx, vy, vz] units a frame (y up) for when the move ends.
   // cracks: [cells (optionally [x, z, own raised height]), raised height, the way a dash must go].
   const GIMMICKS = {
-    1: { cannons: [[116, 12, 248, 9, 7.067]], cracks: [[[[108, 17]], 480, [0, -1]]] },
+    // friends: InitLevel hides Tails ($D948) and Knuckles ($D97C) unless $068A says the routine showed them already;
+    // RunLevel shows Tails once ring 1's hole opens (0xE5F4) and Knuckles while the cannon at (116, 12) fires (0xE766)
+    1: { cannons: [[116, 12, 248, 9, 7.067]], cracks: [[[[108, 17]], 480, [0, -1]]], friends: { tails: { section: 1 }, knuckles: { cannon: [116, 12] } } },
     2: { cannons: [[21, 48, 576, 9, 6.1]], cracks: [[[[59, 47]], 784, [-1, 0]], [[[108, 41], [109, 41]], 688, [0, -1]]] },
     7: { spikes: 0xFF, fans: 0x55, doors: [0x7994, 4], pillars: [0x7ACC, 23], maces: [0x75C2, 5], flames: [0x7548, 5],
       links: [[1696, 1840, 90], [2576, 1216, 180]],
@@ -35,7 +37,7 @@ const S3D = (() => {
     // after; rides at four cells, one of them only after the pillar at (85, 101) breaks: the routine then drops that
     // cell to 0x500 and lowers (99, 96) to its map value; it fires below 32 units (Sonic falls through the
   // 0x500 floor to there; ours stops at 40, so the ride here fires at 40). Dash wall (101, 60).
-    6: { spikes: 0xFF, fans: 0x55, pillars: [0x8266, 23], maces: [0x80B8, 6], flames: [0x7EC4, 9], padRise: 138, pads: [[0, 1, 1], [1, 0, 1], [2, 3, 2], [3, 2, 2]],
+    6: { friends: { tails: { cell: [85, 101], maxY: 32 } } /* 0x7FBE: the ride from (85, 101) at y 32 or under */, spikes: 0xFF, fans: 0x55, pillars: [0x8266, 23], maces: [0x80B8, 6], flames: [0x7EC4, 9], padRise: 138, pads: [[0, 1, 1], [1, 0, 1], [2, 3, 2], [3, 2, 2]],
       slides: [[0xC3, [1, 0]], [0xF0, [0, 1]]], pillarLinks: [[85, 101, 0x05, [[99, 96, 0x22]]]],
       rides: [[98, 96, 0, 0x30, null, null, [0, 0, 0]], [85, 101, 0, 0x2E, null, null, [0, 0, 0], 40],
         [100, 60, 0, 0x32, null, null, [0, 0, 0]], [91, 71, 0, 0x34, null, null, [0, 0, 0]]],
@@ -106,7 +108,7 @@ const S3D = (() => {
     // Volcano Valley 2 (RunLevel 0xAE20, labelled VVz1): pads 0xB10C/0xB130 (record 2 <-> 4 after ring 1); cracked walls
     // at (55, 61) (a roll north) and (94, 114) (west); spiked balls 118 swing about z 0xE80; the vent at 0x63AC is off
     // while the rock on its partner (0x56A8) stands (map low byte 0xFF)
-    12: { pads: [[0, 1, 1]], lava: 0x55, rocks: [0xB484, 27], roofs: 0xB386, vents: [0xB394, 8], spouts: [0xB286, 16], fireRuns: [0xB194, 5], fireBars: [0xB25C, 3],
+    12: { friends: { knuckles: { cell: [86, 99] } } /* 0xB00C */, pads: [[0, 1, 1]], lava: 0x55, rocks: [0xB484, 27], roofs: 0xB386, vents: [0xB394, 8], spouts: [0xB286, 16], fireRuns: [0xB194, 5], fireBars: [0xB25C, 3],
       cracks: [[[[55, 61]], 744, [0, -1]], [[[94, 114]], 424, [-1, 0]]], balls: [0xE80, 56, 8], ventOff: [[0x63AC, 0x56A8]] },
     13: { pads: [[0, 1, 1], [2, 3, 2]], lava: 0x55, rocks: [0xAB42, 42], roofs: 0xAA4A, vents: [0xA8F6, 6], spouts: [0xA9AA, 10], fireRuns: [0xAA5E, 5], fireBars: [0xAB26, 2],
       cracks: [[[[59, 55]], 680, [-1, 0]], [[[65, 63]], 584, [-1, 0]]] },
@@ -298,7 +300,8 @@ const S3D = (() => {
     0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',   // 0DC: Diamond Dust's snowdrift springs
     0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall',
     0x7C: 'sprinkler', 0x6C: 'pylon', 0x78: 'movePlat', 0x70: 'prop', 0x74: 'prop',
-    0x178: 'enemy', 0x19C: 'capsule', 0x194: 'lever', 0x184: 'prop', 0x17C: 'enemy', 0x180: 'beamPost', 0x18C: 'jetLift' };
+    0x178: 'enemy', 0x19C: 'capsule', 0x194: 'lever', 0x184: 'prop', 0x17C: 'enemy', 0x180: 'beamPost', 0x18C: 'jetLift',
+    0x15C: 'friend', 0x160: 'friend' };   // Tails and Knuckles (0xCF1E: fifty rings in all open a special stage)
   // drawn only: Gene Gadget's doors (070, frame 0x18 / 4 shut) and pads (074); Panic Puppet's door (184, frame 7 shut,
   // opened while the key of the gate beside it is held)
   const PROP_FRAME = { 0x70: 6, 0x74: 0, 0x184: 7 };
@@ -555,6 +558,16 @@ const S3D = (() => {
           y0: r3((s16(ob, o + 0x24) + 8) / CELL * vscale), y1: r3((s16(ob, o + 0x26) + 8) / CELL * vscale) });
       }
       if (kind === 'fireSpot') e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
+      if (kind === 'friend') {   // hidden until the act's routine shows it (see GIMMICKS' friends)
+        e.who = t === 0x15C ? 'tails' : 'knuckles'; e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale);
+        const sh = (gm.friends || {})[e.who];
+        if (sh && sh.section) e.show = { section: sh.section };
+        else if (sh) {
+          const sk = sh.cannon ? 'cannon' : 'cell', c = sh[sk];
+          e.show = { [sk]: [c[0] - x0, c[1] - z0] };
+          if (sh.maxY !== undefined) e.show.maxY = r3((sh.maxY + 8) / CELL * vscale);
+        }
+      }
       if (kind === 'prop') {
         e.y = r3((s16(ob, o + 0xA) + 8) / CELL * vscale); e.frame = PROP_FRAME[t] || 0;
         if (t === 0x184) for (const [cells, , , , key] of gm.gates || []) if (key && cells.some(([cx, cz]) => Math.hypot(cx + 0.5 - x / CELL, cz + 0.5 - z / CELL) < 2)) e.key = key;
@@ -1138,9 +1151,25 @@ const S3D = (() => {
       shut: [0xC9], beam: [0x78], liftUp: [0x3C], liftGo: [0xB6], lift: [0xD2] /* Panic Puppet 2's */,
       armGo: [0x5A], armRise: [0xC3], armSlam: [0x81], armOpen: [0x92], armDown: [0x54], blast: [0x59] /* Panic Puppet 3's routine */,
       ffDoor: [0xB8], ffBeep: [0xAD], timeUp: [0x78], ffAway: [0x60], ffHum: [0xC6], ffReady: [0x9D], laser: [0x5E], ffRise: [0xD0],
-      ffSink: [0x73], ffLetGo: [0xB6], ffAim: [0x53], ffSlam: [0x5F], ffTarget: [0x51] /* Final Fight's routine */ },
+      ffSink: [0x73], ffLetGo: [0xB6], ffAim: [0x53], ffSlam: [0x5F], ffTarget: [0x51] /* Final Fight's routine */,
+      friend: [0xB0] /* 0xCF1E */, bonusFail: [0xB2], gate: [0x63], emerald: [0x1A], emeraldNo: [0x19], bonusRise: [0x6A] /* the special stage */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
+  // Special stages (entry 0x1E218, set up by 0x1C2AA): table 0x1CA94, 14 entries of 24 bytes [look (1: stone over
+  // lava, Knuckles' stages 0-6; 0: a grating over a river, Tails' 7-13), top speed (x 16 / 0x10000 units a frame),
+  // track (RNC1), items (RNC1), three palettes (scenery, track, items)]. Track: 8-byte records [stripe, distance, x of
+  // the left edge (64 wide), y (down)], farthest first, two at one distance for a step; items: [distance, x, y, kind]
+  // (0 spiked ball, 1 ring, 2 gate post, 3 the count sign, 4/5 new counts 100/150, 7 the emerald), nearest first.
+  const BONUS = { table: 0x1CA94, music: 0x10 };
+  function bonusStage(d, n) {
+    const o = BONUS.table + 24 * n, s16s = (b, i) => { const v = (b[i] << 8) | b[i + 1]; return v & 0x8000 ? v - 0x10000 : v; };
+    const rec = (b, f) => { const out = []; for (let i = 0; i + 8 <= b.length; i += 8) out.push(f(i)); return out; };
+    const a = rncUnpack(d, u32(d, o + 4)), b = rncUnpack(d, u32(d, o + 8));
+    const track = rec(a, i => [s16s(a, i), s16s(a, i + 2), s16s(a, i + 4), s16s(a, i + 6)]);
+    const items = rec(b, i => [s16s(b, i), s16s(b, i + 2), s16s(b, i + 4), s16s(b, i + 6)]);
+    const pal = [12, 16, 20].map(k => { const p = u32(d, o + k), c = []; for (let j = 0; j < 16; j++) { const v = u16(d, p + 2 * j); c.push([((v >> 1) & 7) * 255 / 7 | 0, ((v >> 5) & 7) * 255 / 7 | 0, ((v >> 9) & 7) * 255 / 7 | 0]); } return c; });
+    return { n, look: u16(d, o) ? 'lava' : 'river', speed: u16(d, o + 2) * 16, track, items, pal };
+  }
   function ringImage(d, k, pal, size = 16) {
     const px = new Uint8ClampedArray(size * size * 4);
     blit(px, size, d.subarray(RING_ART + k * 0x80, RING_ART + k * 0x80 + 128), 2, 2, 0, 0, false, false, pal);
@@ -1728,5 +1757,5 @@ const S3D = (() => {
   }
 
   const typeArt = (d, t) => u32(d, 0x280E8 + t);   // an object type's art block (Green Grove's boss: 48 pod, 50 ball)
-  return { LEVELS, check, openRomFile, objImage, typeArt, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, levelPalettes, OCTANT, HERO };
+  return { LEVELS, BONUS, bonusStage, check, openRomFile, objImage, typeArt, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, levelPalettes, OCTANT, HERO };
 })();

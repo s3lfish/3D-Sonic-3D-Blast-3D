@@ -338,8 +338,7 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   or over and spinning ($56 = 1): hit (bounce, pad 30, 0x59); else Sonic hurt; 60 frames apart. Spikes: 0xFF cells
   with the spike count ($18). Floor springs 0x55 up to the spiked ledge. Arms' art (170, 174) does not decode.
 - Not used yet: 044 (Sonic head pickups:
-  ten add one to $06AA), 13C (a red button), 140, 154 (spear-like posts, animated when a ring opens a gate), 15C/160
-  Tails and Knuckles.
+  ten add one to $06AA), 13C (a red button), 140, 154 (spear-like posts, animated when a ring opens a gate).
 
 ## Diamond Dust 1 (2026-10-27; dd1_dis, runlog.py, flow.py, simrun.js)
 - The game places Sonic at the start table's first [x, z] (header +0x20), not at the 030 object; both converters now
@@ -679,16 +678,48 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   falling, 24 on the floor).
 - Not done: the floor pads' frames, the hatch's frames and the original's camera.
 
-## Tails, Knuckles and the special stage (2026-10-27; started, not used yet)
-- 15C Tails (handler 0x161C4, art 0x8EFF4) and 160 Knuckles (0x1626A, 0x93AA2) call 0xCF1E: a grounded Sonic with rings
-  whose x + 8 and z + 8 are within 0..16 of the record's is walked beside it; all his rings go to its running count
-  ($069E Tails, $06A0 Knuckles; shown over its head with font 0x144C1E), $24 = 120 frames, sound 0xB0 at 50 left. If
-  this gift took the count past 50, at the end $0684 = 1 (Tails) or 2 (Knuckles) and the main loop (0x60C) goes to the
-  special stage (0x760).
-- 0x760: stage = emeralds ($06A2, 7 and over: 6, no emerald); Tails adds 7; a stage played before ($06AE Tails /
-  $06B0 Knuckles, stage + 1) is replayed with no emerald. Entry 0x1E218 (init 0x1C2AA): table 0x1CA94, 14 entries of
-  24 bytes [kind (1: stages 0-6, 0: 7-13), 0x2000..0x2C00 (rising by stage), 0x15, a word, layout (RNC1), three
-  palette pointers]. Layouts unpack to 8-byte records [distance (from -0x17A, rising), across, a small value, 1 ring /
-  0 spike ball]; 337 in stage 0.
-- Watched (poke $0684 = 2 in GG1): a stone path over lava, "COLLECT 50 RINGS", rings and spike balls; in the emulator
-  the run stalled after a few seconds (not understood; possibly the entry by poke). Not implemented.
+## Tails, Knuckles and the special stage (2026-10-27; ssrun.py, sstrace.py, bonus_parity.js)
+- 15C Tails (handler 0x161C4, art 0x8EFF4) and 160 Knuckles (0x1626A, 0x93AA2; both palette line 2) call 0xCF1E: a
+  grounded Sonic with rings whose x + 8 and z + 8 are within 0..16 of the record's is walked beside it (16 units to
+  the side); all his rings go to its count for the act ($069E Tails, $06A0 Knuckles; cleared at the act's start), the
+  record's $24 = 120 frames; at 50 left the rings go (sound 0xB0) and the count rises over its head (font 0x144C1E).
+  If the gift took the count from under 50 to 50 or more, at the end $0684 = 1 (Tails) or 2 (Knuckles) and the main
+  loop (0x60C) goes to the special stage (0x760). No y check.
+- Hidden ones: InitLevel clears the record's word at +0x12 ($D948 Tails, $D97C Knuckles; 0x1BE60 keeps copies in
+  $0A46/$0A48) unless bit 0 / 1 of $068A says the act's routine showed it before (cleared at the act's start, kept
+  over a death). GG1: Tails once ring 1's hole opens (0xE5F4, record 32's state 1), Knuckles while the cannon at
+  (116, 12) fires (0xE766); Rusty Ruin 2: Tails at the ride from (85, 101) at y 32 or under (0x7FBE / 0x8028);
+  Volcano Valley 2: Knuckles at cell 0x63AC (0xB004). All others are out from the start.
+- 0x760: stage = emeralds ($06A2; 7 and over: 6 with no emerald); Tails adds 7. The run's result is $A14E (non-zero:
+  the emerald reached). A win sets $06AE (Tails) / $06B0 (Knuckles) to stage + 1 and adds an emerald; while set, the
+  friend's stages are replays with no emerald; both are cleared at each act's start (0x4FC), so in practice each
+  friend gives one stage an act. Screens: 0x21114 with 1 "SONIC GOT A CHAOS EMERALD" (ring bonus 100 a ring, emerald
+  bonus 10000), 2 a bonus only, 0 none. After it the act goes on with Sonic where he was ($0686/$0688).
+- Table 0x1CA94: 14 entries of 24 bytes [look (1: stone over lava, stages 0-6; 0: a grating over a river, 7-13), top
+  speed (x 16 = 16.16), track (RNC1), items (RNC1), palettes: scenery, track, items]. Music request 0x10.
+- Track: 8-byte records [count (first) / stripe, distance, x of the left edge, y (down)], farthest first (the
+  distance falls by 32); two at one distance are a step. Items: [distance, x, y, kind], nearest first: 0 spiked ball,
+  1 ring, 2 gate post (in pairs), 3 the count sign, 4 / 5 new counts (100, 150), 7 the emerald.
+- A frame (0x1CBE4; the loop at 0x1E5C2 counts the opening 92 frames ($A146) and the bump ($A144) down before it):
+  * emerald in sight ($A162 x set, no gate armed, not failing): steered to its x ((x - its x) >> 3 a frame, at least
+    1); else B or C pressed while grounded and not held: jump (vy -5.625, sound 0x62); both let go after a jump: vy
+    under -3.125 gets 1.5 added, then halved; left/right add 0.375 a frame to vx (not while thrown back).
+  * Speeds: vx loses 0.1875 a frame toward 0 and is capped at the stage's top speed; y += vy, vy += 0.25 (cap 7); vz
+    += 1/16 a frame up to the top speed (from fail 3: -1/16 to 0, sound 0xB2 at 3), never under -4.
+  * z kept at or past $A148 (the last new count's place); the record at or behind Sonic and the one ahead: at a step
+    whose top is more than 2 units over his feet that he was not already past, z = its distance - 1 and vz = 0 (bump
+    8). Floor and x: linear between the two records (integer, truncated). Grounded he follows the floor (a step down is
+    a drop to it); in the air he lands when at or under it. x kept within [left, left + 64].
+  * Camera: z - 180; x eased 1/8; y eased 1/4 toward Sonic's y - 200.
+  * Touches: items from 6 units behind to his distance, x within 12, y from 46 above his feet to 8 below: a ring (+1,
+    sound 0x33); the emerald (the end: 160 frames, Sonic rising 2 a frame from frame 80, sound 0x6A; sound 0x1A, or
+    0x19 with no emerald); a spiked ball unless blinking: thrown (vy -6, vz -3), 10 rings lost (all if fewer; sound
+    0xB9), blinking 60 frames once he lands; with no rings thrown off (vy -8, sound 0xB2, the end in 40 frames).
+  * The drawing pass: items more than 96 and at most 496 ahead of the camera and on screen in y (256 x (y - camera
+    y) / depth in 0x68..0x15C) act: a gate post at scale (0x40000 / depth / 16) 60 or more arms the gate (its
+    distance) and keeps a 15-frame count up while in sight; the emerald at scale 48 stops z there and steers x; the
+    sign shows the count still wanted; 4 / 5 set the count to 100 / 150 (shown 120 frames, sliding in). An armed gate
+    passed: with rings still wanted the stage fails (Sonic slows, the end in 60 frames), else once the count runs out
+    sound 0x63.
+- The sim's Sim.bonusStep is this, checked against the emulator frame by frame (positions, speeds, rings, timers):
+  4 runs (stages 0, 3, 7, 12; two to the emerald), no difference.

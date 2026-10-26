@@ -85,6 +85,7 @@
   const tileTex = tex(Art.tile()); tileTex.wrapS = tileTex.wrapT = THREE.RepeatWrapping;
   const waterTex = tex(Art.water()); waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping;
   const spriteMat = cnv => new THREE.SpriteMaterial({ map: tex(cnv), alphaTest: 0.5 });
+  const palMats = new Map(), palMat = (kind, phase, boil) => { const k = kind * 100 + phase * 10 + boil; if (!palMats.has(k)) palMats.set(k, spriteMat(Art.pal(kind, phase, boil))); return palMats.get(k); };
   const ringMats = [0, 1, 2].map(b => spriteMat(Art.ring(b)));
   const springMats = [spriteMat(Art.spring(false)), spriteMat(Art.spring(true))];
   const decorMats = {
@@ -422,6 +423,12 @@
       flicky: () => tone('sine', 1800, 2600, 0.12, 0.25),
       tick: () => tone('square', 2200, 2200, 0.03, 0.12),
       skid: () => noise(0.25, 0.35, 900),
+      friend: () => arp([659, 784, 988], 0.06, 'triangle', 0.3),
+      gate: () => arp([784, 988, 1175, 1568], 0.06, 'triangle', 0.3),
+      emerald: () => arp([523, 784, 1047, 1319, 1568, 2093], 0.09, 'triangle', 0.35),
+      emeraldNo: () => arp([523, 784, 1047, 1319], 0.09, 'triangle', 0.3),
+      bonusRise: () => tone('sine', 400, 1600, 0.8, 0.3),
+      bonusFail: () => arp([392, 330, 262, 196], 0.12, 'square', 0.25),
     };
     function play(name) {
       if (muted) return;
@@ -787,7 +794,7 @@
   // ---- everything that belongs to the current level lives in one group, rebuilt on load ----
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
-  let sprinklerObjs = [], pylonObjs = [], zapObjs = [], beamObjs = [], capsuleObjs = [], leverObjs = [], beamPostObjs = [];
+  let sprinklerObjs = [], pylonObjs = [], zapObjs = [], beamObjs = [], capsuleObjs = [], leverObjs = [], beamPostObjs = [], friendObjs = [], friendBubble = null;
   // Panic Puppet 2's beam posts (180): the frame shown in each of the 24 animation steps (list 0x16030, frame offsets / 4)
   const BEAM_FRAMES = [4, 4, 4, 4, 3, 3, 3, 2, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3];
   let rockObjs = [], jetObjs = [], moverObjs = [], spikeBallObjs = [], fireObjs = [], fireballObjs = [], iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
@@ -1481,6 +1488,18 @@
     // Panic Puppet's Flicky capsules (19C: the original's frame) or a glass jar of our own with the bird inside; gone once
     // broken. Levers (194) at the middle of their switch cells: frame 0 for 0, 7 for 1, swung in between; or a post and a
     // knob of our own tilted the way the belt goes
+    // Tails and Knuckles: their own frames from the ROM (palette line 2), or our two pals; a bubble shows the rings
+    // given while one takes them
+    friendObjs = world.friends.map(f => {
+      const s = rom ? bottomSprite(romBossMat(f.who === 'tails' ? 0x15C : 0x160, 0, ROM_CANVAS, 80, 2), f.x, f.y, f.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT)
+        : bottomSprite(palMat(f.who === 'tails' ? 0 : 1, 0, 0), f.x, f.y, f.z, 1.1, 1.1, 0.04);
+      s.userData = { who: f.who, rom }; return s;
+    });
+    {
+      const c = document.createElement('canvas'); c.width = 128; c.height = 64;
+      friendBubble = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+      friendBubble.scale.set(0.9, 0.45, 1); friendBubble.renderOrder = 6; friendBubble.visible = false; friendBubble.userData = { canvas: c, n: -1 }; levelGroup.add(friendBubble);
+    }
     capsuleObjs = world.capsules.map(c => {
       if (rom) return bottomSprite(romBossMat(0x19C, 0, ROM_CANVAS, 80, c.line), c.x, c.y, c.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT);
       const g = new THREE.Group(), floor = Sim.floorAt(L, c.x, c.z), h = c.top - floor, r = c.half;
@@ -2263,7 +2282,7 @@
   // act results: in the ROM look the original's own results screen (fonts and layout from the ROM, bonuses counted
   // into the score), otherwise a plain card; then the next act in the original's order (ROM levels)
   // Bonus rules are mine (the original's tables are not decoded): time 10000 under a minute, less after; 100 a ring
-  // and 100 a Flicky saved; Knuckles and Tails bonuses need special stages, which this game does not have.
+  // and 100 a Flicky saved; the Knuckles and Tails bonuses are left at 0 (their rule is not decoded).
   let tally = null;
   function timeBonus(secs) { return secs < 60 ? 10000 : secs < 120 ? 5000 : secs < 180 ? 3000 : secs < 240 ? 2000 : secs < 300 ? 1000 : secs < 600 ? 500 : 0; }
   function drawTally(now) {
@@ -2279,7 +2298,10 @@
   }
   function actClear() {
     const idx = L.rom ? S3D.LEVELS.findIndex(l => l[0] === L.rom.level) : -1, here = idx >= 0 ? S3D.LEVELS[idx][1] : L.name;
-    const next = idx >= 0 && romBytes ? S3D.LEVELS[idx + 1] : null, secs = Math.floor(world.time);
+    // (the Final Fight comes after Panic Puppet 3 only with all seven Chaos Emeralds, as in the original)
+    let next = idx >= 0 && romBytes ? S3D.LEVELS[idx + 1] : null;
+    const locked = next && next[0] === 22 && emeraldCount() < 7, secs = Math.floor(world.time);
+    if (locked) next = null;
     const time = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
     let wait = 5000;
     if (romOn() && L.rom) {
@@ -2294,7 +2316,7 @@
     clearTimeout(clearTimer);
     clearTimer = setTimeout(() => {
       clearCardOff();
-      if (!next) { if (tally) toast('That was the last act. Open ? to play again or choose another level.', 5); return; }
+      if (!next) { if (locked) toast(`The Final Fight needs all seven Chaos Emeralds (you have ${emeraldCount()}). Give Tails and Knuckles fifty rings an act. It is also in the level list.`, 8); else if (tally) toast('That was the last act. Open ? to play again or choose another level.', 5); return; }
       try {
         const raw = S3D.convert(romBytes, next[0], L.rom.vscale);
         useLevel(Sim.importLevel(raw), true);
@@ -2338,6 +2360,263 @@
     }
   }
 
+  // ---- the special stage: Tails or Knuckles took fifty rings in this act (ROM levels only: the stages are the
+  // player's ROM's). The run is the original's own (Sim.bonusStep: its units, its 16.16 fixed point, checked frame
+  // by frame against the original), drawn in 3D: the track from its records (64 units wide, y down), the items where
+  // the original puts them, and a camera with the original's projection (a focal length of 256 pixels for 224
+  // lines, 180 units behind Sonic and eased to 200 above him, its horizon 120 lines over the top of the screen).
+  // The track's stone and grating, the river beneath, the spiked balls, the gate posts and the emerald are our own
+  // drawing in the stage's own palette colours. ----
+  const EM_KEY = 'blastgrid.emeralds';
+  const emeraldCount = () => Math.max(0, Math.min(7, Number(store.get(EM_KEY)) || 0));
+  const EM_COLORS = [0x37c8ff, 0xffe14a, 0xff5ab0, 0x5cff72, 0xb07aff, 0xff7a3a, 0xf0f0ff];   // ours
+  const BU = 1 / 32, bx = x => -x * BU, by = y => -y * BU, bz = z => z * BU;   // (-x: the camera looks along +z)
+  let bonus = null;
+  const bonusCam = new THREE.PerspectiveCamera(50, 1, 0.1, 40);
+  function bonusProjection() {
+    const W = window.innerWidth, H = window.innerHeight, f = Math.min(H * 256 / 224, W);
+    const py = H * 164 / 224 - f * 200 / 180;   // the principal point: Sonic's feet where the original draws them
+    const fullH = 2 * Math.max(H - py, py);
+    bonusCam.fov = 2 * Math.atan(fullH / 2 / f) * 180 / Math.PI; bonusCam.aspect = W / fullH;
+    bonusCam.setViewOffset(W, fullH, 0, fullH / 2 - py, W, H); bonusCam.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', () => { if (bonus) bonusProjection(); });
+  const css = c => `rgb(${c[0]},${c[1]},${c[2]})`, hex3 = c => (c[0] << 16) | (c[1] << 8) | c[2];
+  function bonusTex(draw, w = 64, h = 64) {
+    const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h);
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 4; return t;
+  }
+  // our own surfaces in the stage's colours: stone slabs (Knuckles' stages) or a steel grating (Tails'), rock or grass
+  // banks, and lava or water
+  function bonusLook(data) {
+    const [scen, trk] = data.pal, lava = data.look === 'lava';
+    let s = 7;
+    const R = () => (s = (s * 16807) % 2147483647) / 2147483647;
+    const deck = bonusTex((g, w, h) => {
+      if (lava) {
+        g.fillStyle = css(trk[12]); g.fillRect(0, 0, w, h);
+        for (let k = 0; k < 40; k++) { g.fillStyle = css(trk[10 + (k % 5)]); g.fillRect(R() * w, R() * h, 2 + R() * 6, 2 + R() * 4); }
+        g.fillStyle = css(trk[6]); g.fillRect(0, 0, w, 3); g.fillRect(0, 0, 3, h); g.fillRect(w / 2, 0, 2, h);
+        g.strokeStyle = css(trk[8]); g.lineWidth = 1; g.beginPath(); g.moveTo(8 + R() * 20, 6); g.lineTo(14 + R() * 10, 30); g.lineTo(6 + R() * 20, 50); g.stroke();
+      } else {
+        g.clearRect(0, 0, w, h); g.fillStyle = css(trk[10]);
+        for (let k = 0; k < 4; k++) g.fillRect(0, k * 16, w, 4);
+        for (let k = 0; k < 8; k++) g.fillRect(k * 8 + 2, 0, 3, h);
+        g.fillStyle = css(trk[14]); for (let k = 0; k < 4; k++) g.fillRect(0, k * 16, w, 1);
+        g.fillStyle = css(trk[6]); g.fillRect(0, 0, 5, h); g.fillRect(w - 5, 0, 5, h);
+      }
+    });
+    const bank = bonusTex((g, w, h) => {
+      g.fillStyle = css(scen[lava ? 3 : 4]); g.fillRect(0, 0, w, h);
+      for (let k = 0; k < 70; k++) { g.fillStyle = css(scen[1 + Math.floor(R() * (lava ? 6 : 5))]); g.beginPath(); g.ellipse(R() * w, R() * h, 2 + R() * 7, 1 + R() * 4, R() * 3, 0, 7); g.fill(); }
+    });
+    const flow = bonusTex((g, w, h) => {
+      g.fillStyle = css(scen[lava ? 10 : 11]); g.fillRect(0, 0, w, h);
+      for (let k = 0; k < 40; k++) { g.fillStyle = css(scen[lava ? 8 + Math.floor(R() * 4) : 9 + Math.floor(R() * 6)]); g.beginPath(); g.ellipse(R() * w, R() * h, 3 + R() * 10, 1 + R() * 2, 0, 0, 7); g.fill(); }
+    });
+    bank.repeat.set(1 / 3, 1 / 3);
+    return { deck, bank, flow, lava, fog: hex3(scen[lava ? 5 : 2]), side: hex3(trk[lava ? 7 : 5]), items: data.pal[2] };
+  }
+  // the track: a slab per record pair (two records at one distance make a step), its sides down 40 units (stone) or
+  // 10 (the grating)
+  function bonusTrack(data, look) {
+    const t = data.track, P = [], U = [], C = [], top = [], side = [], deep = look.lava ? 40 : 10;
+    const v = (x, y, z, u, w, c) => { P.push(bx(x), by(y), bz(z)); U.push(u, w); C.push(c, c, c); };
+    const quad = (list, a, b, c, d, sh) => {   // a b c d: [x, y, z, u, v] round the face
+      const i0 = P.length / 3; for (const q of [a, b, c, d]) v(q[0], q[1], q[2], q[3], q[4], sh);
+      list.push(i0, i0 + 1, i0 + 2, i0, i0 + 2, i0 + 3);
+    };
+    for (let i = 0; i + 1 < t.length; i++) {
+      const far = { x: t[i][2], y: t[i][3], d: t[i][1] }, near = { x: t[i + 1][2], y: t[i + 1][3], d: t[i + 1][1] };
+      if (far.d === near.d) {   // a step: its face
+        if (far.y !== near.y) quad(side, [near.x, near.y, near.d, 0, 0], [near.x + 64, near.y, near.d, 1, 0], [near.x + 64, far.y, near.d, 1, 1], [near.x, far.y, near.d, 0, 1], 0.72);
+        continue;
+      }
+      const sh = (t[i][0] & 1) ? 0.86 : 1, v0 = near.d / 32, v1 = far.d / 32;
+      quad(top, [near.x, near.y, near.d, 0, v0], [near.x + 64, near.y, near.d, 1, v0], [far.x + 64, far.y, far.d, 1, v1], [far.x, far.y, far.d, 0, v1], sh);
+      for (const e of [0, 64]) quad(side, [near.x + e, near.y, near.d, 0, v0], [far.x + e, far.y, far.d, 0, v1], [far.x + e, far.y + deep, far.d, 1, v1], [near.x + e, near.y + deep, near.d, 1, v0], 0.55);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
+    g.setIndex(top.concat(side)); g.addGroup(0, top.length, 0); g.addGroup(top.length, side.length, 1);
+    return new THREE.Mesh(g, [new THREE.MeshBasicMaterial({ map: look.deck, vertexColors: true, side: THREE.DoubleSide, alphaTest: 0.5 }),
+      look.lava ? new THREE.MeshBasicMaterial({ map: look.deck, vertexColors: true, side: THREE.DoubleSide }) : new THREE.MeshBasicMaterial({ color: look.side, vertexColors: true, side: THREE.DoubleSide })]);
+  }
+  // the river (lava or water) under the track's path, and the banks: drawn 160 units under Sonic, wherever he is
+  function bonusGround(data, look) {
+    const g = new THREE.Group(), t = data.track.filter((r, i, a) => !i || r[1] !== a[i - 1][1]), P = [], U = [], I = [];
+    t.unshift([0, t[0][1] + 1600, t[0][2], 0]); t.push([0, t[t.length - 1][1] - 1600, t[t.length - 1][2], 0]);   // (on past both ends)
+    t.forEach((r, i) => { const cx = r[2] + 32; P.push(bx(cx - 110), 0, bz(r[1]), bx(cx + 110), 0, bz(r[1])); U.push(0, r[1] / 128, 1, r[1] / 128); if (i) { const a = (i - 1) * 2; I.push(a, a + 1, a + 3, a, a + 3, a + 2); } });
+    const rg = new THREE.BufferGeometry(); rg.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); rg.setAttribute('uv', new THREE.Float32BufferAttribute(U, 2)); rg.setIndex(I);
+    const river = new THREE.Mesh(rg, new THREE.MeshBasicMaterial({ map: look.flow, side: THREE.DoubleSide }));
+    river.position.y = 0.03;
+    const bankMesh = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshBasicMaterial({ map: look.bank }));
+    bankMesh.rotation.x = -Math.PI / 2; look.bank.repeat.set(80 / 3, 80 / 3);
+    g.add(bankMesh, river); g.userData = { bankMesh, river };
+    return g;
+  }
+  const spikeGeo = (() => {   // a ball with twelve spikes, ours
+    const P = new THREE.IcosahedronGeometry(1, 0).attributes.position, dirs = [];
+    for (let i = 0; i < P.count; i++) { const d = new THREE.Vector3().fromBufferAttribute(P, i).normalize(); if (!dirs.some(q => q.distanceTo(d) < 1e-3)) dirs.push(d); }
+    return { ball: new THREE.SphereGeometry(0.2, 14, 10), spike: new THREE.ConeGeometry(0.06, 0.16, 6), dirs };
+  })();
+  function bonusItems(data, look, group) {
+    const it = look.items, objs = [];
+    const spikeMat = new THREE.MeshLambertMaterial({ color: hex3(it[4]) }), tipMat = new THREE.MeshLambertMaterial({ color: hex3(it[7]) });
+    const postMat = new THREE.MeshLambertMaterial({ color: hex3(it[12]) }), capMat = new THREE.MeshLambertMaterial({ color: hex3(it[7]), emissive: 0x222222 });
+    const gemMat = new THREE.MeshLambertMaterial({ color: EM_COLORS[data.n % 7], emissive: EM_COLORS[data.n % 7], emissiveIntensity: 0.35 });
+    const pairs = new Map();
+    data.items.forEach((r, q) => {
+      const [d, x, y, k] = r;
+      let o = null;
+      if (k === 1) { o = new THREE.Sprite(romOn() ? romArt.rings[0] : ringMats[0]); o.scale.set(0.55, 0.55, 1); o.position.set(bx(x), by(y - 8), bz(d)); }
+      else if (k === 0) {
+        o = new THREE.Group(); o.add(new THREE.Mesh(spikeGeo.ball, spikeMat));
+        for (const dir of spikeGeo.dirs) { const c = new THREE.Mesh(spikeGeo.spike, tipMat); c.position.copy(dir).multiplyScalar(0.24); c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir); o.add(c); }
+        o.position.set(bx(x), by(y - 10), bz(d));
+      } else if (k === 2) {
+        o = new THREE.Group();
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 1.9, 10), postMat); pole.position.y = 0.95;
+        const cap = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 8), capMat); cap.position.y = 1.95;
+        o.add(pole, cap); o.position.set(bx(x), by(y), bz(d));
+        if (pairs.has(d)) {   // a beam between the pair: the gate, gone once passed
+          const a = pairs.get(d), len = Math.abs(a.position.x - o.position.x);
+          const beam = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, 0.06), new THREE.MeshBasicMaterial({ color: 0xfff27a, transparent: true, opacity: 0.8 }));
+          beam.position.set((a.position.x + o.position.x) / 2, (a.position.y + o.position.y) / 2 + 1.7, bz(d)); group.add(beam);
+          o.userData.beam = beam; a.userData.beam = beam;
+        } else pairs.set(d, o);
+        o.userData.cap = cap;
+      } else if (k === 3) {
+        const c = document.createElement('canvas'); c.width = 128; c.height = 64;
+        o = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), alphaTest: 0.1 })); o.scale.set(1.4, 0.7, 1);
+        o.position.set(bx(x), by(y - 70), bz(d)); o.userData.canvas = c; o.userData.shown = -1;
+      } else if (k === 7) {
+        o = new THREE.Group();
+        const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.32, 0.14, 8), gemMat), pav = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.4, 8), gemMat);
+        crown.position.y = 0.07; pav.rotation.x = Math.PI; pav.position.y = -0.2; o.add(crown, pav); o.position.set(bx(x), by(y - 24), bz(d));
+      }
+      if (o) { o.userData.k = k; o.userData.q = q; group.add(o); objs.push(o); }
+    });
+    return objs;
+  }
+  function signDraw(o, n) {
+    if (o.userData.shown === n) return;
+    o.userData.shown = n;
+    const g = o.userData.canvas.getContext('2d'); g.clearRect(0, 0, 128, 64);
+    g.fillStyle = 'rgba(16,12,30,0.75)'; g.fillRect(4, 4, 120, 56); g.strokeStyle = '#ffd34a'; g.lineWidth = 4; g.strokeRect(4, 4, 120, 56);
+    g.fillStyle = '#ffd34a'; g.font = '700 40px "Chakra Petch", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(n), 64, 34);
+    o.material.map.needsUpdate = true;
+  }
+  function startBonus(who) {
+    const em = emeraldCount(), n = Math.min(em, 6) + (who === 'tails' ? 7 : 0);
+    let data;
+    try { data = S3D.bonusStage(romBytes, n); } catch (e) { toast('The special stage could not be read from this ROM: ' + e.message + '.', 4); return; }
+    const look = bonusLook(data), scene2 = new THREE.Scene(), group = new THREE.Group();
+    scene2.background = new THREE.Color(look.fog); scene2.fog = new THREE.Fog(look.fog, 11, 17.5);
+    scene2.add(new THREE.HemisphereLight(0xffffff, 0x5a4a60, 0.9), (() => { const d = new THREE.DirectionalLight(0xffffff, 0.6); d.position.set(-0.4, 1, -0.6); return d; })());
+    const track = bonusTrack(data, look), ground = bonusGround(data, look);
+    group.add(track, ground); scene2.add(group);
+    const objs = bonusItems(data, look, group);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: heroTexture('back', 'run', 0, 0, false), alphaTest: 0.5 }));
+    const shade = new THREE.Mesh(new THREE.CircleGeometry(0.3, 18), new THREE.MeshBasicMaterial({ color: 0x100818, transparent: true, opacity: 0.4, depthWrite: false }));
+    shade.rotation.x = -Math.PI / 2; scene2.add(sprite, shade);
+    const use3d = !!hero3d && heroMode === '3d';
+    if (use3d) scene2.add(hero3d.root);
+    const b = Sim.bonusStart(data, em >= 7);
+    bonus = { b, data, look, scene: scene2, group, ground, objs, sprite, shade, use3d, who, n, noEm: em >= 7, prev: { x: b.x, y: b.y, z: b.z, cx: b.camX, cy: b.camY, cz: b.camZ },
+      acc: 0, cycle: 0, done: null, doneAt: 0, popped: new Map(), lastMsg: '' };
+    bonusProjection();
+    $('flickyHud').hidden = true; $('ringCount').textContent = '0'; $('ringTotal').textContent = '';
+    if (MdSound.on && !Sfx.muted) MdSound.playMusic(S3D.BONUS.music);
+    fadeCut();
+  }
+  function endBonus() {
+    const B = bonus, won = B.done === 'emerald';
+    if (B.use3d && hero3d) scene.add(hero3d.root);
+    B.scene.traverse(o => { if (o.geometry && o.geometry !== spikeGeo.ball && o.geometry !== spikeGeo.spike) o.geometry.dispose(); });
+    for (const t of [B.look.deck, B.look.bank, B.look.flow]) t.dispose();
+    let title, info = `Ring bonus ${B.b.rings * 100}`;
+    if (won && !B.noEm) {
+      const n = emeraldCount() + 1; store.set(EM_KEY, String(n));
+      title = 'Sonic got a Chaos Emerald'; info += `\nEmerald bonus 10000\n${n} of 7`;
+    } else title = won ? 'Special stage clear' : 'No emerald this time';
+    bonus = null;
+    $('bonusMsg').hidden = true;
+    $('clearTitle').textContent = title; $('clearInfo').textContent = info; $('clearCard').hidden = false;
+    clearTimeout(clearTimer); clearTimer = setTimeout(clearCardOff, 4000);
+    $('ringCount').textContent = String(world.ringCount); shownRings = world.ringCount; $('ringTotal').textContent = `/ ${world.rings.length}`;
+    $('flickyHud').hidden = !L.flickies; flickyHudKey = -1; showEmeralds();
+    levelMusic(); fadeCut(); resetCamera();
+  }
+  function showEmeralds() { const n = emeraldCount(); $('emeraldHud').hidden = !n; $('emeraldCount').textContent = String(n); }
+  showEmeralds();
+  function frameBonus(now, dt) {
+    const B = bonus, b = B.b, inp = readInput(dt);
+    B.acc += dt;
+    let steps = 0;
+    while (B.acc >= STEP && steps < 5) {
+      Object.assign(B.prev, { x: b.x, y: b.y, z: b.z, cx: b.camX, cy: b.camY, cz: b.camZ });
+      if (started && !B.done) {
+        Sim.bonusStep(b, { left: inp.ix < -0.3, right: inp.ix > 0.3, jump: inp.jump });
+        for (const ev of b.events) Sfx.play(ev);
+        if (b.done) { B.done = b.done; B.doneAt = now / 1000; }
+      }
+      B.acc -= STEP; steps++;
+    }
+    if (steps === 5) B.acc = 0;
+    if (B.done && now / 1000 - B.doneAt > 0.6) { endBonus(); return; }
+    const a = B.acc / STEP, t = now / 1000, lerp = (p, q) => p + (q - p) * a, P = B.prev;
+    const x = lerp(P.x, b.x) / 65536, y = lerp(P.y, b.y) / 65536, z = lerp(P.z, b.z) / 65536;
+    bonusCam.position.set(bx(lerp(P.cx, b.camX) / 65536), by(lerp(P.cy, b.camY) / 65536), bz(lerp(P.cz, b.camZ) / 65536));
+    bonusCam.lookAt(bonusCam.position.x, bonusCam.position.y, bonusCam.position.z + 1);
+    // Sonic: running away from the camera, a ball in the air, blinking after a hit
+    const air = !b.gr, sp = b.vz / 65536 * 60 / 32;
+    B.cycle += dt * (4 + sp * 2.2);
+    const blink = b.hitT > 0 && Math.floor(t * 16) % 2;
+    if (B.use3d) {
+      B.sprite.visible = false;
+      updateHero3d({ vx: 0, vz: Math.max(0, sp), facing: 0, grounded: !air, ball: air, charge: 0, rolling: false, invuln: b.hitT > 0 ? 1 : 0, sprung: false, hover: false, whirl: false, skid: false }, new THREE.Vector3(bx(x), by(y), bz(z)), dt, t);
+    } else {
+      let map;
+      if (romOn()) {
+        const q = air ? S3D.HERO.ball() : S3D.HERO.run(4);
+        map = romHeroTex(q[Math.floor(B.cycle) % q.length], false);
+        B.sprite.scale.set(ROM_SIZE, ROM_SIZE, 1); B.sprite.center.set(0.5, HERO_FOOT);
+      } else {
+        map = air ? heroTexture('front', 'ball', Math.floor(B.cycle) % 4, Math.floor(t * 8) % 3, false) : heroTexture('back', 'run', Math.floor(B.cycle) % 4, Math.floor(t * 8) % 3, false);
+        B.sprite.scale.set(1.3, 1.3, 1); B.sprite.center.set(0.5, 0.04);
+      }
+      B.sprite.material.map = map;
+      B.sprite.position.set(bx(x), by(y), bz(z)); B.sprite.visible = !blink && !b.out;
+    }
+    B.shade.position.set(bx(x), by(b.floorY) + 0.02, bz(z)); B.shade.visible = !b.out && !b.end;
+    // the river and banks 160 units under the camera's height above Sonic
+    B.ground.position.y = by(lerp(P.cy, b.camY) / 65536 + 360);
+    const bank = B.ground.userData.bankMesh; bank.position.set(bonusCam.position.x, 0, bonusCam.position.z + 10);
+    B.look.bank.offset.set(-bank.position.x / 3, bank.position.z / 3); B.look.flow.offset.set(0, t * (B.look.lava ? 0.15 : 0.4));
+    // items: rings turn (ROM frames) and pop when taken; a gate's beam goes once passed; the emerald spins
+    const rom = romOn(), rf = Math.floor(t * 15) % 16;
+    for (const o of B.objs) {
+      const it = b.items[o.userData.q], k = o.userData.k;
+      if (k === 1) {
+        if (it.gone) {
+          if (!B.popped.has(o)) B.popped.set(o, t);
+          const p = (t - B.popped.get(o)) / 0.2; o.visible = p < 1; if (p < 1) o.scale.setScalar(0.55 * (1 + p));
+        } else o.material = rom ? romArt.rings[rf] : ringMats[Math.floor(t * 8) % 3];
+      } else if (k === 0) o.rotation.y = t * 2;
+      else if (k === 7) { o.visible = !it.gone; o.rotation.y = t * 1.5; }
+      else if (k === 3) signDraw(o, b.remain);
+      else if (k === 2 && o.userData.beam) o.userData.beam.visible = z < it.d;
+    }
+    // the messages: "Collect 50 rings" (a new count), the count still wanted while a sign is in sight
+    const msg = b.msg === 2 ? `Collect ${b.req}\nrings` : b.msg === 1 && b.remain ? String(b.remain) : '';
+    if (msg !== B.lastMsg) { B.lastMsg = msg; const m = $('bonusMsg'); m.textContent = msg; m.hidden = !msg; m.classList.toggle('count', b.msg === 1); }
+    if (shownRings !== b.rings) { shownRings = b.rings; $('ringCount').textContent = String(b.rings); }
+    if (toastTimer > 0) { toastTimer -= dt; if (toastTimer <= 0) $('toast').hidden = true; }
+    renderer.render(B.scene, bonusCam);
+    frames++;
+  }
+
   // ---- loop: fixed 60 Hz sim, interpolated render ----
   const STEP = Sim.P.dt;
   const prev = { x: world.p.x, y: world.p.y, z: world.p.z };
@@ -2345,6 +2624,7 @@
   const g2 = [0, 0], nrmV = new THREE.Vector3(), zAxis = new THREE.Vector3(0, 0, 1), rp = new THREE.Vector3();
   function frame(now) {
     const dt = Math.min(0.25, (now - last) / 1000); last = now;
+    if (bonus) { frameBonus(now, dt); requestAnimationFrame(frame); return; }
     acc += dt;
     let steps = 0;
     const inp = toWorld(readInput(dt));
@@ -2362,6 +2642,11 @@
         flash();
       }
       if (world.events.includes('goal')) actClear();
+      if (world.events.includes('friendGive')) {
+        const f = world.friends.find(q => q.t === 120), name = f && (romOn() ? (f.who === 'tails' ? 'Tails' : 'Knuckles') : 'Your pal'), n = f ? world.friendRings[f.who] : 0;
+        if (f) toast(n >= 50 ? `${name} has ${n} rings. Off to the special stage!` : `${name} has ${n} rings. Fifty in this act open the special stage.`, 3);
+      }
+      if (world.events.includes('bonusIn')) { if (romBytes) { startBonus(world.bonusWho); if (bonus) break; } }
       if (world.events.includes('monitor')) toast(POWER_TEXT[world.power] || '', 2);
       if (world.events.includes('shieldLost')) toast('The shield took the hit.', 1.6);
       if (world.events.includes('needFlickies')) toast(`The ring needs ${L.flickies} Flickies. Free them from enemies and bring them here.`, 3);
@@ -2554,6 +2839,29 @@
     // Panic Puppet: capsules gone once broken; levers swing a frame every 3 ticks to their value; doors slide into the
     // floor while their gate is open
     capsuleObjs.forEach((o, q) => { o.visible = world.capsules[q].alive; });
+    // the friends: Tails runs through his frames, Knuckles stands and now and then goes through his (our cycles; the
+    // original's scripts at 0x16216 and 0x162CA also wait on a wave of its own)
+    let giving = null;
+    friendObjs.forEach((o, q) => {
+      const f = world.friends[q]; o.visible = f.shown;
+      if (!f.shown) return;
+      if (f.t > 0) giving = f;
+      if (o.userData.rom) {
+        const tails = f.who === 'tails', c = Math.floor(t * 10 + q * 7);
+        const fr = tails ? c % 16 : (c % 90 < 60 ? 0 : c % 90 < 66 ? [0, 1, 2, 2, 1, 0][c % 90 - 60] : 3 + (c % 90 - 66) % 13);
+        o.material = romBossMat(tails ? 0x15C : 0x160, fr, ROM_CANVAS, 80, 2);
+      } else o.material = palMat(f.who === 'tails' ? 0 : 1, Math.floor(t * 4) % 4, Math.floor(t * 8) % 3);
+    });
+    friendBubble.visible = !!giving;
+    if (giving) {
+      const n = world.friendRings[giving.who], u = friendBubble.userData;
+      friendBubble.position.set(giving.x, giving.y + 1.5 + (120 - giving.t) / 120 * 0.4, giving.z);
+      if (u.n !== n) {
+        u.n = n; const g = u.canvas.getContext('2d'); g.clearRect(0, 0, 128, 64);
+        g.fillStyle = '#ffd34a'; g.strokeStyle = '#15121f'; g.lineWidth = 8; g.font = '700 44px "Chakra Petch", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+        g.strokeText(String(n), 64, 34); g.fillText(String(n), 64, 34); friendBubble.material.map.needsUpdate = true;
+      }
+    }
     beamPostObjs.forEach((o, q) => {
       const b = world.beams[q], f = BEAM_FRAMES[b.idx], u = o.userData;
       if (u.f === f) return;
@@ -2685,7 +2993,7 @@
   }
   satReady = true; setSaturn(saturn);
   $('screenSel').addEventListener('change', () => setSaturn($('screenSel').value === 'saturn'));
-  window.__game = { MdSound, Sim, resetCamera, get hero3d() { return hero3d; }, get jamProps() { return jamProps; }, jamCopy, poseJam, get jamPalms() { return jamPalms; }, view, setMode, start, get world() { return world; }, get level() { return L; }, get levelGroup() { return levelGroup; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
+  window.__game = { MdSound, Sim, resetCamera, startBonus, get bonus() { return bonus; }, get hero3d() { return hero3d; }, get jamProps() { return jamProps; }, jamCopy, poseJam, get jamPalms() { return jamPalms; }, view, setMode, start, get world() { return world; }, get level() { return L; }, get levelGroup() { return levelGroup; }, get renderer() { return renderer; }, get camera() { return cam; }, get frames() { return frames; } };
   setMode(view.mode);
   requestAnimationFrame(frame);
 })();

@@ -1131,5 +1131,50 @@ test('Final Fight: ten hits, one a fight round the rooms, end the act', () => {
   assert.deepStrictEqual(fights, [0, 2, 4, 6, 8, 0, 2, 4, 6, 8], 'one hit in each fight, twice round');
   assert.ok(end > 0 && w.cleared, `the act ended (${end})`);
 });
+test('Tails and Knuckles: hidden until shown; fifty rings given in all open the special stage', () => {
+  const w = FLAT([{ type: 'friend', x: 6.5, z: 2.5, y: 1, who: 'tails', show: { cell: [4, 2] } }, { type: 'friend', x: 9.5, z: 2.5, y: 1, who: 'knuckles' }]);
+  place(w, 6.5, 2.5); w.ringCount = 30; Sim.step(w, {});
+  assert.strictEqual(w.ringCount, 30, 'a hidden friend takes nothing');
+  place(w, 4.5, 2.5); Sim.step(w, {}); assert.ok(w.friends[0].shown, 'shown from its cell');
+  place(w, 6.5, 2.5); let took = -1, open = -1, at = 0;
+  run(w, 130, (f, ww) => { if (took < 0 && ww.ringCount === 0) took = f; if (ww.events.includes('bonusIn')) open = f; if (f === 100) at = ww.p.x; return { mx: 1 }; });
+  assert.ok(took >= 68 && took <= 71 && open < 0 && w.friendRings.tails === 30, `30 given (taken at frame ${took}), no stage`);
+  assert.ok(Math.abs(at - (6.5 + 0.5)) < 0.01, `walked beside, the pad held (${at.toFixed(2)})`);
+  w.ringCount = 25; place(w, 6.5, 2.5);
+  run(w, 130, (f, ww) => { if (ww.events.includes('bonusIn')) open = f; return {}; });
+  assert.ok(open > 110 && w.bonusWho === 'tails' && w.friendRings.tails === 55, `55 in all: the stage at frame ${open}`);
+  w.ringCount = 60; place(w, 6.5, 2.5); open = -1;
+  run(w, 130, (f, ww) => { if (ww.events.includes('bonusIn')) open = f; return {}; });
+  assert.ok(open < 0, 'only the gift that passes 50 opens it');
+});
+// a special stage of my own: a straight track 64 wide, a step up of 40 at distance 200, rings, a spiked ball, a gate
+// at 900 wanting 50, the emerald at 1200
+function bonusData(rings) {
+  const track = [];
+  for (let d = 1600; d >= -512; d -= 32) { track.push([0, d, 0, d > 200 ? -40 : 0]); if (d === 224) track.push([0, 200, 0, -40], [0, 200, 0, 0]); }
+  const items = [];
+  for (let k = 0; k < rings; k++) { const d = -300 + k * 12; items.push([d, 32, (d > 200 ? -40 : 0) - 10, 1]); }
+  items.push([800, 32, -50, 3], [900, 10, -50, 2], [900, 54, -50, 2], [1200, 32, -60, 7]);
+  items.sort((a, b) => a[0] - b[0]);
+  return { n: 0, look: 'lava', speed: 0x20000, track: track.map((r, i) => i ? r : [track.length, ...r.slice(1)]), items, pal: [] };
+}
+const bonusRun = (b, frames, inp) => { for (let f = 0; f < frames && !b.done; f++) Sim.bonusStep(b, typeof inp === 'function' ? inp(f, b) : inp); return b; };
+test('Special stage: a step stops Sonic unless he jumps it; rings count; the emerald ends it', () => {
+  let b = bonusRun(Sim.bonusStart(bonusData(60)), 600, {});
+  assert.ok((b.z >> 16) === 199, `held at the step (${b.z / 65536})`);
+  b = bonusRun(Sim.bonusStart(bonusData(60)), 3000, (f, q) => ({ jump: (q.z >> 16) > 150 && (q.z >> 16) < 200 }));
+  assert.strictEqual(b.done, 'emerald', 'over the step, through the gate, the emerald');
+  assert.ok(b.rings >= 50, `rings ${b.rings}`);
+});
+test('Special stage: too few rings at a gate fail it; a spiked ball takes 10, or throws him off with none', () => {
+  let b = bonusRun(Sim.bonusStart(bonusData(30)), 3000, (f, q) => ({ jump: (q.z >> 16) > 150 && (q.z >> 16) < 200 }));
+  assert.ok(b.done === 'fail' && b.rings === 30, `failed at the gate with ${b.rings}`);
+  const d = bonusData(0); d.items.push([0, 32, 0, 0]); d.items.sort((a, c) => a[0] - c[0]);
+  b = Sim.bonusStart(d); b.rings = 25; let hit = false;
+  bonusRun(b, 700, (f, q) => { if (q.events.includes('hurt')) hit = true; return {}; });
+  assert.ok(hit && b.rings === 15 && b.hitT === 0, `one hit costs 10 (${b.rings})`);
+  b = Sim.bonusStart(d); bonusRun(b, 400, {});
+  assert.strictEqual(b.done, 'fail', 'none: thrown off');
+});
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

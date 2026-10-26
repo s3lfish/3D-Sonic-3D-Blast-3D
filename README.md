@@ -80,6 +80,10 @@ untested.
   you have ten seconds to reach the next room. (The machine is our own model: the original draws it from tiles the
   game unpacks as it plays.)
 - Mines, Turrets, chasing enemies, Hunters with their circling spike balls, and superchargers (stand on one and press jump).
+- Tails and Knuckles (or, in the scribbled look, two pals of our own): give one fifty rings in an act and you go to
+  the special stage, run by the original's own rules from your ROM and drawn in 3D: a stone path over lava or a
+  steel grating over a river, rings to collect, spiked balls to dodge and steps to jump, gates that want 50, 100 and
+  150 rings, and a Chaos Emerald at the end. With all seven, the Final Fight follows Panic Puppet 3.
 - The original's act results screen, then the next act.
 - With your own Sonic Jam (Saturn) disc image (.chd, .iso, .bin, .img, .mdf, .nrg, .ecm, or zipped): a 3D Sonic using the Saturn game's own model, textures and moves
   (including his skid), and Sonic World's palm trees, springs, big ring and Flickies in place of the flat sprites.
@@ -87,7 +91,7 @@ untested.
 - With your ROM: the original music and sound effects, played by an emulated Mega Drive sound chip running the
   game's own sound program from your ROM. Without a ROM: simple sound effects made in the browser. M turns sound off.
 
-Not done yet: Tails and Knuckles, and the bonus stage. See `re/NOTES.md` for what is known and what is not.
+Not done yet: see `re/NOTES.md` for what is known and what is not.
 
 ## Working on it
 
