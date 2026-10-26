@@ -158,7 +158,7 @@ serves index.html from main.
   the same helpers, `movePlat` (128: box swinging 63 units along x/z about +0x28, +4 a frame of 0x800 from +0x26) and
   `spikeBall` (118: swung by the routine about z 0xE80, 56 units, alternate records opposite). `fireBar` (0xBA68,
   tables 0xAB26 VV1 / 0xB25C VV2: six object-120 fireballs 17 units apart along x, turning 4/8/12/12/8/4 units about the
-  line, a turn per 64 frames; `w.barBalls`). Not yet: the sinking 128 kind, VV2's 0x63AC vent exception and $7A flag.
+  line, a turn per 64 frames; `w.barBalls`). VV2's vent at 0x63AC is off while the rock on its partner (84, 86) stands (`offWhileRock`). The sinking 128 kind is in no level's records.
 - Gene Gadget 1 (`GIMMICKS[4]`, RunLevel_GnGdz1 0x11D2A, InitLevel 0x11C78; GnG labels are not swapped): `updraft`
   (0x55: grounded, `p.hover`: 0.125 a frame per frame up under floor + 48, down over it, the climb halved crossing it,
   ball table steers, pose spring); `zapCells` (0xAA, object 068: armed on stepping on, sparks at 22 frames for 12,

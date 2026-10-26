@@ -97,7 +97,7 @@ GIMMICKS = {
         'passOff': [(91, 46), (86, 74, 2)], 'shuts': [([(38, 76)], [(37, 75), (38, 75)], 0x7D)],
         'warps': [(57, 50, 0x770, 0x1E0, 0x910, 0x320), (59, 72, 0x730, 0x340, 0x650, 0x1C0)]},   # Diamond Dust 1 (see s3d.js)
     12: {'pads': [(0, 1, 1)], 'lava': 0x55, 'rocks': (0xB484, 27), 'roofs': 0xB386, 'vents': (0xB394, 8), 'spouts': (0xB286, 16), 'fireRuns': (0xB194, 5), 'fireBars': (0xB25C, 3),
-         'cracks': [([(55, 61)], 744, [0, -1]), ([(94, 114)], 424, [-1, 0])], 'balls': (0xE80, 56, 8)},
+         'cracks': [([(55, 61)], 744, [0, -1]), ([(94, 114)], 424, [-1, 0])], 'balls': (0xE80, 56, 8), 'ventOff': [(0x63AC, 0x56A8)]},
     13: {'pads': [(0, 1, 1), (2, 3, 2)], 'lava': 0x55, 'rocks': (0xAB42, 42), 'roofs': 0xAA4A, 'vents': (0xA8F6, 6), 'spouts': (0xA9AA, 10), 'fireRuns': (0xAA5E, 5), 'fireBars': (0xAB26, 2),
          'cracks': [([(59, 55)], 680, [-1, 0]), ([(65, 63)], 584, [-1, 0])]},
     14: {'lava': 0x55},
@@ -310,7 +310,7 @@ def convert(rom, level_id, vscale=1.0):
                       "y": jround((y_obj + 8) / CELL * vscale, 3), "axis": 'x' if along_x else 'z',
                       "lin": {"a": jround((a - 1) / CELL - org, 3), "b": jround((b - 1) / CELL - org, 3), "v": jround(mps, 3), "wait": 1, "dir": -1 if r[0x28] else 1, "t": jround(r[0x29] / 60, 3)}})
         elif kind == 'movePlat':
-            if struct.unpack('>H', r[0x24:0x26])[0]: continue
+            if struct.unpack('>H', r[0x24:0x26])[0]: continue   # (the sinking kind: in no level's records)
             along_z = (r[0x16] >> 3) & 1; sx, sz = (48, 32) if along_z else (32, 48); T = math.pi / 1024
             e.update({"x0": jround((x - 1) / CELL - x0, 3), "x1": jround((x - 1 + sx) / CELL - x0, 3), "z0": jround((z - 1) / CELL - z0, 3), "z1": jround((z - 1 + sz) / CELL - z0, 3),
                       "y": jround((y_obj + 8) / CELL * vscale, 3), "axis": 'z' if along_z else 'x', "centre": jround(struct.unpack('>h', r[0x28:0x2A])[0] / CELL - (z0 if along_z else x0), 3),
@@ -497,6 +497,8 @@ def convert(rom, level_id, vscale=1.0):
             if not floor_cell(cx, cz) or not floor_cell(tx // CELL, tz // CELL): continue
             ents.append({"type": "vent", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "to": [r3(tx / CELL - x0), r3((ty + 8) / CELL * vscale), r3(tz / CELL - z0)],
                          "vel": [r3(-2 * mps), r3(8.5 * mps * vscale), r3(-2 * mps)]})
+            off = next((q for q in gm.get('ventOff', []) if q[0] == c << 1), None)
+            if off: ents[-1]["offWhileRock"] = [(off[1] >> 1) % 128 - x0, (off[1] >> 8) - z0]
     if 'tris' in gm:   # triangle bumpers (see s3d.js)
         ents.append({"type": "triBumpers", "list": [{"band": band, "b": r3(b / CELL - (x0 if band == 'x' else z0)), "s": r3(sd / CELL - (z0 if band == 'x' else x0)),
                                                        "flip": bool(flip), "v": [r3(vx * mps), r3(vz * mps)], "along": bool(along)} for band, b, sd, flip, vx, vz, along in gm['tris']]})

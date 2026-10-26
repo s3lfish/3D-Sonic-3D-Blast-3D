@@ -87,7 +87,7 @@ untested.
 - With your ROM: the original music and sound effects, played by an emulated Mega Drive sound chip running the
   game's own sound program from your ROM. Without a ROM: simple sound effects made in the browser. M turns sound off.
 
-Not done yet: Spring Stadium's gates, Tails and Knuckles, and the bonus stage. See `re/NOTES.md` for what is known and what is not.
+Not done yet: Tails and Knuckles, and the bonus stage. See `re/NOTES.md` for what is known and what is not.
 
 ## Working on it
 

@@ -456,12 +456,14 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 
 ## Volcano Valley 2 (2026-10-27; vvae20_dis, mapdiff.py)
 - RunLevel 0xAE20: 0xBA68 (0xB25C, 3), spouts 0xB286 (16), fire runs 0xB194 (5), rocks 0xB484 (27), vents 0xB394 (8,
-  skipped at cell 0x63AC while byte $956F is 0xFF), pads 0xB10C/0xB130, roofs 0xB386. Cracked walls: trigger (95, 114)
+  skipped at cell 0x63AC while byte $956F is 0xFF, that is while the rock (0xBBC0 raises its cell to 0x24FF) on the
+  partner vent 0x56A8 stands; at 0x63AC the routine also sets bit 1 of $068A and copies $0A48 to $D97C, record 62's +0x12,
+  kept over a death: probably cosmetic), pads 0xB10C/0xB130, roofs 0xB386. Cracked walls: trigger (95, 114)
   facing west -> (94, 114) to 0x1500; (55, 62) facing north (0x300..0x500), z <= 0x7D0 -> (55, 61) to 0x3D00.
 - Objects 118 (spiked balls): with Sonic past x 0xB90 and z 0xD10 the routine sets records 10..14's z to 0xE80 +/-
   (sine x 112 >> 16), alternate signs, angle +8 a frame. Object 128 (handler 0x176B6): +0x24 = 0: along x (z with bit
   3 of +0x16) at +0x28 + (sine << 7 >> 16) (63 units), angle +0x26 + 4 a frame; else stood on it shakes 64 frames
-  (sound 0xD3) and drops to +0x28 (sound 0x96).
+  (sound 0xD3) and drops to +0x28 (sound 0x96); no level's records use that kind (checked all 22 and VV2's RAM).
 
 ## Volcano Valley 3 boss (2026-10-27; vv3_dis, vv3watch.py)
 - Init 0x9DF8 writes a path buffer of 37 [x.l, y, z.l] entries over map RAM (row 0); pod record y ($CCDC) 0x1E8.
@@ -516,7 +518,8 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   (51..52, 111..112)); speed pads (0x11930: vz 6; 0x11942: vx 6); tubes 0x11998 (6 x 12 bytes as act 1's; 0x5D28 and
   0x4EA2 also open the doors 0x613E / 0x4088 until 0x6140 / 0x408A); roofs 0x11AAA; with the pad held and record 1
   (the supercharger) at frame index 0x48, cell 0x692A starts ride 0x1E (vy -5.5 kept): the hop up to the next level;
-  cells 0x11B84 set $7A; zaps and hovers by the helper at 0x122C6.
+  cells 0x11B84 set $7A (also VV2 0x5CE6/0x5CE8, VV3, others: read only by the sprite builder at 0x198B0, which then
+  calls 0x19B12 with -1, a drawing order matter: nothing to do in 3D); zaps and hovers by the helper at 0x122C6.
 - 078 platforms (0x178D6): along z (x with bit 3 of +0x16) between +0x24 and +0x26 a unit a frame, 60 frames' rest at
   each end (sound 0x92 going again); +0x28 way, +0x29 first rest; +0x2A the second half (+0x20 across, box 32 x 64,
   else 32 x 32); a negative +0x2C marks the second half.

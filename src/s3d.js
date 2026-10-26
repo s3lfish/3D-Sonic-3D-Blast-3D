@@ -104,9 +104,10 @@ const S3D = (() => {
     // (-2, 8.5 up, -2) units a frame; lava spouts: 16-byte records [x, z, y, vx, vy, vz (x 16 / 0x10000 units a frame),
     // phase, window]; fire runs: 0x28-byte records [x0, w, z0, h, then 4 x [x, y, z, flags (0x800: along z)]]
     // Volcano Valley 2 (RunLevel 0xAE20, labelled VVz1): pads 0xB10C/0xB130 (record 2 <-> 4 after ring 1); cracked walls
-    // at (55, 61) (a roll north) and (94, 114) (west); spiked balls 118 swing about z 0xE80
+    // at (55, 61) (a roll north) and (94, 114) (west); spiked balls 118 swing about z 0xE80; the vent at 0x63AC is off
+    // while the rock on its partner (0x56A8) stands (map low byte 0xFF)
     12: { pads: [[0, 1, 1]], lava: 0x55, rocks: [0xB484, 27], roofs: 0xB386, vents: [0xB394, 8], spouts: [0xB286, 16], fireRuns: [0xB194, 5], fireBars: [0xB25C, 3],
-      cracks: [[[[55, 61]], 744, [0, -1]], [[[94, 114]], 424, [-1, 0]]], balls: [0xE80, 56, 8] },
+      cracks: [[[[55, 61]], 744, [0, -1]], [[[94, 114]], 424, [-1, 0]]], balls: [0xE80, 56, 8], ventOff: [[0x63AC, 0x56A8]] },
     13: { pads: [[0, 1, 1], [2, 3, 2]], lava: 0x55, rocks: [0xAB42, 42], roofs: 0xAA4A, vents: [0xA8F6, 6], spouts: [0xA9AA, 10], fireRuns: [0xAA5E, 5], fireBars: [0xAB26, 2],
       cracks: [[[[59, 55]], 680, [-1, 0]], [[[65, 63]], 584, [-1, 0]]] },
     14: { lava: 0x55 },   // Volcano Valley 3: the crater's lava
@@ -575,7 +576,7 @@ const S3D = (() => {
         delete e.x; delete e.z;
       }
       else if (kind === 'movePlat') {
-        if (u16(ob, o + 0x24)) continue;   // (the sinking kind is not read yet)
+        if (u16(ob, o + 0x24)) continue;   // (the sinking kind: in no level's records)
         const alongZ = (ob[o + 0x16] >> 3) & 1, sx = alongZ ? 48 : 32, sz = alongZ ? 32 : 48, T = Math.PI / 1024;
         Object.assign(e, { x0: r3((x - 1) / CELL - x0), x1: r3((x - 1 + sx) / CELL - x0), z0: r3((z - 1) / CELL - z0), z1: r3((z - 1 + sz) / CELL - z0),
           y: r3((s16(ob, o + 0xA) + 8) / CELL * vscale), axis: alongZ ? 'z' : 'x', centre: r3(s16(ob, o + 0x28) / CELL - (alongZ ? z0 : x0)), amp: r3(63 / CELL),
@@ -759,6 +760,8 @@ const S3D = (() => {
       if (!floorCell(cx, cz) || !floorCell(Math.floor(tx / CELL), Math.floor(tz / CELL))) continue;
       ents.push({ type: 'vent', x: cx + 0.5 - x0, z: cz + 0.5 - z0, to: [r3(tx / CELL - x0), r3((ty + 8) / CELL * vscale), r3(tz / CELL - z0)],
         vel: [r3(-2 * mps), r3(8.5 * mps * vscale), r3(-2 * mps)] });
+      const off = (gm.ventOff || []).find(q => q[0] === c << 1);
+      if (off) ents[ents.length - 1].offWhileRock = [(off[1] >> 1) % 128 - x0, (off[1] >> 8) - z0];
     }
     if (gm.tris) ents.push({ type: 'triBumpers', list: gm.tris.map(([band, b, sd, flip, vx, vz, along]) => ({ band,
       b: r3(b / CELL - (band === 'x' ? x0 : z0)), s: r3(sd / CELL - (band === 'x' ? z0 : x0)), flip: !!flip, v: [r3(vx * mps), r3(vz * mps)], along: !!along })) });

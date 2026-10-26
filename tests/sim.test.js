@@ -824,6 +824,14 @@ test('Volcano Valley: lava hurts unless the fire shield, a rock breaks under a b
   w = FLAT([{ type: 'vent', x: 4.5, z: 2.5, to: [9.5, 1, 2.5], vel: [-3.75, 15.9, 0] }]); place(w, 4.5, 2.5);
   let out = -1, at = null; run(w, 80, (f, ww) => { if (out < 0 && ww.events.includes('ventOut')) { out = f; at = [ww.p.x, ww.p.vy]; } return {}; });
   assert.ok(out > 60 && at[1] > 15 && Math.abs(at[0] - 9.5) < 0.1, `thrown from the other vent at frame ${out} (${at})`);
+  // VV2's vent at 0x63AC: off while the rock on its partner stands
+  const ventOff = [{ type: 'vent', x: 4.5, z: 2.5, to: [9.5, 1, 2.5], vel: [-3.75, 15.9, 0], offWhileRock: [9, 2] }, { type: 'rocks', cells: [[9, 2, 1.5]] }];
+  w = FLAT(ventOff); place(w, 4.5, 2.5); let drawn = false;
+  run(w, 20, (f, ww) => { if (ww.events.includes('ventIn')) drawn = true; return {}; });
+  assert.ok(!drawn && !w.p.vent, 'vent off while the rock stands');
+  w = FLAT(ventOff); w.rocks.delete(2 * w.L.width + 9); w.L.up.delete(2 * w.L.width + 9); place(w, 4.5, 2.5); drawn = false;
+  run(w, 20, (f, ww) => { if (ww.events.includes('ventIn')) drawn = true; return {}; });
+  assert.ok(drawn, 'vent on once the rock is broken');
   w = FLAT([{ type: 'jetLift', x0: 5, x1: 6, z0: 2, z1: 3.5, y0: 1, y1: 2 }]); place(w, 5.5, 2.5);
   run(w, 20, {}); near(w.jets[0].top, 1 + 20 / 32, 0.05, 'rising a unit a frame'); near(w.p.y, w.jets[0].top, 0.05, 'carried');
   place(w, 2.5, 2.5); run(w, 40, {}); near(w.jets[0].top, 1, 1e-6, 'back down');
