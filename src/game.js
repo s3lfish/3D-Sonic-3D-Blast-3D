@@ -755,9 +755,10 @@
   function showLevelName() {
     $('levelName').textContent = customLoaded ? `Playing your level: ${L.name}` : `Playing the built-in level: ${L.name}`;
     $('builtInBtn').hidden = !customLoaded;
+    $('playIntro').hidden = customLoaded;
   }
-  function setLoadMsg(list) {
-    const ul = $('loadMsg'); ul.textContent = '';
+  function setLoadMsg(list, id = 'loadMsg') {
+    const ul = $(id); ul.textContent = '';
     for (const m of list) { const li = document.createElement('li'); li.textContent = m; ul.appendChild(li); }
     ul.hidden = !list.length;
   }
@@ -812,13 +813,13 @@
     const sel = $('romLevel'); sel.textContent = '';
     for (const [id, name] of S3D.LEVELS) { const o = document.createElement('option'); o.value = id; o.textContent = name; sel.appendChild(o); }
     $('romPick').hidden = false; $('lookSel').value = artLook;
-    try { setRom(bytes); } catch (e) { romArt = null; setLoadMsg(['The level layouts work, but the sprites could not be read from this ROM: ' + e.message + '.']); }
+    try { setRom(bytes); } catch (e) { romArt = null; setLoadMsg(['The level layouts work, but the sprites could not be read from this ROM: ' + e.message + '.'], 'romMsg'); }
     buildLevelObjects();
   }
   $('lookSel').addEventListener('change', () => { artLook = $('lookSel').value === 'scribble' ? 'scribble' : 'rom'; store.set(LOOK_KEY, artLook); buildLevelObjects(); });
   $('romForget').addEventListener('click', () => {
     romStore.del(); romBytes = null; romArt = null; $('romPick').hidden = true;
-    buildLevelObjects(); setLoadMsg(['Forgotten: this browser no longer keeps your ROM.']);
+    buildLevelObjects(); setLoadMsg(['Forgotten: this browser no longer keeps your ROM.'], 'romMsg');
   });
   romStore.get().then(v => { if (v && !romBytes) { const b = new Uint8Array(v); if (!S3D.check(b)) useRom(b); } });
   $('romFile').addEventListener('change', e => {
@@ -828,13 +829,13 @@
     const reader = new FileReader();
     reader.onload = async () => {
       let bytes;
-      try { bytes = await S3D.openRomFile(reader.result); } catch (err) { setLoadMsg([err.message]); return; }
+      try { bytes = await S3D.openRomFile(reader.result); } catch (err) { setLoadMsg([err.message], 'romMsg'); return; }
       const why = S3D.check(bytes);
-      if (why) { setLoadMsg([why]); return; } // keep any ROM already in use
-      setLoadMsg([]); useRom(bytes);
-      romStore.put(bytes).then(kept => { if (!kept) setLoadMsg(['Using your ROM for this visit only: the browser would not keep a copy.']); });
+      if (why) { setLoadMsg([why], 'romMsg'); return; } // keep any ROM already in use
+      setLoadMsg([], 'romMsg'); useRom(bytes);
+      romStore.put(bytes).then(kept => { if (!kept) setLoadMsg(['Using your ROM for this visit only: the browser would not keep a copy.'], 'romMsg'); });
     };
-    reader.onerror = () => setLoadMsg(['The ROM file could not be read. Try choosing it again.']);
+    reader.onerror = () => setLoadMsg(['The ROM file could not be read. Try choosing it again.'], 'romMsg');
     reader.readAsArrayBuffer(file);
   });
   $('romGo').addEventListener('click', () => {
@@ -843,9 +844,9 @@
       const raw = S3D.convert(romBytes, Number($('romLevel').value), Number($('romScale').value));
       useLevel(Sim.importLevel(raw), true);
       const kept = store.set(LEVEL_KEY, JSON.stringify(raw));
-      setLoadMsg(kept ? [] : ['Loaded for this visit only: the browser would not store a level this size.']);
+      setLoadMsg(kept ? [] : ['Loaded for this visit only: the browser would not store a level this size.'], 'romMsg');
       start();
-    } catch (err) { setLoadMsg(['That level could not be converted: ' + err.message + '.']); }
+    } catch (err) { setLoadMsg(['That level could not be converted: ' + err.message + '.'], 'romMsg'); }
   });
   $('builtInBtn').addEventListener('click', () => { store.del(LEVEL_KEY); useLevel(Sim.importLevel(JSON.parse(builtInRaw)), false); setLoadMsg([]); });
   showLevelName();

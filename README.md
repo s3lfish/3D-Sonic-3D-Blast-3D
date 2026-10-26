@@ -12,7 +12,7 @@ No install. Works with keyboard, mouse, touch or a controller.
 
 ## Using your ROM
 
-1. Open the game and choose **Choose ROM file** on the start card. A plain ROM (`.bin`, `.md`), an `.smd` dump, or
+1. Open the game and choose **Choose ROM file** at the top of the start card. A plain ROM (`.bin`, `.md`), an `.smd` dump, or
    either one inside a `.zip` all work.
 2. Pick a level, choose **True shape** to experience the true majesty of THREE DIMENSIONS or **Half height** so that it's actually playable, and press **Play this level**.
 

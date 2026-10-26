@@ -74,6 +74,10 @@ body {
 .card button.secondary { background: transparent; color: var(--ink); border: 1px solid color-mix(in srgb, var(--muted) 45%, transparent); }
 .levels { display: grid; gap: 8px; border-top: 1px solid color-mix(in srgb, var(--muted) 25%, transparent); padding-top: 12px; }
 .levels p { font-size: 13px; }
+.levels.rom { border-top: 0; padding-top: 0; }
+.levels.rom p { font-size: 14px; }
+.levels.rom strong { color: var(--gold); }
+.filebtn.primary { background: var(--gold); color: var(--void); border-color: transparent; font-size: 15px; padding: 10px 18px; }
 #levelFile { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .filebtn { font: 700 13px var(--font-ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink); cursor: pointer;
   border: 1px solid color-mix(in srgb, var(--muted) 45%, transparent); border-radius: 10px; padding: 9px 14px; }
@@ -117,24 +121,13 @@ body {
 <div class="overlay" id="helpOverlay">
   <div class="card" role="dialog" aria-labelledby="helpTitle">
     <h1 id="helpTitle">Blast Grid</h1>
-    <p>Collect every ring. Some sit up high: try the stairs, the springs, and the blocks you can hop between.</p>
-    <dl class="keys" id="keysList"></dl>
-    <div class="actions"><button id="playBtn">Play</button><button id="restartBtn" class="secondary" hidden>Restart level</button></div>
-    <div class="levels">
-      <p id="levelName"></p>
+    <div class="levels rom">
+      <p><strong>Start here:</strong> own the Mega Drive version of Sonic 3D Blast? Choose your ROM file (zipped is fine) to play its levels with its own art and sprites. The file stays on your device: this browser keeps a copy so it loads next time, until you choose Forget ROM.</p>
       <div class="actions">
-        <label class="filebtn" for="levelFile">Load level file</label>
-        <input type="file" id="levelFile" accept=".json,application/json">
-        <button id="builtInBtn" class="secondary" hidden>Built-in level</button>
-      </div>
-      <ul id="loadMsg" class="loadmsg" hidden></ul>
-    </div>
-    <div class="levels">
-      <p>Own the Mega Drive version of Sonic 3D Blast? Choose your ROM file (zipped is fine) to play its level layouts and see its sprites here. The file stays on your device: this browser keeps a copy so the sprites load next time, until you choose Forget ROM.</p>
-      <div class="actions">
-        <label class="filebtn" for="romFile">Choose ROM file</label>
+        <label class="filebtn primary" for="romFile">Choose ROM file</label>
         <input type="file" id="romFile">
       </div>
+      <ul id="romMsg" class="loadmsg" hidden></ul>
       <div class="romrow" id="romPick" hidden>
         <label for="romLevel">Level</label><select id="romLevel"></select>
         <label for="romScale">Heights</label>
@@ -144,6 +137,21 @@ body {
         <button id="romGo">Play this level</button>
         <button id="romForget" class="secondary">Forget ROM</button>
       </div>
+    </div>
+    <div class="levels">
+      <p id="playIntro">No ROM? The built-in level is ready. Collect every ring: some sit up high, so try the stairs, the springs, and the blocks you can hop between.</p>
+      <p id="levelName"></p>
+      <div class="actions"><button id="playBtn">Play</button><button id="restartBtn" class="secondary" hidden>Restart level</button></div>
+    </div>
+    <dl class="keys" id="keysList"></dl>
+    <div class="levels">
+      <p>Made your own level? Load it as a JSON file.</p>
+      <div class="actions">
+        <label class="filebtn" for="levelFile">Load level file</label>
+        <input type="file" id="levelFile" accept=".json,application/json">
+        <button id="builtInBtn" class="secondary" hidden>Built-in level</button>
+      </div>
+      <ul id="loadMsg" class="loadmsg" hidden></ul>
     </div>
   </div>
 </div>
@@ -3361,9 +3369,10 @@ const Art = (() => {
   function showLevelName() {
     $('levelName').textContent = customLoaded ? `Playing your level: ${L.name}` : `Playing the built-in level: ${L.name}`;
     $('builtInBtn').hidden = !customLoaded;
+    $('playIntro').hidden = customLoaded;
   }
-  function setLoadMsg(list) {
-    const ul = $('loadMsg'); ul.textContent = '';
+  function setLoadMsg(list, id = 'loadMsg') {
+    const ul = $(id); ul.textContent = '';
     for (const m of list) { const li = document.createElement('li'); li.textContent = m; ul.appendChild(li); }
     ul.hidden = !list.length;
   }
@@ -3418,13 +3427,13 @@ const Art = (() => {
     const sel = $('romLevel'); sel.textContent = '';
     for (const [id, name] of S3D.LEVELS) { const o = document.createElement('option'); o.value = id; o.textContent = name; sel.appendChild(o); }
     $('romPick').hidden = false; $('lookSel').value = artLook;
-    try { setRom(bytes); } catch (e) { romArt = null; setLoadMsg(['The level layouts work, but the sprites could not be read from this ROM: ' + e.message + '.']); }
+    try { setRom(bytes); } catch (e) { romArt = null; setLoadMsg(['The level layouts work, but the sprites could not be read from this ROM: ' + e.message + '.'], 'romMsg'); }
     buildLevelObjects();
   }
   $('lookSel').addEventListener('change', () => { artLook = $('lookSel').value === 'scribble' ? 'scribble' : 'rom'; store.set(LOOK_KEY, artLook); buildLevelObjects(); });
   $('romForget').addEventListener('click', () => {
     romStore.del(); romBytes = null; romArt = null; $('romPick').hidden = true;
-    buildLevelObjects(); setLoadMsg(['Forgotten: this browser no longer keeps your ROM.']);
+    buildLevelObjects(); setLoadMsg(['Forgotten: this browser no longer keeps your ROM.'], 'romMsg');
   });
   romStore.get().then(v => { if (v && !romBytes) { const b = new Uint8Array(v); if (!S3D.check(b)) useRom(b); } });
   $('romFile').addEventListener('change', e => {
@@ -3434,13 +3443,13 @@ const Art = (() => {
     const reader = new FileReader();
     reader.onload = async () => {
       let bytes;
-      try { bytes = await S3D.openRomFile(reader.result); } catch (err) { setLoadMsg([err.message]); return; }
+      try { bytes = await S3D.openRomFile(reader.result); } catch (err) { setLoadMsg([err.message], 'romMsg'); return; }
       const why = S3D.check(bytes);
-      if (why) { setLoadMsg([why]); return; } // keep any ROM already in use
-      setLoadMsg([]); useRom(bytes);
-      romStore.put(bytes).then(kept => { if (!kept) setLoadMsg(['Using your ROM for this visit only: the browser would not keep a copy.']); });
+      if (why) { setLoadMsg([why], 'romMsg'); return; } // keep any ROM already in use
+      setLoadMsg([], 'romMsg'); useRom(bytes);
+      romStore.put(bytes).then(kept => { if (!kept) setLoadMsg(['Using your ROM for this visit only: the browser would not keep a copy.'], 'romMsg'); });
     };
-    reader.onerror = () => setLoadMsg(['The ROM file could not be read. Try choosing it again.']);
+    reader.onerror = () => setLoadMsg(['The ROM file could not be read. Try choosing it again.'], 'romMsg');
     reader.readAsArrayBuffer(file);
   });
   $('romGo').addEventListener('click', () => {
@@ -3449,9 +3458,9 @@ const Art = (() => {
       const raw = S3D.convert(romBytes, Number($('romLevel').value), Number($('romScale').value));
       useLevel(Sim.importLevel(raw), true);
       const kept = store.set(LEVEL_KEY, JSON.stringify(raw));
-      setLoadMsg(kept ? [] : ['Loaded for this visit only: the browser would not store a level this size.']);
+      setLoadMsg(kept ? [] : ['Loaded for this visit only: the browser would not store a level this size.'], 'romMsg');
       start();
-    } catch (err) { setLoadMsg(['That level could not be converted: ' + err.message + '.']); }
+    } catch (err) { setLoadMsg(['That level could not be converted: ' + err.message + '.'], 'romMsg'); }
   });
   $('builtInBtn').addEventListener('click', () => { store.del(LEVEL_KEY); useLevel(Sim.importLevel(JSON.parse(builtInRaw)), false); setLoadMsg([]); });
   showLevelName();
