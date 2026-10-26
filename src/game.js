@@ -1871,8 +1871,8 @@
     m.needsUpdate = true;
   }
   const satMin = new WeakMap();   // textures' own minification filters, put back when the Saturn screen is off
-  function satScene() {
-    scene.traverse(o => {
+  function satScene(root = scene) {
+    root.traverse(o => {
       for (const m of [].concat(o.material || [])) {
         satPatch(m, o.isMesh);
         if (m.map) { if (!satMin.has(m.map)) satMin.set(m.map, m.map.minFilter); const f = saturn ? THREE.NearestFilter : satMin.get(m.map); if (m.map.minFilter !== f) { m.map.minFilter = f; m.map.needsUpdate = true; } }
@@ -2550,6 +2550,7 @@
     bonus = { b, data, look, scene: scene2, group, ground, objs, sprite, shade, use3d, who, n, noEm: em >= 7, prev: { x: b.x, y: b.y, z: b.z, cx: b.camX, cy: b.camY, cz: b.camZ },
       acc: 0, cycle: 0, done: null, doneAt: 0, popped: new Map(), lastMsg: '' };
     bonusProjection();
+    if (saturn) satScene(scene2);
     $('flickyHud').hidden = true; $('ringCount').textContent = '0'; $('ringTotal').textContent = '';
     if (MdSound.on && !Sfx.muted) MdSound.playMusic(S3D.BONUS.music);
     fadeCut();
@@ -2670,7 +2671,10 @@
     if (msg !== B.lastMsg) { B.lastMsg = msg; const m = $('bonusMsg'); m.textContent = msg; m.hidden = !msg; m.classList.toggle('count', b.msg === 1); }
     if (shownRings !== b.rings) { shownRings = b.rings; $('ringCount').textContent = String(b.rings); }
     if (toastTimer > 0) { toastTimer -= dt; if (toastTimer <= 0) $('toast').hidden = true; }
-    renderer.render(B.scene, bonusCam);
+    if (saturn) {
+      renderer.setRenderTarget(satTarget); renderer.render(B.scene, bonusCam);
+      renderer.setRenderTarget(null); renderer.render(postScene, postCam);
+    } else renderer.render(B.scene, bonusCam);
     frames++;
   }
 
