@@ -1882,6 +1882,12 @@ const Sim = (() => {
     // (0x40D6: a wall where the floor there is 9 or more whole units over Sonic's, in the air too; converted levels)
     const lim = L.rom ? origLim(L, p.y) : p.y + L.phys.stepUp;
     if (L.rom && L.diag && L.diag.size && !air) origDiag(L, p, ci, cj);   // (the original meets its pieces first)
+    // (then, 0x3BB2: a move of more than 8 whole units across the screen, x - z, against last frame's whole units,
+    // gives back one unit in x and z)
+    if (L.rom) {
+      const d = Math.floor(p.x * 32 + 1e-9) - Math.floor(ox * 32 + 1e-9) + Math.floor(oz * 32 + 1e-9) - Math.floor(p.z * 32 + 1e-9);
+      if (d > 8) { p.x -= 1 / 32; p.z += 1 / 32; } else if (d < -8) { p.x += 1 / 32; p.z -= 1 / 32; }
+    }
     let i = Math.floor(p.x), j = Math.floor(p.z), nx = 0, nz = 0, hit = false;
     if (i !== ci && tileTopNear(L, i, cj, p.x, oz, air) > lim) { p.x = i > ci ? ci + 1 - E : ci; nx = _ax[0] = i > ci ? -1 : 1; hit = true; i = ci; _ax[2] = 1; }
     if (j !== cj && tileTopNear(L, i, j, p.x, p.z, air) > lim) { p.z = j > cj ? cj + 1 - E : cj; nz = _ax[1] = j > cj ? -1 : 1; hit = true; _ax[2] = 1; }
@@ -1993,7 +1999,7 @@ const Sim = (() => {
     fwd = fwd > 0 ? Math.max(0, fwd - tab[1]) : fwd < 0 ? Math.min(0, fwd + tab[1]) : 0;
     const over = v => v > top ? (v > 0x7F00 ? 0x7F00 : v - A) : v < -top ? (v < -0x7F00 ? -0x7F00 : v + A) : v;
     side = over(side); fwd = over(fwd);
-    p.fwdWord = word(fwd);
+    p.fwdWord = word(fwd); p.sideWord = word(side);
     let X = Math.floor((side * cs - fwd * sn) / 2048), Z = Math.floor((fwd * cs + side * sn) / 2048);
     // grounded: the slope pulls (g + g/4; rolling a quarter of that) once it is steep (0x1000) or he moves (0x800);
     // a jump this frame also takes 32 g and leaves at the slope's upright part (0x3660)
@@ -2103,7 +2109,7 @@ const Sim = (() => {
     respawn(w);
     w.spawn = keep;
   }
-  function death(w) { w.deaths++; reloadAct(w); w.events.push('respawn'); if (w.L.rom && w.L.phys.orig) w.wait = 52; }   // (the original's reload: 52 frames of nothing)
+  function death(w) { w.deaths++; reloadAct(w); w.events.push('respawn'); if (w.L.rom && w.L.phys.orig) { w.wait = 52; w.padWait = 33; } }   // (the original's reload: 52 frames of nothing, then 33 more before the pad is read again)
   // put every ring, enemy and monitor back and the player at the start
   function resetLevel(w) {
     const L = w.L;
@@ -3018,7 +3024,7 @@ const Sim = (() => {
     w.p = { x: s.x, y: floorAt(w.L, s.x, s.z), z: s.z, vx: 0, vy: 0, vz: 0, grounded: true, coyote: 0,
       rolling: false, ball: false, sprung: false, charge: 0, facing: s.facing, jumping: false, prevJump: false, prevDash: false, invuln: 0,
       shield: null, inv: 0, fast: 0, boost: null, goldUsed: false, dashHeld: 0, cannon: null, flyT: 0, whirl: false, whirlHold: 0,
-      ride: null, auto: null, pad: null, slideT: 0, slideDir: null, lock: 0, force: null, bumpCell: -1, chute: null, sled: null, frozen: 0, dashCell: -1, vent: null, carry: null, hidden: false, friend: null };
+      ride: null, auto: null, pad: null, slideT: 0, slideDir: null, lock: 0, force: null, bumpCell: -1, chute: null, sled: null, frozen: 0, dashCell: -1, vent: null, carry: null, hidden: false, friend: null , anim: 0, a96: 0, a98: 0, aLoad: 0 };
     if (s.auto) w.p.auto = autoWalk(w);
     for (const f of w.friends || []) { f.t = 0; f.flag = false; }
     if (w.boss) initBoss(w);
@@ -3066,6 +3072,7 @@ const Sim = (() => {
     // after a ring that puts the player in a pocket, the original walks them to the way out (input is the routine's)
     w.tick++;
     if (w.wait > 0) { w.wait--; return w; }
+    if (w.padWait > 0) { w.padWait--; inp = {}; }
     // dying (converted levels; watched in Volcano Valley 1): thrown 8 up, the rise slows by gravity and stops, held
     // there, then the act again 57 frames after the hit (the world waits here)
     if (p.dying > 0) {
@@ -3325,7 +3332,10 @@ const Sim = (() => {
           p.rolling = false;
           if (inp.dash) {
             holdO = true; p.crouch = (p.crouch || 0) + 1;
-            if (!(p.revN >= 0)) { if (p.crouch >= 14) { p.revN = 3; p.revWait = 15; w.events.push('charge'); } }
+            // (converted levels: once the crouch shows, $94 = 3 at script $A2 = 0x24: its first three entries of rate
+            // 20 played, 9 frames; ours counted 14)
+            const shows = L.rom ? p.anim === 3 && p.a98 === 3 && p.aLoad >= 9 : p.crouch >= 14;
+            if (!(p.revN >= 0)) { if (shows) { p.revN = 3; p.revWait = 15; w.events.push('charge'); } }
             else {
               if (jumpPress) { p.revWait = 0; w.events.push('charge'); }
               if (p.revN > 0 && --p.revWait <= 0) { p.revN--; p.revWait = 15; w.events.push('charge'); }
@@ -3562,7 +3572,7 @@ const Sim = (() => {
     // Spring Stadium's cells (helpers 0x9974, 0x9D44)
     const cell = Math.floor(p.z) * L.width + Math.floor(p.x);
     if (p.grounded && w.springCells.size && w.springCells.has(cell)) {   // a floor spring
-      p.vy = w.springCells.get(cell) - L.phys.gravity * dt; p.grounded = false; p.jumping = false; p.coyote = 0; launchW(p, L, w.springCells.get(cell));
+      p.vy = w.springCells.get(cell) - L.phys.gravity * dt; p.grounded = false; p.jumping = false; p.coyote = 0; launchW(p, L, w.springCells.get(cell)); p.anim = 0xD;
       p.ball = false; p.rolling = false; p.sprung = true; p.charge = 0; w.events.push('spring');
     }
     // a bumper: entered near its floor, it pushes the player out across the nearest edge (by the cell's diagonals)
@@ -3864,7 +3874,7 @@ const Sim = (() => {
       const dx = sp.x - p.x, dz = sp.z - p.z;
       if (dx * dx + dz * dz < 0.25 && p.y >= sp.y - 0.2 && p.y <= sp.y + 0.45 && p.vy <= 0.5) {
         // gravity takes its first bite in the same step, as for a jump, so the rise matches the measured height
-        p.vy = sp.power - L.phys.gravity * dt; p.grounded = false; p.jumping = false; p.coyote = 0; launchW(p, L, sp.power);
+        p.vy = sp.power - L.phys.gravity * dt; p.grounded = false; p.jumping = false; p.coyote = 0; launchW(p, L, sp.power); p.anim = 0xD;
         p.ball = false; p.rolling = false; p.sprung = true; p.charge = 0;
         sp.cool = 0.3; sp.firedAt = w.time; w.events.push('spring');
       }
@@ -4220,10 +4230,9 @@ const Sim = (() => {
       const dx = g.x - p.x, dy = g.y - py, dz = g.z - p.z;
       if (dx * dx + dy * dy + dz * dz < r2) { g.got = true; g.gotAt = w.time; w.ringCount++; w.events.push('ring'); }
     }
-    // the original's animation 0 (0x1492: grounded, not crouching, rolling or jumping, speed exactly 0), read by the
-    // Flickies next frame
-    // (a jump's state $56 = 1 is cleared by the turn routine the frame after landing)
-    w.fStand = p.grounded && !w.fBall && !p.rolling && !(p.revN >= 0) && !(p.crouch > 0) && p.vx === 0 && p.vz === 0 && !p.ride && !p.cannon;
+    // the original's animation (0x1492), read by the Flickies next frame (standing: 0 or 0xB)
+    if (L.rom && L.phys.orig) { origAnim(w, p); w.fStand = p.anim === 0 || p.anim === 0xB; }
+    else w.fStand = p.grounded && !w.fBall && !p.rolling && !(p.revN >= 0) && !(p.crouch > 0) && p.vx === 0 && p.vz === 0 && !p.ride && !p.cannon;
     w.fBall = p.ball && !p.grounded;
     return w;
   }
@@ -4246,6 +4255,46 @@ const Sim = (() => {
   // floor, turns that part back at the edge; gravity 0x2000 a frame; landing (on the triangles, split ignored) comes back
   // up at 3/4 and takes 0x1000 off each horizontal part; a landing with neither left, or 240 frames, ends it.
   function ringPos(L, r) { const vs = L.rom.vscale; r.x = r.X / 65536 / 32; r.z = r.Z / 65536 / 32; r.y = (r.Y / 65536 + 8) / 32 * vs + (r.type ? 0 : 0.3); }
+  // Sonic's animation as the original picks it each frame (0x1492; $94, `p.anim`): kept in states others set (hurt
+  // 8, 9, 0xA, 0xC, 0xF, dying 0x11, 0x12); a spring's 0xD while rising, then 1; the rev 7; the ball 2 (a jump's state
+  // lasts the landing frame); in the air otherwise as it was; crouching 3; speed 0: 0 (or the bored 0xB); moving 1,
+  // or the skid ($62 = `p.s62`) when the side speed ($20) passes the forward one and 0x4800 (0 with the pad let go):
+  // 4 / 5 by its side, 6 once reversed or at its end, until the side speed is back under 0x3000.
+  function origAnim(w, p) {
+    pickAnim(w, p);
+    // (its player, 0x16BA: a new pick starts the frame after; `p.aLoad` counts the frames it has played)
+    if (p.anim !== p.a96) p.a96 = p.anim;
+    else if (p.anim !== p.a98) { p.a98 = p.anim; p.aLoad = 0; }
+    p.aLoad = (p.aLoad || 0) + 1;
+  }
+  function pickAnim(w, p) {
+    let a = p.anim || 0;
+    if ([8, 9, 0xA, 0xC, 0xF, 0x11, 0x12].includes(a) && (a !== 8 || !p.grounded)) return;
+    if (a === 0xD && p.vy <= 0) a = 1;
+    const s56 = p.revN >= 0 ? 3 : p.rolling ? 2 : (p.ball && !p.grounded) || (p.grounded && w.fBall) ? 1 : 0;
+    if (s56) { p.anim = s56 === 3 ? 7 : 2; return; }
+    if (!p.grounded) { p.anim = a; return; }
+    if (p.crouch > 0) { p.anim = 3; return; }
+    if (p.vx === 0 && p.vz === 0) { if (a !== 0xB && a !== 0x13) { a = 0; p.s62 = 0; } p.anim = a; return; }
+    const rel = !p.lastStick, fwd = p.fwdWord || 0, side = p.sideWord || 0;
+    const skid = k => { if (k > 0) a = p.s62 === 2 ? 6 : 4; else a = p.s62 === -2 ? 6 : 5; };
+    if (fwd < 0) {
+      if (rel) {
+        if (side > 0 && -side < fwd) skid(1);
+        else if (side < 0 && side < fwd) skid(-1);
+        else { if (p.s62 > 0) p.s62 = 2; else if (p.s62 < 0) p.s62 = -2; a = 6; }
+      }
+    } else if (!p.s62) {
+      const lim = rel ? 0 : 0x4800, d = Math.abs(side);
+      if (side && d >= fwd && d >= lim) { p.s62 = side > 0 ? 1 : -1; w.events.push('skidStart'); }
+      else a = 1;
+    } else {
+      const lim = rel ? 0 : 0x3000;
+      if (p.s62 >= 0 ? side > lim : side < -lim) skid(p.s62 >= 0 ? 1 : -1);
+      else { p.s62 = 0; a = 1; }
+    }
+    p.anim = a;
+  }
   // Sonic's $72 as the history keeps it for the Flickies (0x5726): a launch up at v (units a frame) is the word -16 v
   const launchW = (p, L, vUp) => { if (L.rom && L.phys.orig) p.launchJ = (Math.floor(-Math.round(vUp / (60 / 32 * L.rom.vscale) * 4096) * 16 / 4096) << 16) >> 16; };   // (to 1/4096: jumpV is kept to 4 places)
   // The original's following Flickies (0x56FC, every frame after Sonic moves): a history of 20 records of Sonic (x, z
@@ -4268,7 +4317,7 @@ const Sim = (() => {
       if (w.fA8 >= 0xF0) {
         w.fA8 = 1000;
         if (p.faceSet) {
-          p.bored = true;
+          p.bored = true; p.anim = 0xB;
           const ci = Math.floor(p.x), cj = Math.floor(p.z), base = (i, j) => {
             if (i < 0 || j < 0 || i >= W || j >= L.depth) return 0;
             const t = j * W + i; if (L.coll[t] === 'W' || L.coll[t] === 'P') return 0;
@@ -4495,7 +4544,7 @@ const Sim = (() => {
     const p = w.p, U = 60 / 32, k = Math.floor(origFace(p) / 0x100) & 7, m = (k & 1 ? 0x54DA : 0x7800) * 4 / 65536;
     let a = -k / 8 * 2 * Math.PI; if (a <= -Math.PI) a += 2 * Math.PI;
     p.facing = a;
-    p.knock = [[0, 1, 1, 1, 0, -1, -1, -1][k] * m * U, [-1, -1, 0, 1, 1, 1, 0, -1][k] * m * U]; p.knockT = 100;
+    p.knock = [[0, 1, 1, 1, 0, -1, -1, -1][k] * m * U, [-1, -1, 0, 1, 1, 1, 0, -1][k] * m * U]; p.knockT = 100; p.anim = 8;
     p.vx = p.knock[0]; p.vz = p.knock[1]; p.vy = 5 * U * w.L.rom.vscale;
     p.grounded = false; p.jumping = false; p.ball = false; p.rolling = false; p.charge = 0; p.crouch = 0; p.revN = -1;
     p.invuln = 99;   // (safe while thrown; 120 frames from landing)
@@ -4517,7 +4566,7 @@ const Sim = (() => {
     if (w.ringCount <= 0) {
       if (OH) {   // (0x1B6C2: facing 0x700, 8 up, sound 0x35; then the dying count in step)
         p.dying = 57; p.vx = p.vz = 0; p.vy = 8 * 60 / 32 * w.L.rom.vscale; p.grounded = false; p.jumping = false; p.ball = false; p.rolling = false;
-        p.facing = 0x100 / 0x800 * 2 * Math.PI; p.knockT = 0; w.events.push('dying'); return;
+        p.facing = 0x100 / 0x800 * 2 * Math.PI; p.knockT = 0; p.anim = 0x11; w.events.push('dying'); return;
       }
       death(w); return;
     }
@@ -6482,6 +6531,48 @@ const S3D = (() => {
     ball: () => [113, 126, 113, 127, 113, 128, 113, 129], charge: () => [192, 193, 192, 194, 192, 195, 192, 196, 192, 197],
   };
   function range(a, n) { const r = []; for (let i = 0; i < n; i++) r.push(a + i); return r; }
+  // Sonic's animations as the original plays them (0x16AC): per animation ($94) a script (table 0x25BC2: word, view
+  // table offset $A0, script offset $A2) of [frame, rate] entries at 0x258A2; the rate adds to $9C each frame and at 60
+  // the next entry shows (the walk, view table 0x16, at its forward speed's high byte / 4, at least 8); an entry -1
+  // jumps back by its rate (bytes). A new animation starts the frame after it is picked. The view: the facing
+  // ((F + 0x100) & 0x780) >> 6 picks one of 16; view tables at 0x25C3A (type byte 0: the far side mirrored, its frame
+  // moved by the first word (wrapping at the second), then one of 9 offsets; else one way only, the other mirrored or
+  // not by the type's sign). A frame < 0 takes no view. Bored (0xB) at script 0x228 picks a variation by a random word.
+  const ANIM_TABLE = 0x25BC2, ANIM_SCRIPT = 0x258A2, ANIM_VIEW = 0x25C3A;
+  function heroAnimator(d) {
+    const st = { a96: 0, a98: -1, a9c: 0, A0: 0, A2: 0, cur: ANIM_SCRIPT };
+    return {
+      st,
+      step(anim, fwdWord, rnd) {
+        if (anim === 0xB && st.a98 === 0xB && st.A2 === 0x228) { const r = rnd(); if (r <= 0x6000) st.A2 = 0x230; else if (r <= 0x8000) st.A2 = 0x254; }
+        if (anim !== st.a96) st.a96 = anim;
+        else if (anim !== st.a98) { const t = ANIM_TABLE + 6 * anim; st.a9c = 0; st.A0 = s16(d, t + 2); st.A2 = s16(d, t + 4); st.a98 = anim; }
+        const e = ANIM_SCRIPT + st.A2;
+        let sp = s16(d, e + 2);
+        if (st.A0 === 0x16) { let b = (fwdWord >> 8) & 0xFF; if (((b << 24) >> 24) < 0x20) b = 0x20; sp = b >> 2; }
+        st.a9c += sp; st.cur = e;
+        if (st.a9c >= 0x3C) {
+          st.a9c -= 0x3C; st.A2 += 4;
+          if (s16(d, e + 4) === -1) { const back = s16(d, e + 6); if (!back) st.a98 = -1; st.A2 -= back; }
+        }
+      },
+      // [frame, mirrored] for facing F (0x800 a turn, as the original's $32)
+      frame(F) {
+        const t = ANIM_VIEW + st.A0, ty = d[t];
+        let d0 = s16(d, st.cur), d2 = ((F + 0x100) & 0x780) >> 6, flip = false;
+        if (ty === 0) {
+          if (d2 >= 0x10) { flip = true; d2 = 0x20 - d2; }
+          if (d0 < 0) return [-d0, flip];
+          if (flip) { const add = s16(d, t); d0 += add; if (d0 >= s16(d, t + 2)) d0 -= 2 * add; }
+        } else {
+          if (!(ty & 0x80)) { d2 = (0x20 - d2) & 0x1E; flip = true; }
+          if (d0 < 0) return [-d0, flip];
+          if (d2 > 0x10) { d2 -= 0x10; d0 += s16(d, t + 4 + 0x10); }
+        }
+        return [d0 + s16(d, t + 4 + d2), flip];
+      },
+    };
+  }
 
   // ---------------- level art: the isometric picture, unprojected onto the 3D faces ----------------
   // RNC method 2 as the game's routine at 0xC7C runs it: header-less blocks (packed length, two CRCs, leeway, chunks).
@@ -7032,7 +7123,7 @@ const S3D = (() => {
   }
 
   const typeArt = (d, t) => u32(d, 0x280E8 + t);   // an object type's art block (Green Grove's boss: 48 pod, 50 ball)
-  return { LEVELS, BONUS, bonusStage, bonusSprite, check, openRomFile, objImage, typeArt, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, titleCardImage, levelPalettes, OCTANT, HERO };
+  return { LEVELS, BONUS, bonusStage, bonusSprite, check, openRomFile, objImage, typeArt, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, titleCardImage, levelPalettes, OCTANT, HERO, heroAnimator };
 })();
 </script>
 
@@ -7491,6 +7582,15 @@ const Art = (() => {
   const DEFAULT_SKIN = { spring: '018', monitor: '03C', enemy: '00C' };
   let romArt = null, artLook = store.get(LOOK_KEY) === 'scribble' ? 'scribble' : 'rom';
   const romOn = () => !!romArt && artLook === 'rom';
+  // the original's own animation of Sonic (S3D.heroAnimator: its scripts and views, read from the ROM), played one
+  // step per sim frame on converted levels from the sim's pick (`p.anim`)
+  let heroAnim = null, heroAnimD = null;
+  const origLook = () => romOn() && !!world && !!world.L.rom && !!world.L.phys.orig;
+  function stepHeroAnim(p) {
+    if (!origLook()) return;
+    if (!heroAnim || heroAnimD !== romArt.d) { heroAnim = S3D.heroAnimator(romArt.d); heroAnimD = romArt.d; }
+    heroAnim.step(p.anim || 0, p.fwdWord || 0, () => Math.floor(Math.random() * 65536));
+  }
   function pixCanvas(px, size, flip) {
     const c = document.createElement('canvas'); c.width = c.height = size;
     const g = c.getContext('2d'); g.putImageData(new ImageData(px, size, size), 0, 0);
@@ -9140,11 +9240,13 @@ const Art = (() => {
     if (balled) { h.ball.rotation.z -= dt * Math.max(sp, p.charge > 0 ? 14 : 8) * 1.6; return; }
     if (p.whirl) h.root.rotation.y = t * 18;   // a whirl: spun round like a top, standing
     // a skid is over in a tenth of a second at the sim's braking; its animation plays through once all the same
-    if (p.skid && !h.wasSkid) h.skidT = h.S.anims.skid.length / 30;
-    h.wasSkid = p.skid; h.skidT = Math.max(0, (h.skidT || 0) - dt);
+    // (converted levels: the original's skid animations 4, 5 and 6 from the sim's pick; ours by speed and stick)
+    const skidNow = world.L.rom && world.L.phys.orig ? p.anim >= 4 && p.anim <= 6 : p.skid;
+    if (skidNow && !h.wasSkid) h.skidT = h.S.anims.skid.length / 30;
+    h.wasSkid = skidNow; h.skidT = Math.max(0, (h.skidT || 0) - dt);
     let clip, rate = 30;
     if (!p.grounded) clip = p.sprung || p.hover ? 'spring' : 'fall';   // (hovering: arms up)
-    else if (p.skid || h.skidT > 0) clip = 'skid';
+    else if (skidNow || h.skidT > 0) clip = 'skid';
     else if (sp < 0.3 || p.whirl) clip = 'idle', rate = 15;
     else if (sp < run * 0.55) clip = 'walk', rate = 30 * Math.max(0.4, sp / (run * 0.4));
     else if (sp < run * 1.1) clip = 'run', rate = 30 * Math.max(0.7, sp / run);
@@ -9540,7 +9642,7 @@ const Art = (() => {
   }
   function useLevel(newL, custom) {
     L = newL; customLoaded = custom;
-    world = Sim.createWorld(L);
+    world = Sim.createWorld(L); heroAnim = null;
     buildLevelObjects(); resetCamera(); restart();
     showLevelName(); levelMusic(); titleCard();
   }
@@ -9728,7 +9830,7 @@ const Art = (() => {
     }, wait);
   }
   function restart() {
-    Sim.resetLevel(world);
+    Sim.resetLevel(world); heroAnim = null;
     for (let q = 0; q < world.rings.length; q++) ringSprites[q].visible = true;
     for (const s of enemySprites) s.visible = true;
     for (const s of monitorSprites) s.visible = true;
@@ -10084,6 +10186,8 @@ const Art = (() => {
     while (acc >= STEP && steps < 5) {
       prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
       Sim.step(world, inp);
+      if (world.events.includes('respawn')) heroAnim = null;   // (the reload clears Sonic's animation)
+      stepHeroAnim(world.p);
       if (world.events.includes('respawn')) {   // a death: a life gone, the act as it was (see Sim's death)
         prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
         for (let q = 0; q < ringSprites.length; q++) ringSprites[q].visible = !world.rings[q].got;
@@ -10142,7 +10246,14 @@ const Art = (() => {
     const ballLike = pose === 'ball' || pose === 'charge';
     let map;
     if (romOn()) {
-      const [idx, flip] = romHeroPick(pose, sp, p.vx * rx + p.vz * rz, p.vx * fx + p.vz * fz, t, dt);
+      let idx, flip;
+      if (heroAnim && origLook()) {
+        // the view: his facing as seen from this camera, put in the original's fixed view (right (1, -1), up (-1, -1))
+        const dx = Math.sin(p.facing || 0), dz = Math.cos(p.facing || 0), sx = dx * rx + dz * rz, sf = dx * fx + dz * fz;
+        const ix = (sx - sf) * Math.SQRT1_2, iz = (-sx - sf) * Math.SQRT1_2;
+        const F = Math.round(-Math.atan2(ix, iz) / (2 * Math.PI) * 0x800) & 0x7FF;
+        [idx, flip] = heroAnim.frame(F);
+      } else [idx, flip] = romHeroPick(pose, sp, p.vx * rx + p.vz * rz, p.vx * fx + p.vz * fz, t, dt);
       map = romHeroTex(idx, flip);
       if (hero.scale.x !== ROM_SIZE) { hero.scale.set(ROM_SIZE, ROM_SIZE, 1); hero.center.set(0.5, HERO_FOOT); sil.scale.copy(hero.scale); sil.center.copy(hero.center); }
     } else {

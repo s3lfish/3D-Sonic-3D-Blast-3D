@@ -123,7 +123,7 @@ original art. The browser code carries reading rules only.
     ice 100/20/20, $5C 200/80/80, roll ($56 = 2) 0/10/200 with $2E left as it was. A roll with $1E under 0x1000 ends
     before the update ($56 = 0, walk table that frame).
   * Dash button (0x31C8, grounded): moving (any of $12/$1A not 0) with B: $56 = 2. Standing with B: $60 = 1, no move
-    and no jump (exit 0x3744); once the crouch shows ($94 = 3, $A2 = 0x24: 14 frames) the rev starts ($56 = 3, $58 = 3,
+    and no jump (exit 0x3744); once the crouch shows ($94 = 3, $A2 = 0x24: anim 3 picked, started the frame after, three entries of rate 20 = 9 frames; 10 after the press from standing) the rev starts ($56 = 3, $58 = 3,
     $5A = 15, sound 0xAB); every 15 frames $58 - 1 (sound); a new C press zeroes $5A. B let go with $56 = 3: launch
     from table 0x3312 by facing >> 8 ([0, 0x7800], [-0x54DA, 0x54DA], ... 8 ways) x (16 - 2^$58, or 16 at 0), $2E =
     0x7800, $1E = 0x4000, sound 0xB6, no move that frame.
@@ -678,6 +678,22 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - A hit (0x1B6C2, rings or not) sets $0AA6 = followers; 0x5E48 then frees the last one a frame: a particle of its
   colour at its x, y, z, 1 unit a frame at the lost rings' angle $0A54 (then + 0x480), 3 up, $0AA4 = 30.
 - Sine table 0x276E8: floor(sin·0x7FFF) except entry 0x400, which is 0.
+- Sonic's animation: chooser 0x1492 (after the Flickies, so they read last frame's): $94 kept at 9, 0xA, 0xC, 0xF,
+  0x11, 0x12; $5C → 0x10; 0xD (spring) becomes 1 once vy >= 0; $56 = 3 → 7, other $56 → 2; in the air as it was;
+  $60 → 3; $12 = $1A = 0 → 0 ($62 = 0) unless 0xB (bored; at script $A2 = 0x228 a random word <= 0x6000 jumps to
+  0x230, <= 0x8000 to 0x254) or 0x13; moving: $1E < 0 with the pad let go ($5E) → skid 4/5 when the side word $20
+  passes it, else 6 ($62 = +-2); $1E >= 0: with $62 = 0, |$20| >= $1E and >= 0x4800 (0 let go) sets $62 = sign (sound
+  0x36) and keeps the animation, else 1; with $62 set, $20 beyond 0x3000 (0) gives 4 (5 for $62 < 0; 6 for +-2),
+  else $62 = 0 and 1. Skids drop dust (0xD1B8). Player 0x16AC: $94 new → $96 only; next frame (if still) → $98, $9C =
+  0, $A0/$A2 from table 0x25BC2 (6 bytes each); then $9C += the entry's rate (view table 0x16: forward speed's high
+  byte, at least 0x20, / 4); at 60 the next entry ($A2 + 4; an entry -1 goes back by its rate; 0: restart); the frame
+  shown is the entry before that step. Views 0x25C3A ($A0, 0x16 bytes): ((facing + 0x100) & 0x780) >> 6 = 0..0x1E;
+  type 0: >= 0x10 mirrored as 0x20 - it, frame + word 0 (minus twice it at word 1), + word (4 + it); else one side
+  (type > 0 mirrored), > 0x10 adds word 0x14 too. Frame < 0: that frame, no view. Mirror: $3C bit 3. Frames are the
+  0x100000 table's. Exact over 1100 emulator frames (GG1, VV1: walk, turns, crouch, rev, dash, ball, landing).
+- Screen speed (0x3BB2, every frame after the diagonal pieces): (x - $4E) + ($52 - z) in whole units over 8: x - 1,
+  z + 1; under -8: x + 1, z - 1.
+- After a reload the pad reads as nothing until 33 frames after Sonic reappears (85 after the reload).
 - Palette line of an object's sprite: bits 13-14 of word +0x16 (178, 194, 19C: line 0).
 - Ring used: $0A18 = 0x5A, camera to (0xA94, 0x634) (not modelled). Fans: 16 tiles 0xDD8FE at tile 125, speed
   $0ACE up to 0x40 while hovering (here steady).

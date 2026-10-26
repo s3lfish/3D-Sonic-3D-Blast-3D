@@ -247,10 +247,17 @@ serves index.html from main.
     loses A, cap 0x7F00, turned back; tables `P.orig.raw` (walk, ball, ice, roll); a roll ends under forward 0x1000
     (`p.fwdWord`, checked first: walks that frame); the top stays while rolling (0x7800 after a dash, `p.topW`).
     The jump frame still uses the ground table and takes the slope's 32 g; the jump ends a roll.
-  * Dash button (0x31C8): grounded with any speed, rolls; standing, held, crouches (no move, no jump), revs at 14
-    frames, a step every 15 (jump taps hurry it; 'charge' events), let go: 8/12/14/16 x 0x7800 along the facing
+  * Dash button (0x31C8): grounded with any speed, rolls; standing, held, crouches (no move, no jump), revs once the
+    crouch animation shows (`p.anim` 3 played 9 frames: `p.a98`, `p.aLoad`; 14 frames on levels without `rom`), a step every 15 (jump taps hurry it; 'charge' events), let go: 8/12/14/16 x 0x7800 along the facing
     (0x54DA a part on diagonals), not moving that frame.
-  * Floor (`origTri`, 0x3BB2): each cell two triangles, split by its 0x4A08 flag (converters emit `s`: bit 0 the
+  * Screen speed (0x3BB2, after the diagonal pieces): a frame's move of more than 8 whole units in x - z gives back one
+    unit in x and z. After a reload the pad is read again 33 frames after the 52 blank ones (`w.padWait`).
+  * Animation (`origAnim`, 0x1492 → `p.anim`): kept states (hurt 8, dying 0x11), spring 0xD rising, rev 7, ball 2
+    (a jump's state lasts the landing frame), in the air as it was, crouch 3, speed 0 → 0 (bored 0xB), moving 1 or the
+    skid 4/5/6 (`p.s62`, side word `p.sideWord`); the Flickies stand on it (0 or 0xB). ROM look: `S3D.heroAnimator`
+    plays the original's scripts and 16 views (game.js `stepHeroAnim` per sim frame, view from the facing as seen
+    by the camera put in the iso camera's frame); exact against emulator traces (private animtrace.py, anim_parity.js).
+  * Floor (`origTri`): each cell two triangles, split by its 0x4A08 flag (converters emit `s`: bit 0 the
     flag, bit 1 all corners odd; the level mesh splits its cells the same way), height in whole units; slope pull (`origPull`, 0x3540): the triangle's normal
     (1/8 a step, x 0x5A00, cut toward 0), g + g/4 (rolling a quarter) when steep (0x1000) or moving (0x800).
   * Walls (`resolveWallsOrig`, 0x40D6): a point; a cell 9+ whole units over him is a wall, in the air too; stopped at
@@ -361,7 +368,8 @@ serves index.html from main.
   (above): turn, velocity, dash button and roll, floors and slopes by triangle, point walls, diagonal pieces, roll
   bounces, landing; the hit, lost rings, dying and reloading; bumpers, monitors as boxes; roamers, aimers, sprinklers
   on the original's counts and screen; 058 bursts; freed and following Flickies as the original's (and his bored
-  turn). Sine table entry 0x400 is 0 (the formula gave -1). 135 sim tests.
+  turn); Sonic's sprite animation from the ROM's scripts; screen speed limit; pad after a reload. Sine table entry
+  0x400 is 0 (the formula gave -1). 135 sim tests.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;
   the Jam Flicky body is a flat quad (edge-on from the side).

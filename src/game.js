@@ -117,6 +117,15 @@
   const DEFAULT_SKIN = { spring: '018', monitor: '03C', enemy: '00C' };
   let romArt = null, artLook = store.get(LOOK_KEY) === 'scribble' ? 'scribble' : 'rom';
   const romOn = () => !!romArt && artLook === 'rom';
+  // the original's own animation of Sonic (S3D.heroAnimator: its scripts and views, read from the ROM), played one
+  // step per sim frame on converted levels from the sim's pick (`p.anim`)
+  let heroAnim = null, heroAnimD = null;
+  const origLook = () => romOn() && !!world && !!world.L.rom && !!world.L.phys.orig;
+  function stepHeroAnim(p) {
+    if (!origLook()) return;
+    if (!heroAnim || heroAnimD !== romArt.d) { heroAnim = S3D.heroAnimator(romArt.d); heroAnimD = romArt.d; }
+    heroAnim.step(p.anim || 0, p.fwdWord || 0, () => Math.floor(Math.random() * 65536));
+  }
   function pixCanvas(px, size, flip) {
     const c = document.createElement('canvas'); c.width = c.height = size;
     const g = c.getContext('2d'); g.putImageData(new ImageData(px, size, size), 0, 0);
@@ -1766,11 +1775,13 @@
     if (balled) { h.ball.rotation.z -= dt * Math.max(sp, p.charge > 0 ? 14 : 8) * 1.6; return; }
     if (p.whirl) h.root.rotation.y = t * 18;   // a whirl: spun round like a top, standing
     // a skid is over in a tenth of a second at the sim's braking; its animation plays through once all the same
-    if (p.skid && !h.wasSkid) h.skidT = h.S.anims.skid.length / 30;
-    h.wasSkid = p.skid; h.skidT = Math.max(0, (h.skidT || 0) - dt);
+    // (converted levels: the original's skid animations 4, 5 and 6 from the sim's pick; ours by speed and stick)
+    const skidNow = world.L.rom && world.L.phys.orig ? p.anim >= 4 && p.anim <= 6 : p.skid;
+    if (skidNow && !h.wasSkid) h.skidT = h.S.anims.skid.length / 30;
+    h.wasSkid = skidNow; h.skidT = Math.max(0, (h.skidT || 0) - dt);
     let clip, rate = 30;
     if (!p.grounded) clip = p.sprung || p.hover ? 'spring' : 'fall';   // (hovering: arms up)
-    else if (p.skid || h.skidT > 0) clip = 'skid';
+    else if (skidNow || h.skidT > 0) clip = 'skid';
     else if (sp < 0.3 || p.whirl) clip = 'idle', rate = 15;
     else if (sp < run * 0.55) clip = 'walk', rate = 30 * Math.max(0.4, sp / (run * 0.4));
     else if (sp < run * 1.1) clip = 'run', rate = 30 * Math.max(0.7, sp / run);
@@ -2166,7 +2177,7 @@
   }
   function useLevel(newL, custom) {
     L = newL; customLoaded = custom;
-    world = Sim.createWorld(L);
+    world = Sim.createWorld(L); heroAnim = null;
     buildLevelObjects(); resetCamera(); restart();
     showLevelName(); levelMusic(); titleCard();
   }
@@ -2354,7 +2365,7 @@
     }, wait);
   }
   function restart() {
-    Sim.resetLevel(world);
+    Sim.resetLevel(world); heroAnim = null;
     for (let q = 0; q < world.rings.length; q++) ringSprites[q].visible = true;
     for (const s of enemySprites) s.visible = true;
     for (const s of monitorSprites) s.visible = true;
@@ -2710,6 +2721,8 @@
     while (acc >= STEP && steps < 5) {
       prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
       Sim.step(world, inp);
+      if (world.events.includes('respawn')) heroAnim = null;   // (the reload clears Sonic's animation)
+      stepHeroAnim(world.p);
       if (world.events.includes('respawn')) {   // a death: a life gone, the act as it was (see Sim's death)
         prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
         for (let q = 0; q < ringSprites.length; q++) ringSprites[q].visible = !world.rings[q].got;
@@ -2768,7 +2781,14 @@
     const ballLike = pose === 'ball' || pose === 'charge';
     let map;
     if (romOn()) {
-      const [idx, flip] = romHeroPick(pose, sp, p.vx * rx + p.vz * rz, p.vx * fx + p.vz * fz, t, dt);
+      let idx, flip;
+      if (heroAnim && origLook()) {
+        // the view: his facing as seen from this camera, put in the original's fixed view (right (1, -1), up (-1, -1))
+        const dx = Math.sin(p.facing || 0), dz = Math.cos(p.facing || 0), sx = dx * rx + dz * rz, sf = dx * fx + dz * fz;
+        const ix = (sx - sf) * Math.SQRT1_2, iz = (-sx - sf) * Math.SQRT1_2;
+        const F = Math.round(-Math.atan2(ix, iz) / (2 * Math.PI) * 0x800) & 0x7FF;
+        [idx, flip] = heroAnim.frame(F);
+      } else [idx, flip] = romHeroPick(pose, sp, p.vx * rx + p.vz * rz, p.vx * fx + p.vz * fz, t, dt);
       map = romHeroTex(idx, flip);
       if (hero.scale.x !== ROM_SIZE) { hero.scale.set(ROM_SIZE, ROM_SIZE, 1); hero.center.set(0.5, HERO_FOOT); sil.scale.copy(hero.scale); sil.center.copy(hero.center); }
     } else {

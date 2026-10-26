@@ -1267,6 +1267,48 @@ const S3D = (() => {
     ball: () => [113, 126, 113, 127, 113, 128, 113, 129], charge: () => [192, 193, 192, 194, 192, 195, 192, 196, 192, 197],
   };
   function range(a, n) { const r = []; for (let i = 0; i < n; i++) r.push(a + i); return r; }
+  // Sonic's animations as the original plays them (0x16AC): per animation ($94) a script (table 0x25BC2: word, view
+  // table offset $A0, script offset $A2) of [frame, rate] entries at 0x258A2; the rate adds to $9C each frame and at 60
+  // the next entry shows (the walk, view table 0x16, at its forward speed's high byte / 4, at least 8); an entry -1
+  // jumps back by its rate (bytes). A new animation starts the frame after it is picked. The view: the facing
+  // ((F + 0x100) & 0x780) >> 6 picks one of 16; view tables at 0x25C3A (type byte 0: the far side mirrored, its frame
+  // moved by the first word (wrapping at the second), then one of 9 offsets; else one way only, the other mirrored or
+  // not by the type's sign). A frame < 0 takes no view. Bored (0xB) at script 0x228 picks a variation by a random word.
+  const ANIM_TABLE = 0x25BC2, ANIM_SCRIPT = 0x258A2, ANIM_VIEW = 0x25C3A;
+  function heroAnimator(d) {
+    const st = { a96: 0, a98: -1, a9c: 0, A0: 0, A2: 0, cur: ANIM_SCRIPT };
+    return {
+      st,
+      step(anim, fwdWord, rnd) {
+        if (anim === 0xB && st.a98 === 0xB && st.A2 === 0x228) { const r = rnd(); if (r <= 0x6000) st.A2 = 0x230; else if (r <= 0x8000) st.A2 = 0x254; }
+        if (anim !== st.a96) st.a96 = anim;
+        else if (anim !== st.a98) { const t = ANIM_TABLE + 6 * anim; st.a9c = 0; st.A0 = s16(d, t + 2); st.A2 = s16(d, t + 4); st.a98 = anim; }
+        const e = ANIM_SCRIPT + st.A2;
+        let sp = s16(d, e + 2);
+        if (st.A0 === 0x16) { let b = (fwdWord >> 8) & 0xFF; if (((b << 24) >> 24) < 0x20) b = 0x20; sp = b >> 2; }
+        st.a9c += sp; st.cur = e;
+        if (st.a9c >= 0x3C) {
+          st.a9c -= 0x3C; st.A2 += 4;
+          if (s16(d, e + 4) === -1) { const back = s16(d, e + 6); if (!back) st.a98 = -1; st.A2 -= back; }
+        }
+      },
+      // [frame, mirrored] for facing F (0x800 a turn, as the original's $32)
+      frame(F) {
+        const t = ANIM_VIEW + st.A0, ty = d[t];
+        let d0 = s16(d, st.cur), d2 = ((F + 0x100) & 0x780) >> 6, flip = false;
+        if (ty === 0) {
+          if (d2 >= 0x10) { flip = true; d2 = 0x20 - d2; }
+          if (d0 < 0) return [-d0, flip];
+          if (flip) { const add = s16(d, t); d0 += add; if (d0 >= s16(d, t + 2)) d0 -= 2 * add; }
+        } else {
+          if (!(ty & 0x80)) { d2 = (0x20 - d2) & 0x1E; flip = true; }
+          if (d0 < 0) return [-d0, flip];
+          if (d2 > 0x10) { d2 -= 0x10; d0 += s16(d, t + 4 + 0x10); }
+        }
+        return [d0 + s16(d, t + 4 + d2), flip];
+      },
+    };
+  }
 
   // ---------------- level art: the isometric picture, unprojected onto the 3D faces ----------------
   // RNC method 2 as the game's routine at 0xC7C runs it: header-less blocks (packed length, two CRCs, leeway, chunks).
@@ -1817,5 +1859,5 @@ const S3D = (() => {
   }
 
   const typeArt = (d, t) => u32(d, 0x280E8 + t);   // an object type's art block (Green Grove's boss: 48 pod, 50 ball)
-  return { LEVELS, BONUS, bonusStage, bonusSprite, check, openRomFile, objImage, typeArt, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, titleCardImage, levelPalettes, OCTANT, HERO };
+  return { LEVELS, BONUS, bonusStage, bonusSprite, check, openRomFile, objImage, typeArt, FLICKY_ART, BIG_RING_ART, convert, rncUnpack, rnc2Unpack, artBaker, RECIPES, paletteRGB, heroImage, heroFrame, recipeImage, monitorImage, MONITOR_KINDS, tallyImage, SOUND, ringImage, monitorIcon, titleCardImage, levelPalettes, OCTANT, HERO, heroAnimator };
 })();
