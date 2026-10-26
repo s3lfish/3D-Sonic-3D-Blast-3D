@@ -340,8 +340,8 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   floor-limited (slam: sound 0x5F when low). Generic check 0xF794: within 32, y in [pod - 32, pod + 64]: at pod + 8
   or over and spinning ($56 = 1): hit (bounce, pad 30, 0x59); else Sonic hurt; 60 frames apart. Spikes: 0xFF cells
   with the spike count ($18). Floor springs 0x55 up to the spiked ledge. Arms' art (170, 174) does not decode.
-- Not used yet: 044 (Sonic head pickups:
-  ten add one to $06AA), 13C (a red button), 140, 154 (spear-like posts, animated when a ring opens a gate).
+- Objects: 044 Sonic heads (see Lives and deaths); 13C, 140, 154: animation only (13C and 140 take themselves off at frames 0x12 /
+  0x0A, 0x1A; 154 runs a script the routine sets): nothing to touch, not drawn.
 
 ## Diamond Dust 1 (2026-10-27; dd1_dis, runlog.py, flow.py, simrun.js)
 - The game places Sonic at the start table's first [x, z] (header +0x20), not at the 030 object; both converters now
@@ -373,7 +373,8 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   (about 105 frames), then thrown (-2, 8.5 up, -2) in a ball; he lands at (1872, 544, 2288). The sim lands there too.
 - In the air the original keeps Sonic's speed against a wall (only his place is stopped): thrown out of the warp hole
   against its edge, he goes on once over it; his speed fades 1/16 a frame with no input.
-- Not modelled: what (86, 74) does after the sled ($A(a4) 10).
+- (86, 74) after the sled run (0x1064E): $18(a4) and the ice flag cleared, Sonic's states reset, sound 0x59 and a
+  burst of ten pieces at (0xAF0, 0x1D0, 0x950) ($A(a4) frames; drawn by 0x10E00). The sim plays the sound.
 
 ## Movement tables (2026-10-27; speedprobe.py)
 - Routine 0x3330 picks [accel $22, side loss $2A, forward loss $26] and top $2E: walking 480/380/260, top 0x5000; the
