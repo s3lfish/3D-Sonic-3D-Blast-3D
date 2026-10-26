@@ -304,6 +304,7 @@
       needFlickies: () => tone('square', 300, 220, 0.25, 0.2),
       flicky: () => tone('sine', 1800, 2600, 0.12, 0.25),
       tick: () => tone('square', 2200, 2200, 0.03, 0.12),
+      skid: () => noise(0.25, 0.35, 900),
     };
     function play(name) {
       if (muted) return;
@@ -803,13 +804,14 @@
     if (balled) { h.ball.rotation.z -= dt * Math.max(sp, p.charge > 0 ? 14 : 8) * 1.6; return; }
     let clip, rate = 30;
     if (!p.grounded) clip = p.sprung ? 'spring' : 'fall';
+    else if (p.skid) clip = 'skid', rate = 30;
     else if (sp < 0.3) clip = 'idle', rate = 15;
     else if (sp < run * 0.55) clip = 'walk', rate = 30 * Math.max(0.4, sp / (run * 0.4));
     else if (sp < run * 1.1) clip = 'run', rate = 30 * Math.max(0.7, sp / run);
     else clip = 'sprint', rate = 30 * Math.min(1.6, sp / run);
     if (clip !== h.clip) { h.clip = clip; h.t = 0; }
     h.t += dt * rate;
-    if (clip === 'spring' || clip === 'fall') h.t = Math.min(h.t, h.S.anims[clip].length - 1);
+    if (clip === 'spring' || clip === 'fall' || clip === 'skid') h.t = Math.min(h.t, h.S.anims[clip].length - 1);
     poseHero3d(h, clip, h.t);
   }
 

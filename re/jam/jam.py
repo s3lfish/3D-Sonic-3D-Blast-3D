@@ -14,7 +14,8 @@ class Jam:
         return ptrs, vecs
     def submodel(self, f):
         vp, nv, ip, nq, dp, np_ = [self.u32(f + 4 * i) for i in range(6)]
-        V = [[self.s32(vp - B + 12 * i + 4 * k) / 65536 for k in range(3)] for i in range(nv)]
+        if ip - vp >= 12 * nv: V = [[self.s32(vp - B + 12 * i + 4 * k) / 65536 for k in range(3)] for i in range(nv)]
+        else: V = [list(struct.unpack('>3h', self.m[vp - B + 6 * i:vp - B + 6 * i + 6])) for i in range(nv)]
         Q, D = [], []
         for i in range(nq):
             q = struct.unpack('>4h', self.m[ip - B + 8 * i:ip - B + 8 * i + 8])

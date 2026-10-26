@@ -1433,6 +1433,10 @@ const Sim = (() => {
 
     // horizontal control
     speed = Math.hypot(p.vx, p.vz);
+    // skidding: on the ground, moving fast, and the stick pushed against the direction of travel
+    const wasSkid = p.skid;
+    p.skid = p.grounded && !p.rolling && !charging && m > 0.3 && speed > P.run * 0.5 && (mx * p.vx + mz * p.vz) / (m * speed) < -0.3;
+    if (p.skid && !wasSkid) w.events.push('skid');
     if (charging) { /* braking handled above */ }
     else if (p.grounded && p.rolling) {
       const ns = Math.max(0, speed - P.rollFriction * dt);
@@ -1762,8 +1766,12 @@ const Jam = (() => {
     const vp = u32(m, f) - HWRAM, nv = u32(m, f + 4), ip = u32(m, f + 8) - HWRAM, nq = u32(m, f + 12);
     const dp = u32(m, f + 16) - HWRAM, np = u32(m, f + 20);
     const verts = [], normals = [], quads = [];
-    for (let i = 0; i < nv; i++) verts.push([0, 4, 8].map(k => s32(m, vp + 12 * i + k) / 65536));
-    for (let i = 0; i < nv; i++) normals.push(np ? [0, 4, 8].map(k => s32(m, np - HWRAM + 12 * i + k) / 65536) : [0, 1, 0]);
+    // most parts keep 16.16 vertices (12 bytes each); some keep whole-unit 16-bit ones (6 bytes), seen from the gap
+    // to the index table that follows
+    const wide = (ip - vp) >= 12 * nv;
+    for (let i = 0; i < nv; i++) verts.push(wide ? [0, 4, 8].map(k => s32(m, vp + 12 * i + k) / 65536) : [0, 2, 4].map(k => s16(m, vp + 6 * i + k)));
+    const hasN = np >= HWRAM && np < HWRAM + m.length;
+    for (let i = 0; i < nv; i++) normals.push(hasN ? [0, 4, 8].map(k => s32(m, np - HWRAM + 12 * i + k) / 65536) : [0, 1, 0]);
     for (let i = 0; i < nq; i++) {
       // indices count in 8s; a negative index -8k is an alias of vertex k - 1
       const idx = [0, 2, 4, 6].map(k => { const v = s16(m, ip + 8 * i + k); return ((v >= 0 ? v / 8 : -v / 8 - 1) % nv + nv) % nv; });
@@ -3255,6 +3263,7 @@ const Art = (() => {
       needFlickies: () => tone('square', 300, 220, 0.25, 0.2),
       flicky: () => tone('sine', 1800, 2600, 0.12, 0.25),
       tick: () => tone('square', 2200, 2200, 0.03, 0.12),
+      skid: () => noise(0.25, 0.35, 900),
     };
     function play(name) {
       if (muted) return;
@@ -3754,13 +3763,14 @@ const Art = (() => {
     if (balled) { h.ball.rotation.z -= dt * Math.max(sp, p.charge > 0 ? 14 : 8) * 1.6; return; }
     let clip, rate = 30;
     if (!p.grounded) clip = p.sprung ? 'spring' : 'fall';
+    else if (p.skid) clip = 'skid', rate = 30;
     else if (sp < 0.3) clip = 'idle', rate = 15;
     else if (sp < run * 0.55) clip = 'walk', rate = 30 * Math.max(0.4, sp / (run * 0.4));
     else if (sp < run * 1.1) clip = 'run', rate = 30 * Math.max(0.7, sp / run);
     else clip = 'sprint', rate = 30 * Math.min(1.6, sp / run);
     if (clip !== h.clip) { h.clip = clip; h.t = 0; }
     h.t += dt * rate;
-    if (clip === 'spring' || clip === 'fall') h.t = Math.min(h.t, h.S.anims[clip].length - 1);
+    if (clip === 'spring' || clip === 'fall' || clip === 'skid') h.t = Math.min(h.t, h.S.anims[clip].length - 1);
     poseHero3d(h, clip, h.t);
   }
 

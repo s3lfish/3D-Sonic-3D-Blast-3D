@@ -62,8 +62,12 @@ const Jam = (() => {
     const vp = u32(m, f) - HWRAM, nv = u32(m, f + 4), ip = u32(m, f + 8) - HWRAM, nq = u32(m, f + 12);
     const dp = u32(m, f + 16) - HWRAM, np = u32(m, f + 20);
     const verts = [], normals = [], quads = [];
-    for (let i = 0; i < nv; i++) verts.push([0, 4, 8].map(k => s32(m, vp + 12 * i + k) / 65536));
-    for (let i = 0; i < nv; i++) normals.push(np ? [0, 4, 8].map(k => s32(m, np - HWRAM + 12 * i + k) / 65536) : [0, 1, 0]);
+    // most parts keep 16.16 vertices (12 bytes each); some keep whole-unit 16-bit ones (6 bytes), seen from the gap
+    // to the index table that follows
+    const wide = (ip - vp) >= 12 * nv;
+    for (let i = 0; i < nv; i++) verts.push(wide ? [0, 4, 8].map(k => s32(m, vp + 12 * i + k) / 65536) : [0, 2, 4].map(k => s16(m, vp + 6 * i + k)));
+    const hasN = np >= HWRAM && np < HWRAM + m.length;
+    for (let i = 0; i < nv; i++) normals.push(hasN ? [0, 4, 8].map(k => s32(m, np - HWRAM + 12 * i + k) / 65536) : [0, 1, 0]);
     for (let i = 0; i < nq; i++) {
       // indices count in 8s; a negative index -8k is an alias of vertex k - 1
       const idx = [0, 2, 4, 6].map(k => { const v = s16(m, ip + 8 * i + k); return ((v >= 0 ? v / 8 : -v / 8 - 1) % nv + nv) % nv; });

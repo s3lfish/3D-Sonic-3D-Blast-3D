@@ -74,7 +74,7 @@ serves index.html from main.
 - 3D hero: `src/jam.js` (tag `#jam`) reads the player's Sonic Jam disc image (.iso or Track 1 .bin; ISO 9660 via
   File.slice, only MUSEUM.MUS and SPRDATA.MUS kept, IndexedDB key 'jam'). `buildHero3d` makes a group per part
   (Lambert, vertex colours + texture atlas, DoubleSide) and the jump ball; `updateHero3d` picks idle/walk/run/sprint/
-  spring/fall at 30 frames a second (assumed) scaled by speed; angles z,y,x → Euler 'ZYX'; model faces -x so
+  spring/fall/skid (sim `p.skid`: grounded, fast, stick against travel) at 30 frames a second (assumed) scaled by speed; angles z,y,x → Euler 'ZYX'; model faces -x so
   rotation.y = facing + pi/2. Hero select `#heroSel` ('3d' default when a disc is loaded; `blastgrid.hero`).
 - Scar: `sun` is already the scene's light at the top of game.js; the scene's hemisphere and sun light the hero.
 - Big ring in ROM look: object art 0x3D068 frame 0, floating 56 units up, squeezed in x to turn.

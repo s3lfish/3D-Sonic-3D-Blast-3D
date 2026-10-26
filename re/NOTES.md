@@ -178,6 +178,9 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - Animation angles are stored z, y, x and applied as Rz Ry Rx (the only order that gives a natural run, walk and
   somersault). The model faces its -x. Textured quads use 4-bit colour tables with transparent-pixel disable set, so
   colour 0 is drawn; CMDCTRL bits 0x10 and 0x20 flip the texture.
+- Some parts keep whole-unit 16-bit vertices (6 bytes each, told apart by the gap to the index table), drawn y-down
+  (palm tree, bush, arch, checkpoint); those have no vertex normals. Other models' footers are listed in the SCHG page.
+- The Mega Drive game has no skid frames as far as the emulator shows: reversing turns Sonic through his views.
 - Checked on the USA disc. Whether the European disc keeps the same offsets is not known.
 
 ## Open questions

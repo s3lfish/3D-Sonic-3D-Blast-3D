@@ -361,6 +361,13 @@ test('holding dash while running brakes, revs and launches', () => {
   run(w, 1, { mx: 1, mz: 0, dash: false });
   assert.ok(w.p.rolling && Math.hypot(w.p.vx, w.p.vz) > Sim.P.dashMin, 'launched');
 });
+test('pushing against the direction of travel skids', () => {
+  const w = FLAT([]);
+  run(w, 40, { mx: 1, mz: 0 });
+  let skid = false; run(w, 6, (f, ww) => { if (ww.p.skid) skid = true; return { mx: -1, mz: 0 }; });
+  assert.ok(skid, 'skidding');
+  run(w, 60, { mx: -1, mz: 0 }); assert.ok(!w.p.skid && w.p.vx < 0, 'turned round');
+});
 test('a quick dash tap while running rolls without losing speed', () => {
   const w = FLAT([]);
   run(w, 40, { mx: 1, mz: 0 });
