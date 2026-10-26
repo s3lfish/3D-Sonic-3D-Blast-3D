@@ -291,6 +291,8 @@ serves index.html from main.
 - In the emulator, freed particle slots keep their old bytes: find new shots by the life word (+0x32) going up.
 
 ## Status
+- 2026-10-27: Spring Stadium gates (`gates` with pass in GIMMICKS 15/16; `passOff` cells clear `w.passOn`, which a
+  supercharger's firing sets; GnG1 too, at (68, 90)); ring doors in SS1/SS2; pass gates drawn as posts and a field.
 - 2026-10-27: Final Fight (`ffStep`: positions in original units, `org` origin cells; ten doors raised through L.up;
   fights 0/2/4/6/8 lasers, serpent, fists, bombs, pod cannon; walks with a 600-frame limit; ten hits). Shared
   `serpentStep` (routine 0xA3F2) for PP3 and FF. Hopping shots (`hop`), per-shot radius `r`. Machine drawn with our

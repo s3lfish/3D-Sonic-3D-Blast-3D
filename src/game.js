@@ -1238,14 +1238,27 @@
       if (rm) s.userData.rom = [rm, kind === 'enemy' ? romObjMat(kind, o.skin, true) : rm];
       return s;
     };
-    // doors (gates opened by a key: Gene Gadget, Panic Puppet): a slab of the level's own wall (ROM look) or a striped
-    // shutter of our own in the gate's cells, at most 2.4 m tall, sliding into the floor while the key is held
+    // doors (gates opened by a key, by a ring or for a supercharger's run: Gene Gadget, Spring Stadium, Panic Puppet; not
+    // a barrier's wall, drawn with its pylons): a slab of the level's own wall (ROM look) or a striped shutter of our own
+    // in the gate's cells, at most 2.4 m tall, sliding into the floor while it is open
     {
       const art = mesh.userData.art && levelArtFor(L), vs = L.rom ? L.rom.vscale : 1;
       const floorOf = (cx, cz) => { const k = (cz * L.width + cx) * 4; return Math.min(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]); };
       let shutter = null;
-      doorMeshes = world.gates.filter(g => g.key !== null || g.shut).map(g => {
+      const zapCells = L.entities.filter(e => e.type === 'barrier').flatMap(e => e.cells);
+      const barrierWall = g => g.cells.some(([cx, cz]) => zapCells.some(([zx, zz]) => Math.abs(zx - cx) <= 1 && Math.abs(zz - cz) <= 1));
+      const postMat = new THREE.MeshLambertMaterial({ color: 0x7a3aa8 }), fieldMat = new THREE.MeshBasicMaterial({ color: 0xc070ff, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
+      doorMeshes = world.gates.filter(g => g.key !== null || g.shut || g.pass || (g.opens > 0 && !barrierWall(g))).map(g => {
         const grp = new THREE.Group();
+        if (g.pass) {   // a supercharger's gate (Spring Stadium's 038 posts): two posts and a field between, the field gone while open
+          const xs = g.cells.map(c => c[0]), zs = g.cells.map(c => c[1]), x0 = Math.min(...xs), x1 = Math.max(...xs) + 1, z0 = Math.min(...zs), z1 = Math.max(...zs) + 1;
+          const alongX = x1 - x0 > z1 - z0, len = alongX ? x1 - x0 : z1 - z0, floor = Math.min(...g.cells.map(([cx, cz]) => floorOf(cx, cz))), h = 1.1 * vs;
+          const field = new THREE.Mesh(new THREE.PlaneGeometry(len, h), fieldMat); if (!alongX) field.rotation.y = Math.PI / 2; field.position.y = h / 2;
+          const posts = new THREE.Group(); posts.add(field);
+          for (const e of [-1, 1]) { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, h + 0.2, 8), postMat); m.position.set(alongX ? e * len / 2 : 0, (h + 0.2) / 2, alongX ? 0 : e * len / 2); posts.add(m); }
+          posts.position.set((x0 + x1) / 2, floor, (z0 + z1) / 2); levelGroup.add(posts);
+          grp.userData = { gate: g, h: 0, field }; return grp;
+        }
         let hMax = 0;
         for (const [cx, cz] of g.cells) {
           const floor = floorOf(cx, cz), h = Math.min(g.top - floor, 2.4 * vs);
@@ -2531,6 +2544,7 @@
       if (u.rom) o.material = romBossMat(0x180, f, ROM_CANVAS, 80, b.line); else u.tip.material.color.setHex(f === 0 ? 0xfff27a : 0x5a5030);
     });
     for (const d of doorMeshes) {
+      if (d.userData.field) { d.userData.field.visible = !d.userData.gate.open; continue; }
       const to = d.userData.gate.open ? -d.userData.h - 0.05 : 0;
       d.position.y += Math.sign(to - d.position.y) * Math.min(Math.abs(to - d.position.y), 4 * dt); d.visible = d.position.y > -d.userData.h;
     }

@@ -303,7 +303,15 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   frames (pad 0xEF: spin dash rev), then off at 7.4 units a frame; pad let go 30 frames. Measured in SS1.
 - SS1 opener (emulator): supercharger -> loop at (37, 117) (state 4; pad F5 = run east held 140 frames from the
   loop's start) -> floor spring (46, 115) up onto 0x31 -> supercharger (1632, 384, 3680) -> loop (61, 115) -> loop
-  (77, 113) -> downhill. Init raises gate cells by 0x20 (closed); boosters' mode 15 opens them. Not modelled: gates.
+  (77, 113) -> downhill.
+- Gates (SS1 InitLevel 0x9526, SS2 0x8DEA): cells raised 0x20 over the floor across corridors (SS1 (33, 116..117),
+  (41, 114..115), (52, 114..115), (62, 38..39), (50, 40..41); SS2 (64, 104..105), (76, 102..103), (84..85, 78),
+  (86..87, 71)), drawn by 038 posts. The routine's flag (a4) is set while a supercharger record is at state 0xF (fired)
+  and cleared when Sonic's cell word +0x8C is one of (SS1) 0x7354 (42, 115), 0x719A (77, 113), 0x277E (63, 39); (SS2)
+  0x679A (77, 103), 0x46AE (87, 70; facing 0x400), 0x4FAA (85, 79; other facings). While it is set the gate cells go
+  into the list at $CC92 + $0AD2 each frame (passable). Ring doors: SS1 (33..34, 78) 0x8500 until ring 1; SS2
+  (61..62, 110) 0x4100 until ring 1, (123..124, 51) 0x6500 until ring 2. Checked in the sim: the SS1 opener (two
+  superchargers, loops) runs through as in the emulator.
 - Floor springs (low byte 0x55, end of 0x9974): grounded -> vy 7.875 up (sound 0xB1). Bumpers (0xFF, and tables
   0x98DA SS1 / 0x94EA SS2, negative entries a second look): on entering the cell within 12 of the floor, by the
   cell's diagonals: north -> vz -5, west -> vx -5, east -> vx +5, south -> vz +5; $0ACA 20 frames; sound 0xB7.

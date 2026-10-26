@@ -50,7 +50,7 @@ GIMMICKS = {
         'dashes': [(65, 101, 0x7FFF, (6, 0), 1, 0, 0), (65, 102, 0x7FFF, (6, 0), 1, 0, 0), (74, 94, 0x7FFF, (0, 6), 1, 0, 0), (75, 94, 0x7FFF, (0, 6), 1, 0, 0)],
         'barriers': [([(58, 117), (59, 117), (60, 117), (61, 117)], 0x2D, [(59, 118), (60, 118)], 'n', 1, (0, 1)),
                      ([(117, 93), (117, 94)], 0x45, [(118, 94), (118, 95)], 'w', 2, (1, 0))],
-        'gates': [([(58, 112), (59, 112)], 0x2D, 0, 1), ([(68, 89), (69, 89)], 0x49, 0, 1), ([(54, 70)], 0x51, 0, 0, 1)], 'keyOff': [(54, 71, 1)],
+        'gates': [([(58, 112), (59, 112)], 0x2D, 0, 1), ([(68, 89), (69, 89)], 0x49, 0, 1), ([(54, 70)], 0x51, 0, 0, 1)], 'keyOff': [(54, 71, 1)], 'passOff': [(68, 90)],
         'tubes2': (0x120F8, 10, [(0, 3, 0x1A)], [(0, 1)]),
         'rides': [(59, 112, 0, 0x18, None, None, (0, 0, -7.48), None, (340, None, 1, 1))]},
     5: {'updrafts': 0x55, 'zapCells': 0xAA, 'roofs': 0x11AAA, 'spikes': 0xFF, 'slides': [(0xC3, [1, 0], 75), (0xF0, [0, 1], 75)],   # Gene Gadget 2
@@ -76,7 +76,10 @@ GIMMICKS = {
                   (100, 60, 0, 0x32, None, None, (0, 0, 0)), (91, 71, 0, 0x34, None, None, (0, 0, 0))],
         'cracks': [([(101, 60)], 336, [-1, 0])]},
     # Spring Stadium 1 and 2 (see s3d.js GIMMICKS)
-    15: {'floorSprings': 0x55, 'bumpers': (0xFF, 0x98DA, 8), 'spikeField': 0xAA,
+    15: {'floorSprings': 0x55, 'bumpers': (0xFF, 0x98DA, 8), 'spikeField': 0xAA,   # Spring Stadium 1 (see s3d.js)
+         'gates': [([(33, 116), (33, 117)], 0x45, 0, 1), ([(41, 114), (41, 115)], 0x45, 0, 1), ([(52, 114), (52, 115)], 0x4F, 0, 1),
+                   ([(62, 38), (62, 39)], 0x91, 0, 1), ([(50, 40), (50, 41)], 0x97, 0, 1), ([(33, 78), (34, 78)], 0x85, 1, 0)],
+         'passOff': [(42, 115), (77, 113), (63, 39)],
          'rides': [(37, 117, 0, 4, None, None, None, None, (140, [1, 0])), (61, 115, 0, 4, None, None, None, None, (200, [1, 0])),
                    (77, 113, 0, 4, None, None, None, None, (85, [1, 0])), (59, 41, 0, 4, None, None, None, None, (70, None))],
          'holds': [(55, 115, 100), (53, 41, 100)], 'tubes': (0x98C6, 0x40, 0x42),
@@ -114,7 +117,10 @@ GIMMICKS = {
          'dashes': [(50, 45, 608, (7.5, 0), 10, 0, 0)], 'currents': [(96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5)],
          'hops': ([(109, 80), (103, 82), (111, 72)], 40), 'flames': (0xFD5E, 7), 'freeze': 1,
          'spikes': 0xFF, 'ice': (0xFE30, 39, 0xFE7E, 40, [(75, 100)], [(70, 105)]), 'iceSpikes': (0xFECE, 17), 'roofs': 0xFE04, 'bumpers': (0x55, 0, 0)},
-    16: {'floorSprings': 0x55, 'bumpers': (0xFF, 0x94EA, 30),
+    16: {'floorSprings': 0x55, 'bumpers': (0xFF, 0x94EA, 30),   # Spring Stadium 2 (see s3d.js)
+         'gates': [([(64, 104), (64, 105)], 0x3F, 0, 1), ([(76, 102), (76, 103)], 0x39, 0, 1), ([(84, 78), (85, 78)], 0x69, 0, 1),
+                   ([(86, 71), (87, 71)], 0x69, 0, 1), ([(61, 110), (62, 110)], 0x41, 1, 0), ([(123, 51), (124, 51)], 0x65, 2, 0)],
+         'passOff': [(77, 103), (87, 70), (85, 79)],
          'rides': [(73, 105, 0, 4, None, None, None, None, (70, None)), (85, 76, 0, 0x8004, None, None, None, None, (84, None)),
                    (87, 74, 0, 0x8044, None, None, None, None, (84, None))],
          'holds': [(68, 105, 100)], 'tubes': (0x9480, 0x40, 0x42),
@@ -512,6 +518,9 @@ def convert(rom, level_id, vscale=1.0):
         wc = [[cx - x0, cz - z0] for cx, cz in wall if floor_cell(cx, cz)]; zc = [[cx - x0, cz - z0] for cx, cz in zap if floor_cell(cx, cz)]
         if wc: ents.append({"type": "gate", "cells": wc, "top": gate_top(hb), "opens": ring})
         if zc: ents.append({"type": "barrier", "cells": zc, "half": half, "away": list(away), "opens": ring})
+    if gm.get('passOff'):   # cells that end a supercharger's run: its gates shut again (see s3d.js)
+        pc = [[cx - x0, cz - z0] for cx, cz in gm['passOff'] if floor_cell(cx, cz)]
+        if pc: ents.append({"type": "passOff", "cells": pc})
     for cells, hb, ring, pss, *ky in gm.get('gates', []):
         gc = [[cx - x0, cz - z0] for cx, cz in cells if floor_cell(cx, cz)]
         if gc:

@@ -51,7 +51,14 @@ const S3D = (() => {
     // tip]: 64 units square, the triangle where the side offset (flipped: from the far side) is no more than the band
     // offset. SS2: spear cells (table [address, count]; the act's spear object rises in the east quarter of the cell)
     // and a spiked wall facing east at cells [x, [z...], under height].
+    // Spring Stadium 1 (InitLevel 0x9526, RunLevel_SSz1 0x95DA): InitLevel raises gates 0x20 over the floor across the
+    // corridors at (33, 116..117), (41, 114..115), (52, 114..115), (62, 38..39), (50, 40..41); while the routine's flag
+    // is set (a supercharger's record at state 0xF) it lists them as open, until Sonic reaches (42, 115), (77, 113) or
+    // (63, 39); (33..34, 78) stands until ring 1
     15: { floorSprings: 0x55, bumpers: [0xFF, 0x98DA, 8], spikeField: 0xAA,
+      gates: [[[[33, 116], [33, 117]], 0x45, 0, 1], [[[41, 114], [41, 115]], 0x45, 0, 1], [[[52, 114], [52, 115]], 0x4F, 0, 1],
+        [[[62, 38], [62, 39]], 0x91, 0, 1], [[[50, 40], [50, 41]], 0x97, 0, 1], [[[33, 78], [34, 78]], 0x85, 1, 0]],
+      passOff: [[42, 115], [77, 113], [63, 39]],
       rides: [[37, 117, 0, 4, null, null, null, undefined, [140, [1, 0]]], [61, 115, 0, 4, null, null, null, undefined, [200, [1, 0]]],
         [77, 113, 0, 4, null, null, null, undefined, [85, [1, 0]]], [59, 41, 0, 4, null, null, null, undefined, [70, null]]],
       holds: [[55, 115, 100], [53, 41, 100]], tubes: [0x98C6, 0x40, 0x42],
@@ -100,7 +107,13 @@ const S3D = (() => {
       dashes: [[50, 45, 608, [7.5, 0], 10, 0, 0]], currents: [[96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5]],
       hops: [[[109, 80], [103, 82], [111, 72]], 40], flames: [0xFD5E, 7], freeze: 1,
       spikes: 0xFF, ice: [0xFE30, 39, 0xFE7E, 40, [[75, 100]], [[70, 105]]], iceSpikes: [0xFECE, 17], roofs: 0xFE04, bumpers: [0x55, 0, 0] },
+    // Spring Stadium 2 (InitLevel 0x8DEA, RunLevel_SSz2 0x8EC2): gates (64, 104..105), (76, 102..103), (84..85, 78),
+    // (86..87, 71) open while the flag is set (four superchargers), until (77, 103), (87, 70) or (85, 79); (61..62, 110)
+    // stands until ring 1, (123..124, 51) until ring 2
     16: { floorSprings: 0x55, bumpers: [0xFF, 0x94EA, 30],
+      gates: [[[[64, 104], [64, 105]], 0x3F, 0, 1], [[[76, 102], [76, 103]], 0x39, 0, 1], [[[84, 78], [85, 78]], 0x69, 0, 1],
+        [[[86, 71], [87, 71]], 0x69, 0, 1], [[[61, 110], [62, 110]], 0x41, 1, 0], [[[123, 51], [124, 51]], 0x65, 2, 0]],
+      passOff: [[77, 103], [87, 70], [85, 79]],
       rides: [[73, 105, 0, 4, null, null, null, undefined, [70, null]], [85, 76, 0, 0x8004, null, null, null, undefined, [84, null]],
         [87, 74, 0, 0x8044, null, null, null, undefined, [84, null]]],
       holds: [[68, 105, 100]], tubes: [0x9480, 0x40, 0x42],
@@ -123,7 +136,7 @@ const S3D = (() => {
       dashes: [[65, 101, 0x7FFF, [6, 0], 1, 0, 0], [65, 102, 0x7FFF, [6, 0], 1, 0, 0], [74, 94, 0x7FFF, [0, 6], 1, 0, 0], [75, 94, 0x7FFF, [0, 6], 1, 0, 0]],
       barriers: [[[[58, 117], [59, 117], [60, 117], [61, 117]], 0x2D, [[59, 118], [60, 118]], 'n', 1, [0, 1]],
         [[[117, 93], [117, 94]], 0x45, [[118, 94], [118, 95]], 'w', 2, [1, 0]]],
-      gates: [[[[58, 112], [59, 112]], 0x2D, 0, 1], [[[68, 89], [69, 89]], 0x49, 0, 1], [[[54, 70]], 0x51, 0, 0, 1]], keyOff: [[54, 71, 1]],
+      gates: [[[[58, 112], [59, 112]], 0x2D, 0, 1], [[[68, 89], [69, 89]], 0x49, 0, 1], [[[54, 70]], 0x51, 0, 0, 1]], keyOff: [[54, 71, 1]], passOff: [[68, 90]],
       tubes2: [0x120F8, 10, [[0, 3, 0x1A]], [[0, 1]]],
       rides: [[59, 112, 0, 0x18, null, null, [0, 0, -7.48], undefined, [340, null, 1, 1]]] },
     // Gene Gadget 2 (RunLevel_GnGdz2 0x115E2, InitLevel 0x11540): as act 1 (hover, zaps, roofs 0x11AAA, a barrier at
@@ -755,6 +768,10 @@ const S3D = (() => {
       const wc = wall.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]), zc = zap.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
       if (wc.length) ents.push({ type: 'gate', cells: wc, top: gateTop(hb), opens: ring });
       if (zc.length) ents.push({ type: 'barrier', cells: zc, half, away, opens: ring });
+    }
+    if (gm.passOff) {   // cells that end a supercharger's run: its gates shut again (the routine clears its flag there)
+      const pc = gm.passOff.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
+      if (pc.length) ents.push({ type: 'passOff', cells: pc });
     }
     for (const [cells, hb, ring, pass, key] of gm.gates || []) {
       const gc = cells.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);

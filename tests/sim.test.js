@@ -893,12 +893,16 @@ test('a zap cell sparks 22 frames after the step; the blue shield is spared', ()
   w = GNG([{ type: 'zapCells', cells: [[5, 2]] }]); w.ringCount = 5; w.p.shield = 'shield'; place(w, 5.5, 2.5);
   run(w, 40, {}); assert.ok(w.ringCount === 5 && w.p.shield === 'shield', 'spared');
 });
-test('gates stand until their ring or a supercharged run; barriers hurt in their half until their ring', () => {
+test('gates stand until their ring or a supercharged run (until a passOff cell); barriers hurt in their half until their ring', () => {
   let w = GNG([{ type: 'gate', cells: [[6, 1], [6, 2], [6, 3]], top: 3, opens: 1 }, { type: 'goal', x: 2.5, z: 2.5 }, { type: 'goal', x: 12.5, z: 2.5 }]); place(w, 4.5, 2.5);
   run(w, 90, { mx: 1 }); assert.ok(w.p.x < 6, `held at ${w.p.x.toFixed(2)}`);
   w.section = 1; run(w, 90, { mx: 1 }); assert.ok(w.p.x > 7, `through at ${w.p.x.toFixed(2)}`);
   w = GNG([{ type: 'gate', cells: [[6, 1], [6, 2], [6, 3]], top: 3, pass: true }, { type: 'booster', x: 3.5, z: 2.5, dir: [1, 0] }]); place(w, 3.5, 2.5);
   run(w, 150, {}); assert.ok(w.p.x > 7, `the run went through: ${w.p.x.toFixed(2)}`);
+  // (a passOff cell ends the run's pass: the gates stand again, walking back is blocked)
+  w = GNG([{ type: 'gate', cells: [[6, 1], [6, 2], [6, 3]], top: 3, pass: true }, { type: 'booster', x: 3.5, z: 2.5, dir: [1, 0] }, { type: 'passOff', cells: [[9, 2]] }]); place(w, 3.5, 2.5);
+  run(w, 150, {}); assert.ok(w.p.x > 9 && !w.passOn, `through, and the flag cleared at ${w.p.x.toFixed(2)}`);
+  place(w, 7.5, 2.5); run(w, 90, { mx: -1 }); assert.ok(w.p.x > 7, `held behind the gate at ${w.p.x.toFixed(2)}`);
   w = GNG([{ type: 'barrier', cells: [[6, 2]], half: 'n', away: [0, 1], opens: 1 }]); w.ringCount = 5; place(w, 6.5, 2.8);
   run(w, 30, { mz: -1 }); assert.ok(w.ringCount === 0, 'zapped in its north half');
 });

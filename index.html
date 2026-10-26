@@ -1405,6 +1405,12 @@ const Sim = (() => {
           L.entities.push({ type: e.type, cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]), top: e.top, opens, pass: !!e.pass, key: e.key ?? null, half: e.half, away: e.away, shut, ev: typeof e.ev === 'string' ? e.ev : null });
           break;
         }
+        // cells where a supercharger's run ends: gates with "pass" shut again (the routine clears its flag)
+        case 'passOff': {
+          if (!Array.isArray(e.cells) || !e.cells.every(c => Array.isArray(c) && inBounds(c[0], c[1]))) { errs.push('A passOff needs "cells" inside the map.'); break; }
+          L.entities.push({ type: 'passOff', cells: e.cells.map(c => [Math.floor(c[0]), Math.floor(c[1])]) });
+          break;
+        }
         case 'keyOff': {
           if (!inBounds(e.x, e.z) || e.key === undefined) { errs.push(`A keyOff at (${e.x}, ${e.z}) needs a place on the map and a "key".`); break; }
           // "regs": values set as it takes the key back (Panic Puppet 1's flag); only while the key is held
@@ -1841,6 +1847,7 @@ const Sim = (() => {
     // gates stand (raised for the sim only) until their section or a supercharged run opens them
     w.gates = L.entities.filter(e => e.type === 'gate').map(e => ({ ...e, open: !!e.shut, closed: false }));
     for (const g of w.gates) if (!g.shut) for (const [cx, cz] of g.cells) L.up.set(cz * L.width + cx, g.top);
+    w.passOn = false; w.passOff = new Set(L.entities.filter(e => e.type === 'passOff').flatMap(e => e.cells.map(([cx, cz]) => cz * L.width + cx)));
     w.keys = new Set(); w.keyOff = new Map(L.entities.filter(e => e.type === 'keyOff').map(e => [e.z * L.width + e.x, e]));
     w.zaps = []; w.zapLast = -1;
     w.sprinklers = L.entities.filter(e => e.type === 'sprinkler').map(e => ({ ...e, a: e.phase, on: false }));
@@ -2724,6 +2731,7 @@ const Sim = (() => {
     if (s.auto) w.p.auto = autoWalk(w);
     if (w.boss) initBoss(w);
     for (const g of w.gates || []) if (g.shut) g.closed = false;   // (the cells that shut behind the player open again)
+    w.passOn = false;
     // starting again on a pad (a ring stands over one) does not set it off until the player steps off it
     w.padOff = (w.holes || []).find(h => h.pad && Math.abs(h.x - s.x) < h.size && Math.abs(h.z - s.z) < h.size) || null;
   }
@@ -2787,13 +2795,14 @@ const Sim = (() => {
       }
       return w;
     }
-    // gates (Gene Gadget's InitLevel raises them): open from their section on, or while a supercharged run lasts (the
-    // routine lets the run through cells it lists while the supercharger's flag is up)
+    // gates (Gene Gadget's and Spring Stadium's InitLevel raise them): open from their section on, or while a
+    // supercharger's run lasts (the routine lists them as open from the firing until the run reaches a passOff cell)
     const gcell = Math.floor(p.z) * L.width + Math.floor(p.x);
+    if (w.passOn && w.passOff.has(gcell)) w.passOn = false;
     for (const g of w.gates) {
       // (Panic Puppet 2: cells raised behind the player once they step into a trigger cell)
       if (g.shut && !g.closed && g.shut.includes(gcell)) { g.closed = true; if (g.ev) w.events.push(g.ev); }
-      const open = g.shut ? !g.closed : (g.opens > 0 && w.section >= g.opens) || (g.pass && !!(p.force && p.force.pass)) || (g.key !== null && w.keys.has(g.key));
+      const open = g.shut ? !g.closed : (g.opens > 0 && w.section >= g.opens) || (g.pass && (w.passOn || !!(p.force && p.force.pass))) || (g.key !== null && w.keys.has(g.key));
       if (open !== g.open) { g.open = open; for (const [cx, cz] of g.cells) { const t = cz * L.width + cx; if (open) L.up.delete(t); else L.up.set(t, g.top); } }
     }
     // a pad: held on its middle, sinking, then out of the other pad (or into the ring's pocket) and thrown up
@@ -2903,7 +2912,7 @@ const Sim = (() => {
         // it dashes them off along its way rolling, the pad let go for 30 frames
         p.vx = b.pad.dir[0] * P.boostSpeed; p.vz = b.pad.dir[1] * P.boostSpeed; p.vy = 0;
         p.rolling = true; p.facing = Math.atan2(p.vx, p.vz); p.boost = null; b.pad.firedAt = w.time; w.events.push('boost');
-        p.force = { t: 30 / 60, dir: null, top: 0, pass: true };
+        p.force = { t: 30 / 60, dir: null, top: 0, pass: true }; w.passOn = true;
       }
       return w;
     }
@@ -4324,7 +4333,14 @@ const S3D = (() => {
     // tip]: 64 units square, the triangle where the side offset (flipped: from the far side) is no more than the band
     // offset. SS2: spear cells (table [address, count]; the act's spear object rises in the east quarter of the cell)
     // and a spiked wall facing east at cells [x, [z...], under height].
+    // Spring Stadium 1 (InitLevel 0x9526, RunLevel_SSz1 0x95DA): InitLevel raises gates 0x20 over the floor across the
+    // corridors at (33, 116..117), (41, 114..115), (52, 114..115), (62, 38..39), (50, 40..41); while the routine's flag
+    // is set (a supercharger's record at state 0xF) it lists them as open, until Sonic reaches (42, 115), (77, 113) or
+    // (63, 39); (33..34, 78) stands until ring 1
     15: { floorSprings: 0x55, bumpers: [0xFF, 0x98DA, 8], spikeField: 0xAA,
+      gates: [[[[33, 116], [33, 117]], 0x45, 0, 1], [[[41, 114], [41, 115]], 0x45, 0, 1], [[[52, 114], [52, 115]], 0x4F, 0, 1],
+        [[[62, 38], [62, 39]], 0x91, 0, 1], [[[50, 40], [50, 41]], 0x97, 0, 1], [[[33, 78], [34, 78]], 0x85, 1, 0]],
+      passOff: [[42, 115], [77, 113], [63, 39]],
       rides: [[37, 117, 0, 4, null, null, null, undefined, [140, [1, 0]]], [61, 115, 0, 4, null, null, null, undefined, [200, [1, 0]]],
         [77, 113, 0, 4, null, null, null, undefined, [85, [1, 0]]], [59, 41, 0, 4, null, null, null, undefined, [70, null]]],
       holds: [[55, 115, 100], [53, 41, 100]], tubes: [0x98C6, 0x40, 0x42],
@@ -4373,7 +4389,13 @@ const S3D = (() => {
       dashes: [[50, 45, 608, [7.5, 0], 10, 0, 0]], currents: [[96, 117, 88, 95, [1, 0], 0.375, 3.5, 3.5]],
       hops: [[[109, 80], [103, 82], [111, 72]], 40], flames: [0xFD5E, 7], freeze: 1,
       spikes: 0xFF, ice: [0xFE30, 39, 0xFE7E, 40, [[75, 100]], [[70, 105]]], iceSpikes: [0xFECE, 17], roofs: 0xFE04, bumpers: [0x55, 0, 0] },
+    // Spring Stadium 2 (InitLevel 0x8DEA, RunLevel_SSz2 0x8EC2): gates (64, 104..105), (76, 102..103), (84..85, 78),
+    // (86..87, 71) open while the flag is set (four superchargers), until (77, 103), (87, 70) or (85, 79); (61..62, 110)
+    // stands until ring 1, (123..124, 51) until ring 2
     16: { floorSprings: 0x55, bumpers: [0xFF, 0x94EA, 30],
+      gates: [[[[64, 104], [64, 105]], 0x3F, 0, 1], [[[76, 102], [76, 103]], 0x39, 0, 1], [[[84, 78], [85, 78]], 0x69, 0, 1],
+        [[[86, 71], [87, 71]], 0x69, 0, 1], [[[61, 110], [62, 110]], 0x41, 1, 0], [[[123, 51], [124, 51]], 0x65, 2, 0]],
+      passOff: [[77, 103], [87, 70], [85, 79]],
       rides: [[73, 105, 0, 4, null, null, null, undefined, [70, null]], [85, 76, 0, 0x8004, null, null, null, undefined, [84, null]],
         [87, 74, 0, 0x8044, null, null, null, undefined, [84, null]]],
       holds: [[68, 105, 100]], tubes: [0x9480, 0x40, 0x42],
@@ -4396,7 +4418,7 @@ const S3D = (() => {
       dashes: [[65, 101, 0x7FFF, [6, 0], 1, 0, 0], [65, 102, 0x7FFF, [6, 0], 1, 0, 0], [74, 94, 0x7FFF, [0, 6], 1, 0, 0], [75, 94, 0x7FFF, [0, 6], 1, 0, 0]],
       barriers: [[[[58, 117], [59, 117], [60, 117], [61, 117]], 0x2D, [[59, 118], [60, 118]], 'n', 1, [0, 1]],
         [[[117, 93], [117, 94]], 0x45, [[118, 94], [118, 95]], 'w', 2, [1, 0]]],
-      gates: [[[[58, 112], [59, 112]], 0x2D, 0, 1], [[[68, 89], [69, 89]], 0x49, 0, 1], [[[54, 70]], 0x51, 0, 0, 1]], keyOff: [[54, 71, 1]],
+      gates: [[[[58, 112], [59, 112]], 0x2D, 0, 1], [[[68, 89], [69, 89]], 0x49, 0, 1], [[[54, 70]], 0x51, 0, 0, 1]], keyOff: [[54, 71, 1]], passOff: [[68, 90]],
       tubes2: [0x120F8, 10, [[0, 3, 0x1A]], [[0, 1]]],
       rides: [[59, 112, 0, 0x18, null, null, [0, 0, -7.48], undefined, [340, null, 1, 1]]] },
     // Gene Gadget 2 (RunLevel_GnGdz2 0x115E2, InitLevel 0x11540): as act 1 (hover, zaps, roofs 0x11AAA, a barrier at
@@ -5028,6 +5050,10 @@ const S3D = (() => {
       const wc = wall.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]), zc = zap.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
       if (wc.length) ents.push({ type: 'gate', cells: wc, top: gateTop(hb), opens: ring });
       if (zc.length) ents.push({ type: 'barrier', cells: zc, half, away, opens: ring });
+    }
+    if (gm.passOff) {   // cells that end a supercharger's run: its gates shut again (the routine clears its flag there)
+      const pc = gm.passOff.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
+      if (pc.length) ents.push({ type: 'passOff', cells: pc });
     }
     for (const [cells, hb, ring, pass, key] of gm.gates || []) {
       const gc = cells.filter(([cx, cz]) => floorCell(cx, cz)).map(([cx, cz]) => [cx - x0, cz - z0]);
@@ -7509,14 +7535,27 @@ const Art = (() => {
       if (rm) s.userData.rom = [rm, kind === 'enemy' ? romObjMat(kind, o.skin, true) : rm];
       return s;
     };
-    // doors (gates opened by a key: Gene Gadget, Panic Puppet): a slab of the level's own wall (ROM look) or a striped
-    // shutter of our own in the gate's cells, at most 2.4 m tall, sliding into the floor while the key is held
+    // doors (gates opened by a key, by a ring or for a supercharger's run: Gene Gadget, Spring Stadium, Panic Puppet; not
+    // a barrier's wall, drawn with its pylons): a slab of the level's own wall (ROM look) or a striped shutter of our own
+    // in the gate's cells, at most 2.4 m tall, sliding into the floor while it is open
     {
       const art = mesh.userData.art && levelArtFor(L), vs = L.rom ? L.rom.vscale : 1;
       const floorOf = (cx, cz) => { const k = (cz * L.width + cx) * 4; return Math.min(L.corners[k], L.corners[k + 1], L.corners[k + 2], L.corners[k + 3]); };
       let shutter = null;
-      doorMeshes = world.gates.filter(g => g.key !== null || g.shut).map(g => {
+      const zapCells = L.entities.filter(e => e.type === 'barrier').flatMap(e => e.cells);
+      const barrierWall = g => g.cells.some(([cx, cz]) => zapCells.some(([zx, zz]) => Math.abs(zx - cx) <= 1 && Math.abs(zz - cz) <= 1));
+      const postMat = new THREE.MeshLambertMaterial({ color: 0x7a3aa8 }), fieldMat = new THREE.MeshBasicMaterial({ color: 0xc070ff, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
+      doorMeshes = world.gates.filter(g => g.key !== null || g.shut || g.pass || (g.opens > 0 && !barrierWall(g))).map(g => {
         const grp = new THREE.Group();
+        if (g.pass) {   // a supercharger's gate (Spring Stadium's 038 posts): two posts and a field between, the field gone while open
+          const xs = g.cells.map(c => c[0]), zs = g.cells.map(c => c[1]), x0 = Math.min(...xs), x1 = Math.max(...xs) + 1, z0 = Math.min(...zs), z1 = Math.max(...zs) + 1;
+          const alongX = x1 - x0 > z1 - z0, len = alongX ? x1 - x0 : z1 - z0, floor = Math.min(...g.cells.map(([cx, cz]) => floorOf(cx, cz))), h = 1.1 * vs;
+          const field = new THREE.Mesh(new THREE.PlaneGeometry(len, h), fieldMat); if (!alongX) field.rotation.y = Math.PI / 2; field.position.y = h / 2;
+          const posts = new THREE.Group(); posts.add(field);
+          for (const e of [-1, 1]) { const m = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, h + 0.2, 8), postMat); m.position.set(alongX ? e * len / 2 : 0, (h + 0.2) / 2, alongX ? 0 : e * len / 2); posts.add(m); }
+          posts.position.set((x0 + x1) / 2, floor, (z0 + z1) / 2); levelGroup.add(posts);
+          grp.userData = { gate: g, h: 0, field }; return grp;
+        }
         let hMax = 0;
         for (const [cx, cz] of g.cells) {
           const floor = floorOf(cx, cz), h = Math.min(g.top - floor, 2.4 * vs);
@@ -8802,6 +8841,7 @@ const Art = (() => {
       if (u.rom) o.material = romBossMat(0x180, f, ROM_CANVAS, 80, b.line); else u.tip.material.color.setHex(f === 0 ? 0xfff27a : 0x5a5030);
     });
     for (const d of doorMeshes) {
+      if (d.userData.field) { d.userData.field.visible = !d.userData.gate.open; continue; }
       const to = d.userData.gate.open ? -d.userData.h - 0.05 : 0;
       d.position.y += Math.sign(to - d.position.y) * Math.min(Math.abs(to - d.position.y), 4 * dt); d.visible = d.position.y > -d.userData.h;
     }
