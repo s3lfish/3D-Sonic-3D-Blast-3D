@@ -162,8 +162,8 @@ original art. The browser code carries reading rules only.
   at the edge and turns that part back; then z the same; vy += $22 (0x2000), y -= vy; the floor (triangles, NW-SE
   split always) under it while falling: y = floor, vy = -(vy - vy/4), each horizontal part 0x1000 toward 0, and a
   landing with both already 0 ends it; $32 counts the life down (0xF0).
-- Global counts: $0AFC, $0AFE, $0B00, $0B02, $0B04, $0B06 count down every frame with periods 6, 8, 10, 16, 32, 60,
-  from 5, 7, 9, 15, 31, 59 when an act starts (held during the title card). Objects off screen do not run.
+- Global counts (0x6D14): $0AF4 .. $0B06 count down every frame with periods 2, 3, 4, 5, 6, 8, 10, 16, 32, 60, from
+  1, 2, 3, 4, 5, 7, 9, 15, 31, 59 when an act starts (held during the title card). Objects off screen do not run.
 - Enemy handlers: 0x17CB6 (060, 14C, 104; 0C4 enters at 0x17CE6): angle $24 moves it (sin, cos) words a frame (16.16:
   half a unit), turning $26 by 0x10 a frame (0x20 chasing) the short way; not chasing, a random eighth when $0B06 is 0;
   Sonic within 0x40 on both axes: chasing (bit 15 of $2A), speed doubled, angle & 0xFFE0, aim at his octant when $0B00
@@ -661,6 +661,23 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   index ((0x12 - $36) & 15) << 6 into the sine table, vx = sin·2, vz = cos·2. Walls as a lost ring's, but type 2
   stops at the edge with its speed kept; the others reverse that part and mirror $36 ((4 - d) & 15 off an x wall,
   (12 - d) & 15 off a z wall).
+- Following Flickies (0x56FC, each frame after Sonic's move, before his animation 0x1492 is chosen): history at
+  $CAC2, 20 records of 16 bytes (x, z longs, cell, facing | sign, $72 word, y), index $0A60; follower slots at $C9DC,
+  0x2E each ($0A8E of them; $6 x, $A z, $E y longs, $1A vy, $16/$18 offsets, $5 colour); follower k takes the record
+  3 + 4k frames old. $72 (Sonic's launch: jump -0x5A000, the let-go's new speed with its low byte 0xFF, springs' and
+  other objects' constants) is kept as ((it, negated when its low byte is set) << 4) >> 16 and cleared. Animation 0
+  or 0xB last frame (0: grounded, no crouch/jump/roll state, x and z speed 0): $0AA1 up 1 to 32, $0AA8 up; else
+  $0AA8 = 0, $0AA1 down 2. With $0AA1: offsets (sin, cos)·$0AA1 >> 16 + 2 at byte angle $0A9E + 0x19A k (wrapping
+  0x800), $0A9E + 0x18 a frame unless $0AAA = 10; the offset moves x then z from the record, stopped at the cell edge
+  by a cell with no floor or a corner 24 or more over the follower (corners as a lost ring's). y: a record word < 0
+  puts it at the record's y with vy = word·(0x1000 + 0x200k); > 0 gives vy = -word·(...) from where it is; else vy +
+  4·(0x1000 + 0x200k), at most 7, landing on the record's y. $0AA8 = 0xF0: $34 = 0xF900 (the turn routine turns to
+  exactly -$34 & 0x7FF = 0x700, then $34 = $32); there, with no box under him and his cell's height byte not over any
+  of its 8 neighbours', $0AAA + 1 when $0AF6 (period 3) is 0, to 10; animation 0xB. Otherwise $0AAA - 1. Checked
+  exact against two emulator traces (stand, walk, jumps with let-go, walls; 420 frames standing).
+- A hit (0x1B6C2, rings or not) sets $0AA6 = followers; 0x5E48 then frees the last one a frame: a particle of its
+  colour at its x, y, z, 1 unit a frame at the lost rings' angle $0A54 (then + 0x480), 3 up, $0AA4 = 30.
+- Sine table 0x276E8: floor(sin·0x7FFF) except entry 0x400, which is 0.
 - Palette line of an object's sprite: bits 13-14 of word +0x16 (178, 194, 19C: line 0).
 - Ring used: $0A18 = 0x5A, camera to (0xA94, 0x634) (not modelled). Fans: 16 tiles 0xDD8FE at tile 125, speed
   $0ACE up to 0x40 while hovering (here steady).

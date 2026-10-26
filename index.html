@@ -1106,7 +1106,7 @@ const Sim = (() => {
       const t = v => v / 0x1000 * 3600 / 32, u = v => v * 60 / 32;
       // raw: the same in the original's own units, for the frame-exact routine (Sim origVelocity); sin: its table
       // 0x276E8 is floor(sin(i / 0x400 turn) x 0x7FFF), 0x500 words (cos 0x100 on); dashDir: launch table 0x3312
-      const sin = new Int16Array(0x500); for (let i = 0; i < 0x500; i++) sin[i] = Math.floor(Math.sin(i * 2 * Math.PI / 0x400) * 0x7FFF);
+      const sin = new Int16Array(0x500); for (let i = 0; i < 0x500; i++) sin[i] = i % 0x200 ? Math.floor(Math.sin(i * 2 * Math.PI / 0x400) * 0x7FFF) : 0;   // (sin of a whole turn is 0 there, not -1)
       return { raw: { walk: [0x480, 0x260, 0x380], ball: [0x300, 0x160, 0x200], ice: [0x100, 0x20, 0x20], roll: [0, 0x10, 0x200], top: 0x5000, shoes: 0x6800, dashTop: 0x7800 },
         sin, dashDir: [0x7800, 0x54DA],
         walk: [t(0x480), t(0x260), t(0x380)], ball: [t(0x300), t(0x160), t(0x200)], ice: [t(0x100), t(0x20), t(0x20)],
@@ -1952,18 +1952,20 @@ const Sim = (() => {
   function origTurn(p, mx, mz, m) {
     let face = origFace(p), tgt;
     if (p.facing !== p.turnFace) p.turnTgt = undefined;   // (something else turned him: a ride, a bounce; no turn to finish)
-    if (m > 0.3) { const t = (-Math.atan2(mx, mz) / (2 * Math.PI) * 0x800) % 0x800; tgt = p.turnTgt = t < 0 ? t + 0x800 : t; }
+    if (m > 0.3) { const t = (-Math.atan2(mx, mz) / (2 * Math.PI) * 0x800) % 0x800; tgt = p.turnTgt = t < 0 ? t + 0x800 : t; p.turnExact = false; }
     else if (p.turnTgt === undefined) return;
     else tgt = p.turnTgt;
     const d = ((face - tgt) % 0x800 + 0x800) % 0x800, r = d % 0x100;
-    if (d < 1e-6 || d > 0x800 - 1e-6) { p.turnFace = p.facing; return; }
+    // (a target set negative, $34 < 0: Sonic bored turns to exactly it, then $34 = $32: `p.faceSet` the frame after)
+    const exact = p.turnExact && !(m > 0.3);
+    if (d < 1e-6 || d > 0x800 - 1e-6) { p.turnFace = p.facing; if (exact) { p.turnExact = false; p.faceSet = true; } return; }
     // with the stick let go a turn goes on to the next eighth from its target ($34), then stops
-    if (!(m > 0.3) && (r < 1e-6 || r > 0x100 - 1e-6)) { p.turnFace = p.facing; return; }
+    if (!(m > 0.3) && !exact && (r < 1e-6 || r > 0x100 - 1e-6)) { p.turnFace = p.facing; return; }
     // 0x40 a frame the short way; a half turn goes up if the facing before the last turn step ($36, `p.face36`; kept
     // through bounces and the like) is above the facing now, else down
     const half = Math.abs(d - 0x400) < 1e-6;
     const s = half ? ((p.face36 === undefined ? face : p.face36) - face > 0 ? 1 : -1) : d > 0x400 ? 1 : -1;
-    const room = m > 0.3 ? (s > 0 ? 0x800 - d : d) : s > 0 ? 0x100 - r : r;
+    const room = m > 0.3 || exact ? (s > 0 ? 0x800 - d : d) : s > 0 ? 0x100 - r : r;
     if (!half) p.face36 = face;
     face += s * Math.min(0x40, room);
     let a = -face / 0x800 * 2 * Math.PI; if (a <= -Math.PI) a += 2 * Math.PI;
@@ -3011,6 +3013,7 @@ const Sim = (() => {
   // back to the start, or to the last big ring used (the original restarts a section there)
   function respawn(w) {
     if (w.flickies) scatterFlickies(w);
+    w.hist = null; w.fStand = false; w.flyOut = 0;
     const s = w.spawn || w.L.start;
     w.p = { x: s.x, y: floorAt(w.L, s.x, s.z), z: s.z, vx: 0, vy: 0, vz: 0, grounded: true, coyote: 0,
       rolling: false, ball: false, sprung: false, charge: 0, facing: s.facing, jumping: false, prevJump: false, prevDash: false, invuln: 0,
@@ -3370,6 +3373,7 @@ const Sim = (() => {
     let jumpedNow = false;   // (the original jumps after its velocity update: that frame still walks)
     if (jumpPress && (p.grounded || p.coyote > 0) && !charging) {
       jumpedNow = true; p.vy = L.phys.jumpV; p.grounded = false; p.coyote = 0; p.jumping = true; p.ball = true; p.whirl = false; p.whirlHold = 0;
+      launchW(p, L, L.phys.jumpV);
       w.events.push('jump');
     }
     else if (jumpPress && !p.grounded && p.shield === 'gold' && !p.goldUsed) {
@@ -3380,6 +3384,10 @@ const Sim = (() => {
       const U = 60 / 32 * (L.rom ? L.rom.vscale : 1); let v = p.vy / U;
       if (v > 3.125) v -= 1.5;
       p.vy = v / 2 * U; p.jumping = false; p.noGrav = true;
+      if (L.rom) {   // (its $72 for the Flickies: the new speed with the low byte set, negated: they take it on)
+        const lw = (-Math.round(v / 2 * 65536) & ~0xFF) | 0xFF;
+        p.launchJ = (Math.floor(-lw * 16 / 65536) << 16) >> 16;
+      }
     } else if (!O && p.jumping && !inp.jump && p.vy > L.phys.jumpCut) p.vy = L.phys.jumpCut;
 
     // horizontal control
@@ -3554,7 +3562,7 @@ const Sim = (() => {
     // Spring Stadium's cells (helpers 0x9974, 0x9D44)
     const cell = Math.floor(p.z) * L.width + Math.floor(p.x);
     if (p.grounded && w.springCells.size && w.springCells.has(cell)) {   // a floor spring
-      p.vy = w.springCells.get(cell) - L.phys.gravity * dt; p.grounded = false; p.jumping = false; p.coyote = 0;
+      p.vy = w.springCells.get(cell) - L.phys.gravity * dt; p.grounded = false; p.jumping = false; p.coyote = 0; launchW(p, L, w.springCells.get(cell));
       p.ball = false; p.rolling = false; p.sprung = true; p.charge = 0; w.events.push('spring');
     }
     // a bumper: entered near its floor, it pushes the player out across the nearest edge (by the cell's diagonals)
@@ -3856,7 +3864,7 @@ const Sim = (() => {
       const dx = sp.x - p.x, dz = sp.z - p.z;
       if (dx * dx + dz * dz < 0.25 && p.y >= sp.y - 0.2 && p.y <= sp.y + 0.45 && p.vy <= 0.5) {
         // gravity takes its first bite in the same step, as for a jump, so the rise matches the measured height
-        p.vy = sp.power - L.phys.gravity * dt; p.grounded = false; p.jumping = false; p.coyote = 0;
+        p.vy = sp.power - L.phys.gravity * dt; p.grounded = false; p.jumping = false; p.coyote = 0; launchW(p, L, sp.power);
         p.ball = false; p.rolling = false; p.sprung = true; p.charge = 0;
         sp.cool = 0.3; sp.firedAt = w.time; w.events.push('spring');
       }
@@ -4130,9 +4138,12 @@ const Sim = (() => {
     if (w.flickyWait > 0) w.flickyWait--;
     w.trail.push(p.x, p.y, p.z);
     if (w.trail.length > 3 * 400) w.trail.splice(0, 3);
+    const OF = L.rom && L.phys.orig;
+    if (OF) origFollow(w, L, p);
     let k = 0;
     for (const f of w.flickies) {
       f.age += dt;
+      if (f.state === 'follow' && OF) continue;
       if (f.state === 'follow') {
         const back = 14 * (++k), n = w.trail.length / 3, i = Math.max(0, n - 1 - back) * 3;
         f.x = w.trail[i]; f.z = w.trail[i + 2];
@@ -4144,7 +4155,7 @@ const Sim = (() => {
         origRing(L, f, w);
         if (f.y < L.killY) { f.state = 'gone'; continue; }
         const dx = p.x - f.x, dz = p.z - f.z, follow = w.flickies.filter(q => q.state === 'follow').length;
-        if (!(w.flickyWait > 0) && follow < 5 && dx * dx + dz * dz < 0.64 && Math.abs(p.y - f.y) < 1.2 && !(p.knockT > 0)) { f.state = 'follow'; w.events.push('flicky'); }
+        if (!(w.flickyWait > 0) && follow < 5 && dx * dx + dz * dz < 0.64 && Math.abs(p.y - f.y) < 1.2 && !(p.knockT > 0)) { f.state = 'follow'; f.FY = undefined; f.fvy = 0; w.events.push('flicky'); }
         continue;
       }
       const fl = floorAt(L, f.x, f.z);
@@ -4174,6 +4185,19 @@ const Sim = (() => {
       ringPos(L, r); w.loose.push(r);
       w.ringAng = (w.ringAng + 0x480) & 0x7FF;
     }
+    // after a hit the followers go one a frame, the last first (0x5E48): particles of their colour from where they are,
+    // 1 unit a frame out at the lost rings' angle (stepping it 0x480), 3 up, no catching for 30 frames
+    if (w.flyOut > 0) {
+      w.flyOut--;
+      const fol = w.flickies.filter(f => f.state === 'follow'), f = fol[fol.length - 1];
+      if (f) {
+        const S = 65536, a = (w.ringAng || 0) >> 1, s = P.orig.sin;
+        Object.assign(f, { state: 'free', o: 1, type: f.kind + 1, d: 0, t: Infinity, age: 0, X: (f.FX >> 16) * S, Y: (f.FY >> 16) * S, Z: (f.FZ >> 16) * S,
+          vx: s[a] * 2, vz: s[a + 0x100] * 2, vy: -3 * S });
+        ringPos(L, f); w.flickyWait = 30;
+        w.ringAng = (w.ringAng + 0x480) & 0x7FF;
+      }
+    }
     for (let i = w.loose.length - 1; i >= 0; i--) {
       const r = w.loose[i];
       r.age += dt;
@@ -4196,6 +4220,11 @@ const Sim = (() => {
       const dx = g.x - p.x, dy = g.y - py, dz = g.z - p.z;
       if (dx * dx + dy * dy + dz * dz < r2) { g.got = true; g.gotAt = w.time; w.ringCount++; w.events.push('ring'); }
     }
+    // the original's animation 0 (0x1492: grounded, not crouching, rolling or jumping, speed exactly 0), read by the
+    // Flickies next frame
+    // (a jump's state $56 = 1 is cleared by the turn routine the frame after landing)
+    w.fStand = p.grounded && !w.fBall && !p.rolling && !(p.revN >= 0) && !(p.crouch > 0) && p.vx === 0 && p.vz === 0 && !p.ride && !p.cannon;
+    w.fBall = p.ball && !p.grounded;
     return w;
   }
 
@@ -4217,6 +4246,84 @@ const Sim = (() => {
   // floor, turns that part back at the edge; gravity 0x2000 a frame; landing (on the triangles, split ignored) comes back
   // up at 3/4 and takes 0x1000 off each horizontal part; a landing with neither left, or 240 frames, ends it.
   function ringPos(L, r) { const vs = L.rom.vscale; r.x = r.X / 65536 / 32; r.z = r.Z / 65536 / 32; r.y = (r.Y / 65536 + 8) / 32 * vs + (r.type ? 0 : 0.3); }
+  // Sonic's $72 as the history keeps it for the Flickies (0x5726): a launch up at v (units a frame) is the word -16 v
+  const launchW = (p, L, vUp) => { if (L.rom && L.phys.orig) p.launchJ = (Math.floor(-Math.round(vUp / (60 / 32 * L.rom.vscale) * 4096) * 16 / 4096) << 16) >> 16; };   // (to 1/4096: jumpV is kept to 4 places)
+  // The original's following Flickies (0x56FC, every frame after Sonic moves): a history of 20 records of Sonic (x, z
+  // 16.16; y; his $72 word); follower k takes the record 3 + 4k frames old. Standing (last frame's animation 0 or 11,
+  // `w.fStand`) the circle $0AA1 grows to 32 (else shrinks 2 a frame) and each sits (sin, cos)·$0AA1/65536 + 2 off its
+  // record (angle $0A9E + k·0x19A bytes, turning 0x18 a frame), stopped in x and z by a cell whose floor is 24 or more
+  // over it (or none). Height: a record's launch word sets the speed (word · (0x1000 + 0x200 k)), a negative one from
+  // the record's height; else gravity 4·(0x1000 + 0x200 k) to 7 a frame, landing on the record's height. Standing 240
+  // frames Sonic turns to face 0x700 and, there, if his cell is lowest of its eight neighbours, the circle stops after
+  // 10 counts of $0AF6 (period 3).
+  function origFollow(w, L, p) {
+    const S = 65536, vs = L.rom.vscale, sin = P.orig.sin, W = L.width;
+    const X = Math.round(p.x * 32 * S), Z = Math.round(p.z * 32 * S), Y = Math.floor(p.y * 32 / vs - 8 + 1e-6);
+    if (!w.hist) { w.hist = []; for (let i = 0; i < 20; i++) w.hist.push({ X, Z, Y, J: 0 }); w.histI = 0; w.fA1 = w.fA9E = w.fA8 = w.fAAA = 0; }
+    w.hist[w.histI] = { X, Z, Y, J: p.launchJ || 0 }; p.launchJ = 0; w.histI = (w.histI + 1) % 20;
+    if (w.fStand) {
+      if (w.fA1 < 32) w.fA1++;
+      w.fA8++;
+      if (w.fA8 === 0xF0) { p.turnTgt = 0x700; p.turnExact = true; p.turnFace = p.facing; p.faceSet = false; }
+      if (w.fA8 >= 0xF0) {
+        w.fA8 = 1000;
+        if (p.faceSet) {
+          p.bored = true;
+          const ci = Math.floor(p.x), cj = Math.floor(p.z), base = (i, j) => {
+            if (i < 0 || j < 0 || i >= W || j >= L.depth) return 0;
+            const t = j * W + i; if (L.coll[t] === 'W' || L.coll[t] === 'P') return 0;
+            let m = Infinity; for (let c = 0; c < 4; c++) m = Math.min(m, L.corners[t * 4 + c]);
+            return ((Math.round(m * 4 / vs) << 24) >> 24);   // (the map word's height byte, as a signed byte)
+          };
+          let low = true; const b0 = base(ci, cj);
+          for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) if ((di || dj) && b0 > base(ci + di, cj + dj)) low = false;
+          if (low && !p.carry && gZero(w, 3) && w.fAAA !== 10) w.fAAA++;
+        }
+      } else if (w.fAAA) w.fAAA--;
+    } else {
+      w.fA8 = 0; p.bored = false; p.turnExact = false;
+      if (w.fA1) { w.fA1 -= 2; if (w.fA1 < 0) w.fA1 = 0; }
+      if (w.fAAA) w.fAAA--;
+    }
+    const fol = w.flickies.filter(f => f.state === 'follow');
+    if (!fol.length) return;
+    const edge = (i, j, corner) => {   // as a lost ring's walls: a corner in whole units, Infinity for no floor
+      if (i < 0 || j < 0 || i >= W || j >= L.depth) return Infinity;
+      const t = j * W + i;
+      if (L.coll[t] === 'W' || L.coll[t] === 'P') return Infinity;
+      if (L.up && L.up.has(t)) return L.up.get(t) * 32 / vs - 8;
+      return Math.round(L.corners[t * 4 + corner] * 32 / vs - 8);
+    };
+    let d5 = w.fA9E;
+    fol.forEach((f, k) => {
+      if (w.fA1) { f.ox = ((sin[d5 >> 1] * w.fA1) >> 16) + 2; f.oz = ((sin[(d5 >> 1) + 0x100] * w.fA1) >> 16) + 2; }
+      d5 += 0x19A; if (d5 >= 0x800) d5 -= 0x800;
+      const r = w.hist[(w.histI - 4 - 4 * k + 40) % 20], d6 = 0x1000 + 0x200 * k;
+      f.FX = r.X; f.FZ = r.Z;
+      if (f.FY === undefined) { f.FY = r.Y * S; f.fvy = 0; }
+      if (w.fA1) {
+        const fy = Math.floor(f.FY / S);
+        let xi = Math.floor(f.FX / S), zi = Math.floor(f.FZ / S);
+        const fx = f.FX - xi * S, fz = f.FZ - zi * S, ci = xi >> 5;
+        let nx = xi + f.ox;
+        if ((nx >> 5) !== ci && fy - edge(nx >> 5, zi >> 5, nx > xi ? 0 : 1) <= -0x18) nx = (ci << 5) + (nx > xi ? 0x1F : 0);
+        xi = nx;
+        const cj = zi >> 5; let nz = zi + f.oz;
+        if ((nz >> 5) !== cj && fy - edge(xi >> 5, nz >> 5, nz > zi ? 0 : 2) <= -0x18) nz = (cj << 5) + (nz > zi ? 0x1F : 0);
+        f.FX = xi * S + fx; f.FZ = nz * S + fz;
+      }
+      let J = r.J;
+      if (J) {
+        if (J < 0) f.FY = r.Y * S; else J = -J;
+        f.fvy = J * d6; f.FY -= f.fvy;
+      } else {
+        f.fvy = Math.min(0x70000, f.fvy + d6 * 4); f.FY -= f.fvy;
+        if (f.fvy >= 0 && r.Y > Math.floor(f.FY / S)) f.FY = r.Y * S;
+      }
+      f.x = f.FX / S / 32; f.z = f.FZ / S / 32; f.y = (f.FY / S + 8) / 32 * vs;
+    });
+    if (w.fAAA !== 10) w.fA9E = (w.fA9E + 0x18) & 0x7FE;
+  }
   // Free Flickies are the same particles with their colour as type 1..4 (no life limit): a wall does not turn back
   // type 2, the others turn back with their way mirrored (r.d, 16 ways: 4 - d off x walls, 12 - d off z walls); each
   // landing hops them (type 1: 1.0 up, 2: 0.5, 3: 4.0, 4: 0.5) and turns them: 1 and 4 a sixteenth toward a way 45
@@ -4405,7 +4512,8 @@ const Sim = (() => {
       p.grounded = false; p.jumping = false; p.ball = false; p.rolling = false; p.charge = 0;
       p.invuln = P.hurtTime; w.events.push('shieldLost'); return;
     }
-    scatterFlickies(w);
+    if (OH && w.ringCount > 0) w.flyOut = w.flickies.filter(f => f.state === 'follow').length;
+    else scatterFlickies(w);
     if (w.ringCount <= 0) {
       if (OH) {   // (0x1B6C2: facing 0x700, 8 up, sound 0x35; then the dying count in step)
         p.dying = 57; p.vx = p.vz = 0; p.vy = 8 * 60 / 32 * w.L.rom.vscale; p.grounded = false; p.jumping = false; p.ball = false; p.rolling = false;
@@ -4554,7 +4662,7 @@ const Sim = (() => {
     return b;
   }
 
-  return { P, LevelError, importLevel, floorAt, gradientAt, tileTopNear, createWorld, resetLevel, respawn, reloadAct, step, rrArm, ppLinks, bonusStart, bonusStep };
+  return { P, LevelError, importLevel, floorAt, gradientAt, tileTopNear, createWorld, resetLevel, respawn, reloadAct, step, hurt, rrArm, ppLinks, bonusStart, bonusStep };
 })();
 </script>
 

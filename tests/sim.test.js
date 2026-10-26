@@ -900,6 +900,26 @@ test('the original\'s freed Flickies: 4 units up, a hop a landing turning toward
   assert.deepStrictEqual(ways.slice(0, 5), [15, 14, 13, 12, 11], `ways ${ways.join(' ')}`);
   assert.ok(Math.hypot(v.flickies[0].x - 1.5, v.flickies[0].z - 1.5) < d0 - 1, 'closer to Sonic');
 });
+test('the original\'s following Flickies: 3 + 4k frames behind, circling him when he stands, out one a frame when hit', () => {
+  const w = ROMLV(0, 0, [], 1); w.L.flickies = 5; place(w, 1.5, 4.5); w.p.facing = Math.PI / 2;
+  for (let k = 0; k < 3; k++) w.flickies.push({ state: 'follow', kind: k, x: 1.5, y: 1, z: 4.5, age: 1 });
+  const at = [];
+  run(w, 30, (f, x) => { at.push([x.p.x, x.p.z]); return { mx: 1 }; });
+  const fol = w.flickies;
+  for (let k = 0; k < 3; k++) { const [x, z] = at[at.length - 3 - 4 * k]; near(fol[k].x, x, 1e-9, `follower ${k} x`); near(fol[k].z, z, 1e-9, `follower ${k} z`); }
+  // standing: the circle grows to 32 (half a metre round a point 2 units off his records)
+  run(w, 80, {});
+  const c = fol.map(f => Math.hypot(f.x * 32 - (w.p.x * 32 + 2), f.z * 32 - (w.p.z * 32 + 2)));
+  assert.ok(c.every(r => r > 14 && r < 17.5), `round him: ${c.map(r => r.toFixed(1))}`);
+  // standing 240 frames he turns to face 0x700 (the original's bored look)
+  run(w, 200, {}); near(((-w.p.facing / (2 * Math.PI) * 0x800) % 0x800 + 0x800) % 0x800, 0x700, 1e-6, 'bored facing');
+  // a hit with rings: the followers go one a frame, as particles, not caught for 30 frames
+  w.ringCount = 3; const out = [];
+  Sim.hurt(w, 1, 0);
+  run(w, 4, (f, x) => { out.push(x.flickies.filter(q => q.state === 'follow').length); return {}; });
+  assert.deepStrictEqual(out, [3, 2, 1, 0], `followers left (before each step): ${out}`);
+  assert.ok(fol.every(f => f.state === 'free' && f.o), 'all free particles');
+});
 test('the original\'s monitors are solid boxes: walking stops at a side, a roll or the ball onto it breaks it', () => {
   const mon = [{ type: 'monitor', x: 4.5, z: 4.5, kind: 'rings' }];
   let w = ROMLV(0, 0, mon); place(w, 3.2, 4.5); w.p.facing = Math.PI / 2;
