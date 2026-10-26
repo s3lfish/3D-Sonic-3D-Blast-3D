@@ -87,7 +87,10 @@ BOSSES = {3: {'kind': 'gg', 'at': (1152, 350, 1152), 'home': (1088, 1088), 'crui
           8: {'kind': 'rr', 'at': (1856, 330, 2080), 'cruise': 160, 'cap': 350, 'arms': (1792, 1920), 'root': (136, 2080),
               'reach': (2144, 2190), 'script': 0x7170, 'home': (1856, 2080), 'arena': (1760, 1983, 2080, 2271), 'hp': 5},
           17: {'kind': 'ss', 'at': (1796, 568, 2304), 'cruise': 168, 'hover': 200, 'low': 120, 'hang': 40, 'fists': ((38, 40), (-46, 40)),
-               'corners': ((2237, 1560), (2045, 1752)), 'home': (1796, 2304), 'arena': (1496, 1896, 1981, 2398), 'hp': 8}}
+               'corners': ((2237, 1560), (2045, 1752)), 'home': (1796, 2304), 'arena': (1496, 1896, 1981, 2398), 'hp': 8},
+          11: {'kind': 'dd', 'at': (2052, 0x240 + 8, 2048), 'cruise': 0xB0 + 8, 'low': 0xB0 + 8, 'high': 0x100 + 8, 'dropY': 0xE0 + 8,
+               'script': 0xF2FA, 'hitAt': 0x28, 'diag': 0xD8, 'sum': (0x1000 - 0x110, 0x1000 + 0x118), 'home': (2048, 2048),
+               'arena': (0x740, 0x8C0, 0x740, 0x8C0), 'hp': 8}}
 SCRIPTS = 0x25DF2
 
 
@@ -343,6 +346,18 @@ def convert(rom, level_id, vscale=1.0):
                 if a < 0: e["loop"] = len(sc) - n // 4; break
                 sc.append([a // 4, n])
             e["script"] = sc
+        if bs['kind'] == 'dd':
+            Y = lambda v: jround(v / CELL * vscale, 3)
+            e["low"] = Y(bs['low']); e["high"] = Y(bs['high']); e["dropY"] = Y(bs['dropY'])
+            sc = []; o = bs['script']; back = 0
+            while len(sc) < 32 and back < 2:
+                a, n = struct.unpack('>hh', rom[o:o + 4])
+                if a < 0: sc.append([-1, (o - bs['script'] - n) // 4]); back += 1
+                else: sc.append([a // 4, n])
+                o += 4
+            e["script"] = sc; e["hitAt"] = bs['hitAt'] // 4
+            dz, sm = x0 - z0, x0 + z0
+            e["oct"] = [jround(-bs['diag'] / CELL - dz, 3), jround(bs['diag'] / CELL - dz, 3), jround(bs['sum'][0] / CELL - sm, 3), jround(bs['sum'][1] / CELL - sm, 3)]
         ents.append(e)
     if table_rings:
         for k in range(3):

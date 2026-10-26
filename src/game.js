@@ -343,6 +343,9 @@
       whirl: () => tone('sawtooth', 300, 1100, 0.12, 0.12),
       padIn: () => tone('triangle', 500, 120, 0.9, 0.2),
       flame: () => noise(0.25, 0.35, 900),
+      ddDrop: () => tone('square', 400, 200, 0.2, 0.15),
+      snowman: () => tone('triangle', 300, 900, 0.25, 0.2),
+      snowPuff: () => noise(0.3, 0.25, 7000),
       bossHit: () => { noise(0.3, 0.8, 2000); tone('square', 300, 80, 0.3, 0.3); },
       bossBump: () => tone('square', 200, 400, 0.12, 0.2),
       bossDrop: () => tone('sawtooth', 400, 150, 0.4, 0.15),
@@ -354,6 +357,9 @@
       balloon: () => { noise(0.15, 0.9, 3000); tone('sine', 300, 700, 0.15, 0.2); },
       spikesUp: () => tone('sawtooth', 180, 420, 0.25, 0.15),
       iceBreak: () => { noise(0.35, 0.8, 5000); tone('triangle', 1800, 600, 0.25, 0.2); },
+      freeze: () => { noise(0.3, 0.5, 6000); tone('sine', 1400, 2200, 0.3, 0.15); },
+      frozenHop: () => tone('triangle', 900, 700, 0.08, 0.12),
+      thaw: () => { noise(0.4, 0.8, 5000); tone('triangle', 2000, 500, 0.3, 0.2); },
       spear: () => tone('square', 900, 400, 0.1, 0.1),
       bossCap: () => { noise(0.3, 0.6, 600); tone('square', 120, 90, 0.2, 0.2); },
       padOut: () => { tone('triangle', 180, 1400, 0.32, 0.4); noise(0.2, 0.3, 2000); },
@@ -746,7 +752,67 @@
     const o = buildBossPod(), b = world.boss;
     if (b.kind === 'rr') { o.rr = buildRrStatue(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
     if (b.kind === 'ss') { o.ss = buildSsArms(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
+    if (b.kind === 'dd') { o.dd = buildDdParts(b, o.rom); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
     return o;
+  }
+  // Diamond Dust 3's parts: blowers circling the pod, snowmen, their snowballs and the snow puffs. ROM look: the
+  // original's object art (blower 0F8 palette line 3, 17 frames by its angle and mirrored past half a turn; snowman 0E0,
+  // snow 0FC, line 0); otherwise our own: grey drums with a nozzle, plain snowmen, white balls and soft puffs
+  const snowPuffMat = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 32; const g = c.getContext('2d');
+    const gr = g.createRadialGradient(16, 16, 2, 16, 16, 15); gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.5, 'rgba(225,238,255,0.85)'); gr.addColorStop(1, 'rgba(200,220,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 32, 32);
+    return new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false });
+  })();
+  function buildDdParts(b, rom) {
+    const sprite = (mat, size, oy) => { const s = new THREE.Sprite(mat); s.center.set(0.5, 1 - oy / size); s.scale.set(size * 0.025, size * 0.025, 1); s.visible = false; levelGroup.add(s); return s; };
+    const grey = new THREE.MeshLambertMaterial({ color: 0x70767e }), dark = new THREE.MeshLambertMaterial({ color: 0x2a2e34 }), snow = new THREE.MeshLambertMaterial({ color: 0xf4f8ff, emissive: 0x303844 });
+    const blowers = Array.from({ length: b.hp }, () => {
+      if (rom) return sprite(romBossMat(0xF8, 0, 64, 40, 3), 64, 40);
+      const g = new THREE.Group(), drum = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.3, 10), grey), nz = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.28), dark);
+      nz.position.set(0, 0, 0.22); g.add(drum, nz); g.visible = false; levelGroup.add(g); return g;
+    });
+    const snowmen = [0, 1].map(() => {
+      if (rom) return sprite(romBossMat(0xE0, 0, 64, 48, 0), 64, 48);
+      const g = new THREE.Group(), lo = new THREE.Mesh(new THREE.SphereGeometry(0.3, 14, 10), snow), hi = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 8), snow);
+      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.18, 6), new THREE.MeshLambertMaterial({ color: 0xff8a20 }));
+      lo.position.y = 0.28; hi.position.y = 0.7; nose.rotation.x = Math.PI / 2; nose.position.set(0, 0.7, 0.24); g.add(lo, hi, nose);
+      g.visible = false; levelGroup.add(g); return g;
+    });
+    const balls = Array.from({ length: 16 }, () => rom ? sprite(romBossMat(0xFC, 1, 32, 16, 0), 32, 16)
+      : (() => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), snow); m.visible = false; levelGroup.add(m); return m; })());
+    const puffs = Array.from({ length: 8 }, () => { const s = sprite(rom ? romBossMat(0xFC, 0, 64, 32, 0) : snowPuffMat.clone(), 64, 32); if (!rom) s.center.set(0.5, 0.5); return s; });
+    return { blowers, snowmen, balls, puffs, rom };
+  }
+  function updateDdParts(b, d, t) {
+    const T = Math.PI / 1024, U = 1 / 32, left = b.hp - b.hits, alive = b.dead < 0;
+    // the camera's turn from the original's view (yaw pi/4), in the routine's angle units
+    const off = Math.round((Math.atan2(cam.position.x - b.x, cam.position.z - b.z) - Math.PI / 4) / T);
+    d.blowers.forEach((o, k) => {
+      o.visible = alive && k < left;
+      if (!o.visible) return;
+      const a = (b.blowA + k * 0x100) & 0x7FE;
+      o.position.set(b.x + Math.sin(a * T) * 32 * U, b.y - (d.rom ? 8 * b.vs * U : 0), b.z + Math.cos(a * T) * 32 * U);
+      if (d.rom) {
+        let f = (((a - off - 0x100) & 0x7C0) >> 6); const flip = f >= 16; if (flip) f = 32 - f;
+        o.material = romBossMat(0xF8, f, 64, 40, 3); o.scale.x = (flip ? -1 : 1) * Math.abs(o.scale.x);
+      } else o.rotation.y = a * T;
+    });
+    d.snowmen.forEach((o, k) => {
+      const s = b.snowmen[k]; o.visible = !!s;
+      if (!s) return;
+      o.position.set(s.x, s.y, s.z);
+      if (d.rom) o.material = romBossMat(0xE0, s.state === 'wake' ? Math.min(5, Math.floor(s.t / 7)) : 0, 64, 48, 0);
+      else o.scale.setScalar(s.state === 'wake' ? 1 + 0.08 * Math.sin(s.t * 0.9) : 1);
+    });
+    d.balls.forEach((o, k) => { const q = b.balls[k]; o.visible = !!q; if (q) o.position.set(q.x, q.y, q.z); });
+    d.puffs.forEach((o, k) => {
+      const q = b.puffs[k]; o.visible = !!q;
+      if (!q) return;
+      o.position.set(q.x, q.y, q.z);
+      if (d.rom) o.material = romBossMat(0xFC, Math.min(7, q.t >> 2), 64, 32, 0);
+      else { const k2 = q.t / 24; o.scale.setScalar(0.5 + k2 * 0.9); o.material.opacity = 1 - k2 * 0.7; }
+    });
   }
   // Rusty Ruin 3's statue, of our own drawing in stone colours (the original's statue sprites are not read): a body
   // under the pod, shoulders on a bar, a helmet (the routine's cap) that comes down over the pod, and per arm the
@@ -863,6 +929,7 @@
         a.hand.position.set(A.fist[0] + 8 * U, A.fist[1] - b.vs / 32, A.fist[2] + 17 * U);
       });
     }
+    if (o.dd) { updateDdParts(b, o.dd, t); if (o.rom) o.g.position.y = b.y - 8 * b.vs / 32; }
     if (o.ss) o.ss.forEach((a, k) => {   // links from under the pod to the fist
       const [fx, fy, fz] = b.fistAt[k], sx = b.x + b.fists[k][0] * 0.4, sy = b.y - 0.1, sz = b.z + b.fists[k][1] * 0.4;
       a.links.forEach((m, i) => { const t = (i + 1) / 7; m.position.set(sx + (fx - sx) * t, sy + (fy + 0.4 - sy) * t, sz + (fz - sz) * t); });
@@ -1275,6 +1342,9 @@
     poseHero3d(h, clip, h.t);
   }
 
+  // frozen by snow: a block of ice of our own round the hero (the original draws its own block sprite)
+  const iceBlock = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.05, 0.8), new THREE.MeshLambertMaterial({ color: 0xbfe0ff, emissive: 0x284060, transparent: true, opacity: 0.55, depthWrite: false }));
+  iceBlock.visible = false; iceBlock.renderOrder = 4; scene.add(iceBlock);
   const shieldSprite = new THREE.Sprite(shieldMats.shield); shieldSprite.scale.set(1.25, 1.25, 1); shieldSprite.visible = false; shieldSprite.renderOrder = 5; scene.add(shieldSprite);
   const stars = Array.from({ length: 4 }, () => { const s = new THREE.Sprite(starMat); s.scale.set(0.3, 0.3, 1); s.visible = false; scene.add(s); return s; });
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.34, 20), new THREE.MeshBasicMaterial({ color: 0x1a1430, transparent: true, opacity: 0.35, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
@@ -1932,6 +2002,8 @@
     const use3d = !!hero3d && heroMode === '3d';
     if (hero3d) hero3d.root.visible = use3d;
     if (use3d) { hero.visible = false; sil.visible = false; updateHero3d(p, rp, dt, t); } else sil.visible = true;
+    iceBlock.visible = p.frozen > 0;
+    if (iceBlock.visible) { iceBlock.position.set(rp.x, rp.y + 0.5, rp.z); iceBlock.rotation.y = p.facing || 0; }
     shieldSprite.visible = !!p.shield;
     if (p.shield) { shieldSprite.material = shieldMats[p.shield] || shieldMats.shield; shieldSprite.position.set(rp.x, rp.y + 0.55, rp.z); }
     for (let k = 0; k < stars.length; k++) {

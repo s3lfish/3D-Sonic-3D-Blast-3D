@@ -115,7 +115,13 @@ const S3D = (() => {
     // the arena; two spring fists hang `hang` units under it (offsets [x, z]) and swing 32 up and down, stopping at the
     // floor. The generic boss check (0xF794): from 8 over the pod and spinning, a hit; otherwise Sonic is hurt. Eight.
     17: { kind: 'ss', at: [1796, 568, 2304], cruise: 168, hover: 200, low: 120, hang: 40, fists: [[38, 40], [-46, 40]],
-      corners: [[2237, 1560], [2045, 1752]], home: [1796, 2304], arena: [1496, 1896, 1981, 2398], hp: 8 } };
+      corners: [[2237, 1560], [2045, 1752]], home: [1796, 2304], arena: [1496, 1896, 1981, 2398], hp: 8 },
+    // Diamond Dust 3 (InitLevel 0xF1CA, RunLevel_DDz3 0xF280): heights given + 8 so they share the player's feet frame
+    // (Sonic stands at the floor - 8); script [action / 4, frames] at 0xF2FA, a negative action going back by n bytes,
+    // a hit restarting it at byte 0x28; heading turned in at x or z outside 0x740..0x8C0, |x - z| >= 0xD8, and
+    // 0x1000 - x - z >= 0x110 or <= -0x118
+    11: { kind: 'dd', at: [2052, 0x240 + 8, 2048], cruise: 0xB0 + 8, low: 0xB0 + 8, high: 0x100 + 8, dropY: 0xE0 + 8, script: 0xF2FA, hitAt: 0x28,
+      diag: 0xD8, sum: [0x1000 - 0x110, 0x1000 + 0x118], home: [2048, 2048], arena: [0x740, 0x8C0, 0x740, 0x8C0], hp: 8 } };
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
   // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
@@ -508,6 +514,18 @@ const S3D = (() => {
         for (let o = bs.script; sc.length < 64; o += 4) { const a = s16(d, o), n = s16(d, o + 2); if (a < 0) { e.loop = sc.length - n / 4; break; } sc.push([a / 4, n]); }
         e.script = sc;
       }
+      if (bs.kind === 'dd') {
+        const Y = v => r3(v / CELL * vscale);
+        e.low = Y(bs.low); e.high = Y(bs.high); e.dropY = Y(bs.dropY);
+        const sc = [];
+        for (let o = bs.script, back = 0; sc.length < 32 && back < 2; o += 4) {
+          const a = s16(d, o), n = s16(d, o + 2);
+          if (a < 0) { sc.push([-1, (o - bs.script - n) / 4]); back++; } else sc.push([a / 4, n]);
+        }
+        e.script = sc; e.hitAt = bs.hitAt / 4;
+        const dz = x0 - z0, sm = x0 + z0;
+        e.oct = [r3(-bs.diag / CELL - dz), r3(bs.diag / CELL - dz), r3(bs.sum[0] / CELL - sm), r3(bs.sum[1] / CELL - sm)];
+      }
       ents.push(e);
     }
     if (tableRings) for (let k = 0; k < 3; k++) {
@@ -722,7 +740,8 @@ const S3D = (() => {
       bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */,
       bossSlam: [0x5F], bossCap: [0x9E] /* RR3's routine */,
       bumper: [0xB7], balloon: [0x77], spikesUp: [0x52], spear: [0x8C] /* Spring Stadium's routines */,
-      iceBreak: [0x59] /* Diamond Dust's ice spikes */ },
+      ddDrop: [0x7E], snowman: [0x51], snowPuff: [0xC8] /* DD3's routine */,
+      iceBreak: [0x59] /* Diamond Dust's ice spikes */, freeze: [0x80], frozenHop: [0x94], thaw: [0x80] /* routines 0x1B9CA, 0x3050 */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {

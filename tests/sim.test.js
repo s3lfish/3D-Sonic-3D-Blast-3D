@@ -584,6 +584,33 @@ test('the Spring Stadium boss comes down, then chases the player; a spin from ab
   let goal = false; run(w, 300, (f, ww) => { if (ww.events.includes('goal')) goal = true; return {}; });
   assert.ok(goal, 'the act ends');
 });
+test('the Diamond Dust boss: comes down, chases, puffs freezing snow when low, drops a snowman that throws snowballs; eight', () => {
+  const boss = { type: 'boss', kind: 'dd', x: 8.125, y: 18.25, z: 8, home: [8, 8], cruise: 5.75, arena: [2, 14, 2, 14], hp: 8, vs: 1,
+    low: 2, high: 4.5, dropY: 3.5, hitAt: 10, oct: [-6.75, 6.75, 7.5, 24.75],
+    script: [[1, 400], [0, 500], [1, 20], [2, 1], [1, 44], [0, 150], [1, 20], [2, 1], [1, 44], [-1, 1], [0, 100], [1, 20], [2, 1], [1, 44], [-1, 1]] };
+  const lvl = grid(Array.from({ length: 16 }, () => '4'.repeat(16)), { entities: [{ type: 'start', x: 4, z: 4 }, boss] });
+  let w = world(lvl); const b = () => w.boss;
+  w.p.inv = 1e9; run(w, 400, {});
+  near(b().y, 18.25 - 400 / 32, 1e-6, 'a unit a frame down'); near(b().x, 8.125, 1e-9, 'waiting');
+  run(w, 300, {}); assert.ok(Math.hypot(b().x - 4, b().z - 4) < Math.hypot(4.125, 4) - 1, 'chasing');
+  // snow at the low height freezes a player near it
+  w = world(lvl); w.p.inv = 1e9; run(w, 560, {}); Object.assign(w.boss, { x: 4, z: 6, y: 2, target: 2, blowT: 0 });
+  let froze = false; run(w, 60, (f, ww) => { ww.p.inv = 1e9; if (ww.events.includes('freeze')) froze = true; return {}; });
+  assert.ok(froze, 'frozen by snow');
+  // a dropped snowman wakes near the player and throws snowballs
+  w = world(lvl); w.p.inv = 0; w.ringCount = 5; Object.assign(w.boss, { x: 5.06, z: 4.06, y: 4.5, target: 4.5, t: 1, si: 2, fresh: false });
+  let balls = 0, hurt = false; run(w, 160, (f, ww) => { balls = Math.max(balls, ww.boss.balls.length); if (ww.events.includes('hurt')) hurt = true; return {}; });
+  assert.ok(balls === 8 && hurt, `snowballs ${balls}, hurt ${hurt}`);
+  // eight spins from above
+  w = world(lvl); w.p.inv = 1e9; run(w, 400, {});
+  let hits = 0;
+  for (let k = 0; k < 8; k++) {
+    for (let f = 0; f < 200 && b().cool > 0; f++) Sim.step(w, {});
+    Object.assign(w.p, { x: b().x, z: b().z, y: b().y + 0.4, vy: -1, grounded: false, ball: true, jumping: true });
+    Sim.step(w, {}); if (w.events.includes('bossHit')) hits++;
+  }
+  assert.strictEqual(hits, 8, 'eight hits'); assert.ok(b().dead >= 0 && b().blowA !== undefined, 'beaten');
+});
 test('converted spike blocks (H) hurt', () => {
   const tiles = []; for (let k = 0; k < 15; k++) tiles.push({ c: [1, 1, 1, 1], t: k === 7 ? 'H' : 'F' });
   const w = world({ version: 1, format: 'tiles', width: 5, depth: 3, tiles, entities: [{ type: 'start', x: 0.5, z: 1.5 }] });
@@ -734,7 +761,8 @@ test('Diamond Dust: a chute slides and steers, a current pushes, a dash cell run
   w = FLAT([{ type: 'flame', x: 4, z: 2.5, y: 1, dir: [1, 0], freeze: true }]); w.ringCount = 5; place(w, 5.5, 2.5);
   let froze = -1; run(w, 30, (f, ww) => { if (froze < 0 && ww.events.includes('freeze')) froze = f; return { mx: 1 }; });
   assert.ok(froze >= 0 && w.p.frozen > 0 && w.ringCount === 5, 'frozen, no rings lost');
-  const x0 = w.p.x; run(w, 20, { mx: 1 }); near(w.p.x, x0, 1e-9, 'cannot move while frozen');
+  let thaw = -1; run(w, 120, (f, ww) => { if (thaw < 0 && ww.events.includes('thaw')) thaw = f; return { mx: 1, jump: true }; });
+  assert.ok(thaw > 10 && thaw < 60 && w.p.frozen === 0, `thawed ${thaw} frames into the second run`);
 });
 // the original's movement tables, against Green Grove 2 in the emulator (units a frame: x 60 / 32 for m/s)
 const UF = v => v * 60 / 32;

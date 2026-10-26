@@ -1067,7 +1067,9 @@ const Sim = (() => {
     // Spring Stadium: bumpers push 5 units a frame and take the pad 20 frames; balloons (touch box estimated)
     bumpSpeed: 5 * 60 / 32, bumpLock: 20 / 60, balloonR: 0.55, balloonBack: 70 / 60,
     spearWait: 34 / 60, spearRise: 28 / 60, fistR: 0.5,
-    freezeTime: 1.5,    // a snowblower's blast freezes the player this long (estimated)
+    // snow (objects 0E4 and 0FC, touch routine 0x1B9CA) freezes the player in a block of ice ($88 = 4): no input, the ice
+    // table; landing hops him 2 units a frame up, one count each; at the last he breaks free (50 frames safe). Rings stay.
+    freezeHops: 4, freezeHop: 2 * 60 / 32, thawSafe: 50 / 60,
     // the original's movement (routine 0x3330; levels with "physics": {"orig": 1}). Velocity is split along Sonic's
     // facing: with a direction held the forward part gains A; the forward part loses F and the side part G every frame;
     // above the top speed a part loses A instead of gaining it; each part is capped at 0x7F00. Facing turns toward the
@@ -1285,6 +1287,16 @@ const Sim = (() => {
             }
             Object.assign(b, { arms: e.arms, root: e.root, reach: e.reach, script: e.script, loop: Math.max(0, Math.min(e.script.length - 1, e.loop || 0)), cap: e.cap ?? e.y });
           }
+          // Diamond Dust 3: low and high heights, a script of [action 0 chase / 1 wait / 2 drop, frames] with [-1, entry]
+          // to go back, the entry a hit jumps to, and the octagon [x-z low, high, x+z low, high]
+          if (e.kind === 'dd') {
+            const two = v => Array.isArray(v) && v.length === 2 && v.every(Number.isFinite);
+            if (!Number.isFinite(e.low) || !Number.isFinite(e.high) || !Array.isArray(e.script) || !e.script.length || !e.script.every(two)
+              || !e.script.every(([a, n]) => a >= 0 || (n >= 0 && n < e.script.length)) || !Array.isArray(e.oct) || e.oct.length !== 4 || !e.oct.every(Number.isFinite)) {
+              errs.push('A Diamond Dust boss needs "low", "high", a "script" of [action, frames] pairs and an "oct".'); break;
+            }
+            Object.assign(b, { low: e.low, high: e.high, dropY: Number.isFinite(e.dropY) ? e.dropY : e.low, script: e.script, hitAt: Math.max(0, Math.min(e.script.length - 1, e.hitAt || 0)), oct: e.oct });
+          }
           L.entities.push(b);
           break;
         }
@@ -1434,7 +1446,7 @@ const Sim = (() => {
     }
     return out;
   }
-  const BOSS_KINDS = new Set(['gg', 'rr', 'ss']);
+  const BOSS_KINDS = new Set(['gg', 'rr', 'ss', 'dd']);
   function importLevel(raw) {
     const errs = [];
     if (!raw || typeof raw !== 'object') throw new LevelError(['The level data is not a JSON object.']);
@@ -1600,6 +1612,8 @@ const Sim = (() => {
       ball: { x: b.x, y: b.y - 40 / 32 * b.vs, z: b.z, vx: 0, vy: 0, vz: 0, state: 'held', hops: 0 } } : null;
     if (w.boss && b.kind === 'ss') Object.assign(w.boss, { ball: null, t: 0, c: 0, target: b.cruise, hang0: b.hang, hangT: b.hang, a: 0, h: 0,
       fistAt: b.fists.map(() => [b.x, b.y, b.z]), slam: b.fists.map(() => 0) });
+    if (w.boss && b.kind === 'dd') Object.assign(w.boss, { ball: null, t: 0, si: 0, fresh: true, act: 1, h: 0, target: b.low, blowA: 0, blowT: 0, dropT: 0,
+      snowmen: [], balls: [], puffs: [], puffK: 7, puffWait: 0 });
     if (w.boss && b.kind === 'rr') Object.assign(w.boss, { armX: b.arms, arms: [[32, 0], [32, 0]], cur: 0, si: 0, act: 2, par: false, boxes: [null, null], ball: null });
     w.plats = [];
   }
@@ -1731,7 +1745,105 @@ const Sim = (() => {
     });
     return w.events.includes('respawn');
   }
+  // Diamond Dust 3 (InitLevel 0xF1CA, RunLevel_DDz3 0xF280): the pod comes down from 576 to 176 (1 unit a frame toward
+  // its target) and runs its script (0xF2FA): chase Sonic (heading by octant as in Spring Stadium 3, speed (6 - left / 2)
+  // / 2 units a frame), wait, or drop a snowman; a hit goes to the script's hit entry. Counting down a chase, at 400 left
+  // it heads low (176), at 100 high (256). Heading turned back inside the octagon. Its blowers (one per hit left) circle
+  // it 32 units out, 0xC of 0x800 a frame (the snowman starts at `dropY`, 224); while it is at its low height, for 120 of every 180 frames they puff snow in
+  // turn (one every 3 frames, 24 frames each) and snow freezes. A snowman (object 0E0) drops 30 frames after the drop order, falls 4 a frame, wakes
+  // when Sonic is within 48 units each way, and 40 frames later throws 8 snowballs (1 unit a frame out each way, 4 up)
+  // and breaks; touching it hurts unless attacking (that breaks it). Generic boss check (0xF794) for hits; 8 hits.
+  function ddStep(w) {
+    const b = w.boss, p = w.p, L = w.L, U = 1 / 32, V = b.vs / 32, T = Math.PI / 1024;
+    const attacking = p.ball || p.jumping || p.rolling || p.charge > 0, safe = p.inv > 0 || p.invuln > 0;
+    if (b.cool > 0) b.cool -= P.dt;
+    else if (b.dead < 0 && Math.hypot(p.x - b.x, p.z - b.z) <= 32 * U && p.y >= b.y - 32 * V && p.y <= b.y + 64 * V) {
+      b.cool = 1;
+      if (p.y >= b.y + 8 * V && attacking) {
+        p.vx = -p.vx; p.vz = -p.vz; p.vy = 5 * 60 / 32 * b.vs; p.grounded = false; p.jumping = false; p.lock = 30 / 60;
+        b.hits++; w.events.push('bossHit'); b.si = b.hitAt; b.t = 0; b.fresh = true;
+        if (b.hits >= b.hp) { b.dead = 0; w.events.push('bossDown'); }
+      } else if (!safe) { hurt(w, p.x - b.x, p.z - b.z); if (w.events.includes('respawn')) return true; }
+    }
+    if (b.dead >= 0) {
+      b.dead += P.dt; b.y += V; b.puffs.length = 0;
+      if (b.dead > 4 && !w.cleared) { w.cleared = true; w.events.push('goal'); }
+      return false;
+    }
+    // the script
+    if (--b.t <= 0) {
+      if (!b.fresh) b.si++;
+      b.fresh = false;
+      for (let guard = 0; guard < 4 && b.script[b.si] && b.script[b.si][0] < 0; guard++) b.si = b.script[b.si][1];
+      const [a, n] = b.script[b.si] || [1, 60];
+      b.act = a; b.t = n;
+      if (a === 1) b.h = 0;
+      if (a === 2) { b.dropT = 60; w.events.push('ddDrop'); }
+    }
+    const left = b.hp - b.hits;
+    if (b.act === 0) {
+      const dx = p.x - b.x, dz = p.z - b.z, ax = Math.abs(dx), az = Math.abs(dz);
+      const diag = az >= ax ? az / 2 < ax : az > ax / 2, along = az >= ax ? 0 : 0x200;
+      const sx = dx < 0 ? -1 : 1, sz = dz < 0 ? -1 : 1;
+      const want = diag ? (sx > 0 ? (sz > 0 ? 0x100 : 0x300) : (sz > 0 ? 0x700 : 0x500)) : along ? (sx > 0 ? 0x200 : 0x600) : (sz > 0 ? 0 : 0x400);
+      const sp = 6 - (left >> 1), d = (b.h - want) & 0x7FE;
+      if (d) b.h = (b.h + (d <= 0x400 ? -4 * sp : 4 * sp)) & 0x7FE;
+      b.x += Math.sin(b.h * T) * sp / 2 * U; b.z += Math.cos(b.h * T) * sp / 2 * U;
+      if (b.t === 400) b.target = b.low;
+      if (b.t === 100) b.target = b.high;
+    }
+    const [ax0, ax1, az0, az1] = b.arena, [dlo, dhi, slo, shi] = b.oct;
+    if (b.x < ax0) b.h = 0x200; if (b.x > ax1) b.h = 0x600;
+    if (b.z < az0) b.h = 0; if (b.z > az1) b.h = 0x400;
+    if (b.x - b.z >= dhi) b.h = 0x700; if (b.x - b.z <= dlo) b.h = 0x300;
+    if (b.x + b.z <= slo) b.h = 0x100; if (b.x + b.z >= shi) b.h = 0x500;
+    b.y += Math.abs(b.target - b.y) <= V ? b.target - b.y : Math.sign(b.target - b.y) * V;
+    // a snowman, half a second after the drop order
+    if (b.dropT > 0 && --b.dropT === 30 && b.snowmen.length < 2) {
+      b.snowmen.push({ x: b.x - 2 * U, y: b.dropY, z: b.z - 2 * U, state: 'fall', t: 0 }); w.events.push('snowman');
+    }
+    for (let i = b.snowmen.length - 1; i >= 0; i--) {
+      const s = b.snowmen[i], f = floorAt(L, s.x, s.z);
+      if (s.state === 'fall') { s.y -= 4 * V; if (Number.isFinite(f) && s.y <= f) { s.y = f; s.state = 'stand'; } continue; }
+      const near = Math.abs(p.x - s.x) <= 48 * U && Math.abs(p.z - s.z) <= 48 * U;
+      if (s.state === 'stand' && near) { s.state = 'wake'; s.t = 0; }
+      if (Math.hypot(p.x - s.x, p.z - s.z) < 0.45 && p.y < s.y + 1 && p.y > s.y - 0.5) {
+        if (attacking) { b.snowmen.splice(i, 1); w.events.push('enemy'); if (p.ball && !p.grounded) p.vy = Math.max(p.vy, 4); continue; }
+        if (!safe) { hurt(w, p.x - s.x, p.z - s.z); if (w.events.includes('respawn')) return true; }
+      }
+      if (s.state === 'wake' && ++s.t >= 40) {
+        for (const [vx, vz] of [[-0.707, -0.707], [0.707, -0.707], [-0.707, 0.707], [0.707, 0.707], [0, -1], [0, 1], [-1, 0], [1, 0]])
+          b.balls.push({ x: s.x, y: s.y, z: s.z, vx: vx * 60 / 32, vy: 4 * 60 / 32 * b.vs, vz: vz * 60 / 32 });
+        b.snowmen.splice(i, 1); w.events.push('crack');
+      }
+    }
+    for (let i = b.balls.length - 1; i >= 0; i--) {
+      const q = b.balls[i]; q.x += q.vx * P.dt; q.z += q.vz * P.dt; q.vy -= L.phys.gravity * P.dt; q.y += q.vy * P.dt;
+      const f = floorAt(L, q.x, q.z);
+      if (!Number.isFinite(f) || q.y < f) { b.balls.splice(i, 1); continue; }
+      if (!safe && Math.hypot(p.x - q.x, p.z - q.z) < 0.4 && Math.abs(p.y + 0.4 - q.y) < 0.5) { hurt(w, p.x - q.x, p.z - q.z); if (w.events.includes('respawn')) return true; }
+    }
+    // the blowers circle; at the low height they puff snow in turn for 120 of every 180 frames
+    b.blowA = (b.blowA + 0xC) & 0x7FE;
+    if (Math.abs(b.y - b.low) < 1e-6) {
+      b.blowT = (b.blowT + 1) % 180;
+      if (b.blowT < 120 && --b.puffWait <= 0) {
+        b.puffWait = 3; const k = b.puffK; b.puffK = (b.puffK + 7) % 8;
+        if (k < left) { b.puffs.push({ k, ax: 0, az: 0, x: b.x, y: b.y, z: b.z, t: 0 }); if (k === 7 || k === left - 1) w.events.push('snowPuff'); }
+      }
+    } else b.blowT = 0;
+    for (let i = b.puffs.length - 1; i >= 0; i--) {
+      // (object 0FC: 8 units past its blower and out along the blower's turning way 2 units a frame, so it curls)
+      const q = b.puffs[i], a = (b.blowA + q.k * 0x100) * T, sx = Math.sin(a), sz = Math.cos(a);
+      if (++q.t > 24 || q.k >= left) { b.puffs.splice(i, 1); continue; }
+      q.ax += sx * 2 * U; q.az += sz * 2 * U;
+      q.x = b.x + sx * 40 * U + q.ax; q.z = b.z + sz * 40 * U + q.az; q.y = b.y - 16 * V;
+      if (p.frozen <= 0 && Math.hypot(p.x - q.x, p.z - q.z) < 16 * U + P.r && Math.abs(p.y - q.y) < 24 * V) { p.frozen = P.freezeHops; p.charge = 0; w.events.push('freeze'); }
+    }
+    return false;
+  }
   function bossStep(w, pcy) {
+    if (w.boss.kind === 'dd') return ddStep(w);
     if (w.boss.kind === 'ss') return ssStep(w);
     if (w.boss.kind === 'rr') return rrStep(w);
     const b = w.boss, p = w.p, L = w.L, U = 1 / 32, V = b.vs / 32, ball = b.ball;
@@ -1832,8 +1944,14 @@ const Sim = (() => {
       if (p.force.jumpAt && !p.force.jumped && p.force.el >= p.force.jumpAt) { p.force.jumped = true; p.vy = p.force.jumpV; p.grounded = false; p.jumping = false; w.events.push('jump'); }
       if (p.force.t <= 0) p.force = null; else inp = p.force.dir ? { mx: p.force.dir[0], mz: p.force.dir[1] } : {};
     }
-    // frozen by a snowblower: still, the pad taken
-    if (p.frozen > 0) { p.frozen -= dt; inp = {}; p.vx = p.vz = 0; }
+    // frozen by snow: the pad taken; each landing a hop, the last one breaks the ice (routine 0x3050)
+    if (p.frozen > 0) {
+      inp = {};
+      if (p.grounded) {
+        p.vy = P.freezeHop * (L.rom ? L.rom.vscale : 1); p.grounded = false; p.jumping = false; p.rolling = false; p.frozen--;
+        if (p.frozen <= 0) { p.invuln = Math.max(p.invuln, P.thawSafe); w.events.push('thaw'); } else w.events.push('frozenHop');
+      }
+    }
     // a chute or a sled: the pad is let go and the player is carried along
     if (p.chute || p.sled) inp = {};
     if (p.auto && !p.ride) {
@@ -1996,7 +2114,7 @@ const Sim = (() => {
     if (charging) { /* braking handled above */ }
     else if (O && !p.whirl && !(p.flyT > 0)) {   // (a cannon's flight keeps its speed: no steering, no drag)
       // the original's tables (see P.orig): facing turns toward the stick; velocity split along it
-      const tab = p.rolling && p.grounded ? O.roll : p.ball && !p.grounded ? O.ball : w.ice ? O.ice : O.walk;
+      const tab = p.frozen > 0 ? O.ice : p.rolling && p.grounded ? O.roll : p.ball && !p.grounded ? O.ball : w.ice ? O.ice : O.walk;
       if (!Number.isFinite(p.facing)) p.facing = 0;
       if (m > 0.3) {
         let da = Math.atan2(mx, mz) - p.facing; da = Math.atan2(Math.sin(da), Math.cos(da));
@@ -2372,7 +2490,7 @@ const Sim = (() => {
       if (q.t > P.flameLife) { w.puffs.splice(i, 1); continue; }
       const dx = p.x - q.x, dz = p.z - q.z;
       if (dx * dx + dz * dz < P.flameR * P.flameR && Math.abs(pcy - (q.y + 0.3)) < 0.7 && p.inv <= 0 && p.invuln <= 0) {
-        if (q.freeze) { if (p.frozen <= 0) { p.frozen = P.freezeTime; p.invuln = P.freezeTime + 0.5; w.events.push('freeze'); } continue; }
+        if (q.freeze) { if (p.frozen <= 0 && !p.ride) { p.frozen = P.freezeHops; p.charge = 0; w.events.push('freeze'); } continue; }
         hurt(w, dx, dz); if (w.events.includes('respawn')) return w;
       }
     }
@@ -3192,7 +3310,13 @@ const S3D = (() => {
     // the arena; two spring fists hang `hang` units under it (offsets [x, z]) and swing 32 up and down, stopping at the
     // floor. The generic boss check (0xF794): from 8 over the pod and spinning, a hit; otherwise Sonic is hurt. Eight.
     17: { kind: 'ss', at: [1796, 568, 2304], cruise: 168, hover: 200, low: 120, hang: 40, fists: [[38, 40], [-46, 40]],
-      corners: [[2237, 1560], [2045, 1752]], home: [1796, 2304], arena: [1496, 1896, 1981, 2398], hp: 8 } };
+      corners: [[2237, 1560], [2045, 1752]], home: [1796, 2304], arena: [1496, 1896, 1981, 2398], hp: 8 },
+    // Diamond Dust 3 (InitLevel 0xF1CA, RunLevel_DDz3 0xF280): heights given + 8 so they share the player's feet frame
+    // (Sonic stands at the floor - 8); script [action / 4, frames] at 0xF2FA, a negative action going back by n bytes,
+    // a hit restarting it at byte 0x28; heading turned in at x or z outside 0x740..0x8C0, |x - z| >= 0xD8, and
+    // 0x1000 - x - z >= 0x110 or <= -0x118
+    11: { kind: 'dd', at: [2052, 0x240 + 8, 2048], cruise: 0xB0 + 8, low: 0xB0 + 8, high: 0x100 + 8, dropY: 0xE0 + 8, script: 0xF2FA, hitAt: 0x28,
+      diag: 0xD8, sum: [0x1000 - 0x110, 0x1000 + 0x118], home: [2048, 2048], arena: [0x740, 0x8C0, 0x740, 0x8C0], hp: 8 } };
   // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
   // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
   // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
@@ -3585,6 +3709,18 @@ const S3D = (() => {
         for (let o = bs.script; sc.length < 64; o += 4) { const a = s16(d, o), n = s16(d, o + 2); if (a < 0) { e.loop = sc.length - n / 4; break; } sc.push([a / 4, n]); }
         e.script = sc;
       }
+      if (bs.kind === 'dd') {
+        const Y = v => r3(v / CELL * vscale);
+        e.low = Y(bs.low); e.high = Y(bs.high); e.dropY = Y(bs.dropY);
+        const sc = [];
+        for (let o = bs.script, back = 0; sc.length < 32 && back < 2; o += 4) {
+          const a = s16(d, o), n = s16(d, o + 2);
+          if (a < 0) { sc.push([-1, (o - bs.script - n) / 4]); back++; } else sc.push([a / 4, n]);
+        }
+        e.script = sc; e.hitAt = bs.hitAt / 4;
+        const dz = x0 - z0, sm = x0 + z0;
+        e.oct = [r3(-bs.diag / CELL - dz), r3(bs.diag / CELL - dz), r3(bs.sum[0] / CELL - sm), r3(bs.sum[1] / CELL - sm)];
+      }
       ents.push(e);
     }
     if (tableRings) for (let k = 0; k < 3; k++) {
@@ -3799,7 +3935,8 @@ const S3D = (() => {
       bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */,
       bossSlam: [0x5F], bossCap: [0x9E] /* RR3's routine */,
       bumper: [0xB7], balloon: [0x77], spikesUp: [0x52], spear: [0x8C] /* Spring Stadium's routines */,
-      iceBreak: [0x59] /* Diamond Dust's ice spikes */ },
+      ddDrop: [0x7E], snowman: [0x51], snowPuff: [0xC8] /* DD3's routine */,
+      iceBreak: [0x59] /* Diamond Dust's ice spikes */, freeze: [0x80], frozenHop: [0x94], thaw: [0x80] /* routines 0x1B9CA, 0x3050 */ },
     power: { shield: 0x3A, gold: 0x3F },
   };
   function ringImage(d, k, pal, size = 16) {
@@ -5037,6 +5174,9 @@ const Art = (() => {
       whirl: () => tone('sawtooth', 300, 1100, 0.12, 0.12),
       padIn: () => tone('triangle', 500, 120, 0.9, 0.2),
       flame: () => noise(0.25, 0.35, 900),
+      ddDrop: () => tone('square', 400, 200, 0.2, 0.15),
+      snowman: () => tone('triangle', 300, 900, 0.25, 0.2),
+      snowPuff: () => noise(0.3, 0.25, 7000),
       bossHit: () => { noise(0.3, 0.8, 2000); tone('square', 300, 80, 0.3, 0.3); },
       bossBump: () => tone('square', 200, 400, 0.12, 0.2),
       bossDrop: () => tone('sawtooth', 400, 150, 0.4, 0.15),
@@ -5048,6 +5188,9 @@ const Art = (() => {
       balloon: () => { noise(0.15, 0.9, 3000); tone('sine', 300, 700, 0.15, 0.2); },
       spikesUp: () => tone('sawtooth', 180, 420, 0.25, 0.15),
       iceBreak: () => { noise(0.35, 0.8, 5000); tone('triangle', 1800, 600, 0.25, 0.2); },
+      freeze: () => { noise(0.3, 0.5, 6000); tone('sine', 1400, 2200, 0.3, 0.15); },
+      frozenHop: () => tone('triangle', 900, 700, 0.08, 0.12),
+      thaw: () => { noise(0.4, 0.8, 5000); tone('triangle', 2000, 500, 0.3, 0.2); },
       spear: () => tone('square', 900, 400, 0.1, 0.1),
       bossCap: () => { noise(0.3, 0.6, 600); tone('square', 120, 90, 0.2, 0.2); },
       padOut: () => { tone('triangle', 180, 1400, 0.32, 0.4); noise(0.2, 0.3, 2000); },
@@ -5440,7 +5583,67 @@ const Art = (() => {
     const o = buildBossPod(), b = world.boss;
     if (b.kind === 'rr') { o.rr = buildRrStatue(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
     if (b.kind === 'ss') { o.ss = buildSsArms(b); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
+    if (b.kind === 'dd') { o.dd = buildDdParts(b, o.rom); o.ball.visible = false; o.links.forEach(l => { l.visible = false; }); }
     return o;
+  }
+  // Diamond Dust 3's parts: blowers circling the pod, snowmen, their snowballs and the snow puffs. ROM look: the
+  // original's object art (blower 0F8 palette line 3, 17 frames by its angle and mirrored past half a turn; snowman 0E0,
+  // snow 0FC, line 0); otherwise our own: grey drums with a nozzle, plain snowmen, white balls and soft puffs
+  const snowPuffMat = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 32; const g = c.getContext('2d');
+    const gr = g.createRadialGradient(16, 16, 2, 16, 16, 15); gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.5, 'rgba(225,238,255,0.85)'); gr.addColorStop(1, 'rgba(200,220,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 32, 32);
+    return new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false });
+  })();
+  function buildDdParts(b, rom) {
+    const sprite = (mat, size, oy) => { const s = new THREE.Sprite(mat); s.center.set(0.5, 1 - oy / size); s.scale.set(size * 0.025, size * 0.025, 1); s.visible = false; levelGroup.add(s); return s; };
+    const grey = new THREE.MeshLambertMaterial({ color: 0x70767e }), dark = new THREE.MeshLambertMaterial({ color: 0x2a2e34 }), snow = new THREE.MeshLambertMaterial({ color: 0xf4f8ff, emissive: 0x303844 });
+    const blowers = Array.from({ length: b.hp }, () => {
+      if (rom) return sprite(romBossMat(0xF8, 0, 64, 40, 3), 64, 40);
+      const g = new THREE.Group(), drum = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.3, 10), grey), nz = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.28), dark);
+      nz.position.set(0, 0, 0.22); g.add(drum, nz); g.visible = false; levelGroup.add(g); return g;
+    });
+    const snowmen = [0, 1].map(() => {
+      if (rom) return sprite(romBossMat(0xE0, 0, 64, 48, 0), 64, 48);
+      const g = new THREE.Group(), lo = new THREE.Mesh(new THREE.SphereGeometry(0.3, 14, 10), snow), hi = new THREE.Mesh(new THREE.SphereGeometry(0.2, 12, 8), snow);
+      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.18, 6), new THREE.MeshLambertMaterial({ color: 0xff8a20 }));
+      lo.position.y = 0.28; hi.position.y = 0.7; nose.rotation.x = Math.PI / 2; nose.position.set(0, 0.7, 0.24); g.add(lo, hi, nose);
+      g.visible = false; levelGroup.add(g); return g;
+    });
+    const balls = Array.from({ length: 16 }, () => rom ? sprite(romBossMat(0xFC, 1, 32, 16, 0), 32, 16)
+      : (() => { const m = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), snow); m.visible = false; levelGroup.add(m); return m; })());
+    const puffs = Array.from({ length: 8 }, () => { const s = sprite(rom ? romBossMat(0xFC, 0, 64, 32, 0) : snowPuffMat.clone(), 64, 32); if (!rom) s.center.set(0.5, 0.5); return s; });
+    return { blowers, snowmen, balls, puffs, rom };
+  }
+  function updateDdParts(b, d, t) {
+    const T = Math.PI / 1024, U = 1 / 32, left = b.hp - b.hits, alive = b.dead < 0;
+    // the camera's turn from the original's view (yaw pi/4), in the routine's angle units
+    const off = Math.round((Math.atan2(cam.position.x - b.x, cam.position.z - b.z) - Math.PI / 4) / T);
+    d.blowers.forEach((o, k) => {
+      o.visible = alive && k < left;
+      if (!o.visible) return;
+      const a = (b.blowA + k * 0x100) & 0x7FE;
+      o.position.set(b.x + Math.sin(a * T) * 32 * U, b.y - (d.rom ? 8 * b.vs * U : 0), b.z + Math.cos(a * T) * 32 * U);
+      if (d.rom) {
+        let f = (((a - off - 0x100) & 0x7C0) >> 6); const flip = f >= 16; if (flip) f = 32 - f;
+        o.material = romBossMat(0xF8, f, 64, 40, 3); o.scale.x = (flip ? -1 : 1) * Math.abs(o.scale.x);
+      } else o.rotation.y = a * T;
+    });
+    d.snowmen.forEach((o, k) => {
+      const s = b.snowmen[k]; o.visible = !!s;
+      if (!s) return;
+      o.position.set(s.x, s.y, s.z);
+      if (d.rom) o.material = romBossMat(0xE0, s.state === 'wake' ? Math.min(5, Math.floor(s.t / 7)) : 0, 64, 48, 0);
+      else o.scale.setScalar(s.state === 'wake' ? 1 + 0.08 * Math.sin(s.t * 0.9) : 1);
+    });
+    d.balls.forEach((o, k) => { const q = b.balls[k]; o.visible = !!q; if (q) o.position.set(q.x, q.y, q.z); });
+    d.puffs.forEach((o, k) => {
+      const q = b.puffs[k]; o.visible = !!q;
+      if (!q) return;
+      o.position.set(q.x, q.y, q.z);
+      if (d.rom) o.material = romBossMat(0xFC, Math.min(7, q.t >> 2), 64, 32, 0);
+      else { const k2 = q.t / 24; o.scale.setScalar(0.5 + k2 * 0.9); o.material.opacity = 1 - k2 * 0.7; }
+    });
   }
   // Rusty Ruin 3's statue, of our own drawing in stone colours (the original's statue sprites are not read): a body
   // under the pod, shoulders on a bar, a helmet (the routine's cap) that comes down over the pod, and per arm the
@@ -5557,6 +5760,7 @@ const Art = (() => {
         a.hand.position.set(A.fist[0] + 8 * U, A.fist[1] - b.vs / 32, A.fist[2] + 17 * U);
       });
     }
+    if (o.dd) { updateDdParts(b, o.dd, t); if (o.rom) o.g.position.y = b.y - 8 * b.vs / 32; }
     if (o.ss) o.ss.forEach((a, k) => {   // links from under the pod to the fist
       const [fx, fy, fz] = b.fistAt[k], sx = b.x + b.fists[k][0] * 0.4, sy = b.y - 0.1, sz = b.z + b.fists[k][1] * 0.4;
       a.links.forEach((m, i) => { const t = (i + 1) / 7; m.position.set(sx + (fx - sx) * t, sy + (fy + 0.4 - sy) * t, sz + (fz - sz) * t); });
@@ -5969,6 +6173,9 @@ const Art = (() => {
     poseHero3d(h, clip, h.t);
   }
 
+  // frozen by snow: a block of ice of our own round the hero (the original draws its own block sprite)
+  const iceBlock = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.05, 0.8), new THREE.MeshLambertMaterial({ color: 0xbfe0ff, emissive: 0x284060, transparent: true, opacity: 0.55, depthWrite: false }));
+  iceBlock.visible = false; iceBlock.renderOrder = 4; scene.add(iceBlock);
   const shieldSprite = new THREE.Sprite(shieldMats.shield); shieldSprite.scale.set(1.25, 1.25, 1); shieldSprite.visible = false; shieldSprite.renderOrder = 5; scene.add(shieldSprite);
   const stars = Array.from({ length: 4 }, () => { const s = new THREE.Sprite(starMat); s.scale.set(0.3, 0.3, 1); s.visible = false; scene.add(s); return s; });
   const shadow = new THREE.Mesh(new THREE.CircleGeometry(0.34, 20), new THREE.MeshBasicMaterial({ color: 0x1a1430, transparent: true, opacity: 0.35, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
@@ -6626,6 +6833,8 @@ const Art = (() => {
     const use3d = !!hero3d && heroMode === '3d';
     if (hero3d) hero3d.root.visible = use3d;
     if (use3d) { hero.visible = false; sil.visible = false; updateHero3d(p, rp, dt, t); } else sil.visible = true;
+    iceBlock.visible = p.frozen > 0;
+    if (iceBlock.visible) { iceBlock.position.set(rp.x, rp.y + 0.5, rp.z); iceBlock.rotation.y = p.facing || 0; }
     shieldSprite.visible = !!p.shield;
     if (p.shield) { shieldSprite.material = shieldMats[p.shield] || shieldMats.shield; shieldSprite.position.set(rp.x, rp.y + 0.55, rp.z); }
     for (let k = 0; k < stars.length; k++) {

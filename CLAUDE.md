@@ -127,7 +127,8 @@ serves index.html from main.
   jumpV} (a cell that sets a forced run and a jump on cue, `p.force.jumpAt`); `sled` {box, at, dir, accel, t} (pulled
   to `at`, then carried); `current` {box, dir, accel, top, leave} (pushed along up to `top`, `leave` on jumping off);
   `hops` (snowdrift springs as `springCells`); ride `force` [frames, dir, roll]; snowblowers are flames with `freeze`
-  (`p.frozen`, `P.freezeTime` 1.5 s estimated, no rings lost). On the original's levels (`L.rom`) an airborne player
+  (`p.frozen` = hops left: the original's routine 0x3050, 4 counts, a 2-unit hop at each landing, ice table, no input,
+  50 frames safe after; no rings lost; game.js draws an ice block `iceBlock`). On the original's levels (`L.rom`) an airborne player
   within stepUp of a ledge top is lifted onto it (measured in DD1). The game starts Sonic at the start table (header
   +0x20), not the 030 object (both converters).
 - Diamond Dust 2 (`GIMMICKS[10]`, RunLevel_DDz2 0xFA06) and both acts' helpers 0x10E78 (ice lists), 0x10EA6 (ice
@@ -136,6 +137,13 @@ serves index.html from main.
   line 0; map lowered 3 steps + 0xFF at start, so at floor height; a grounded roll breaks one, `iceBreak`, else hurt);
   `lowRoof` {cells, top} (no rising above top in them; walls via `L.up` while airborne outside, `w.roofUp`); 0xFF map
   cells = 'H' spikes; 0x55 = `bumpers`. DD2: ride 0x803E at (78, 95), dash (50, 45), current east into spikes.
+- DD3 boss `dd` (`ddStep`, InitLevel 0xF1CA, RunLevel_DDz3 0xF280): heights in the feet frame (+8 units); script
+  0xF2FA [0 chase / 1 wait / 2 drop, frames], [-1, entry] loops, hit entry 10; at 400 frames left of a chase it goes
+  low (184), at 100 high (264); octagon `oct`; blowers (one per hit left, `blowA` += 0xC) puff snow (object 0FC: 8
+  past the blower, out 2 a frame along its turning angle, 24 frames) for 120 of 180 frames while low: freezes; snowmen
+  (0E0: fall 4 a frame from `dropY`, wake within 48 units, 40 frames later 8 snowballs and break; attack breaks them).
+  Drawn with ROM art (blowers 0F8 line 3, 17 frames + mirror by angle against the camera; 0E0, 0FC line 0) or our own.
+  Checked against the emulator (dd3watch.py, ddprobe.js): pod track and timings match until the player moves.
 - Original movement (`physics.orig` = 1 on converted levels, `P.orig`, routine 0x3330): velocity split along
   `p.facing` (which is the heading there, turned 0x40/0x800 a frame toward the stick); tables [A, F, G] walk, ball,
   ice, roll; top 5 units a frame; spin dash steps by held frames 14/29/44/59. Measured in GG2 (speedprobe.py): sim
@@ -204,6 +212,7 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
+- 2026-10-27: DD3 boss; freezing as the original's hops; 93 sim tests.
 - 2026-10-27: the original's movement tables on converted levels (run up, stop, turn, ice, jump ball, roll, spin dash
   steps, all measured); Diamond Dust 2 gimmicks; ice, ice spikes, low roofs, spikes and bumpers in both DD acts;
   92 sim tests. flow.py: DD2 can be finished. Open: DD2 gate cells (raised until the supercharger fires), DD3 boss.

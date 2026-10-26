@@ -380,3 +380,23 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   stand at the old floor height and hurt; grounded and rolling in one: the cell gets its height back (+0x0201), sound
   0x59.
 
+## Diamond Dust 3 boss (2026-10-27; dd3_dis, dd3watch.py, dd3puff.py, ddprobe.js)
+- a4 vars: x.l (0), y $4 (0x240 at the start), z.l $6, target y $1A (0xB0), drop timer $14, script offset $1C, frames
+  left $20, heading $2C, speed $2E, blower angle $24 (+0xC a frame), puff cycle $30, puff slot $26, hits left $3C (8).
+- Script 0xF2FA: [action 0 chase / 4 wait (heading 0) / 8 drop ($14 = 60, sound 0x7E), frames]; a negative action
+  steps back by the second word (bytes). A hit (generic check 0xF794) sets $1C = 0x28. Chasing: at $20 = 0x190
+  target 0xB0, at 0x64 target 0x100; y moves 1 a frame toward it. Heading by octant (table 0xDBEE), turn 4 x speed,
+  speed 6 - hits left / 2, moving speed / 2 a frame. Heading forced: x or z < 0x740 or > 0x8C0, x - z >= 0xD8 or
+  <= -0xD8, 0x1000 - x - z >= 0x110 or <= -0x118.
+- Blowers (records 4..11, type 0F8, handler 0x16660): angle $24 + k x 0x100, 32 units out (sin << 6); frame = ((angle
+  - 0x100) & 0x7C0) >> 6, mirrored from 16 (32 - frame). As many as hits left; the rest are switched off.
+- At y = 0xB0: $30 counts 0..179; under 120, one puff slot a step (one every 3 frames or so) is started if its
+  blower is on (sound 0xC8). Puff (0FC, handler 0x165CA): y = pod - 16; position = blower + sin/cos x 8 + a sum of
+  sin/cos x 2 a frame along the blower's current angle (it curls). Touching 0E4 or 0FC freezes (0x1B9CA): $88 = 4,
+  $8E = 1, $94 = 0x12, sound 0x80. Frozen (0x3050): ice table, no pad; each landing a hop (vy 2 up, sound 0x94) and
+  $88 - 1; at 0 the ice breaks (debris, $3E = 50, sound 0x80).
+- Drop: at $14 = 30 a snowman (type 0E0, sound 0x51) at pod x - 2, z - 2, y 0xE0; it falls 4 a frame to the floor
+  (records 2/3). Snowman handler 0x16992: attacked: broken; Sonic within 48 units each way: wakes ($1E = 6); at
+  animation frame 0x2A: over 8 frames 8 snowballs (table 0x16A58: 1 unit a frame out in 8 ways, about 4 up), then it
+  breaks (sound 0x59). Seen: a woken snowman hurt Sonic about 40 frames after landing.
+
