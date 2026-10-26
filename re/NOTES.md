@@ -180,9 +180,9 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   colour 0 is drawn; CMDCTRL bits 0x10 and 0x20 flip the texture.
 - Some parts keep whole-unit 16-bit vertices (6 bytes each, told apart by the gap to the index table), drawn y-down
   (palm tree, bush, arch, checkpoint); those have no vertex normals. Other models' footers are listed in the SCHG page.
-- Parts with 16-bit vertices number their textures from 1: definition = index - 1 (palm and bush: fronds, coconuts,
-  trunk, base and a star-shaped shadow at y = 0 only line up that way). 32-bit parts (Sonic, spring, Flickies) use the
-  index as it is. Inferred from the pictures, not from the game's code.
+- Texture numbers in quads count from 1 (SCHG: $1..$1DB): definition = number - 1. Checked by eye: palm and bush
+  (fronds, coconuts, trunk, base and a star-shaped shadow line up), Sonic (eyes, muzzle, shoes with strap and buckle,
+  blue back), spring (emblem on the pad, metal coil). Read without the - 1, Sonic had peach spines and striped shoes.
 - Textures in quads whose CMDPMOD lacks bit 6 (palm, spring coil, Flickies) draw colour 0 as see-through.
 - Skid: the jump table is at 0x290A6 (11 frames), 6 bytes before the address the SCHG page gives; read from 0x290AC
   the frames come out as nonsense flags.
@@ -197,7 +197,10 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   tile-aligned window whose green pixels match it or its mirror nine in ten is a palm (GG1 16, GG2 36, GG3 4; 16
   of 16 checked by eye in GG1). Cut out of the foliage pieces when the game draws Jam palms.
 - The Mega Drive game has no skid frames as far as the emulator shows: reversing turns Sonic through his views.
-- Checked on the USA disc. Whether the European disc keeps the same offsets is not known.
+- Checked on the USA and European discs. The European MUSEUM.MUS has 96 bytes more before 0x1BBC (the rest is the
+  same, with every pointer 96 higher); SPRDATA.MUS is the same file. Everything the page reads (Sonic, ball, palm,
+  spring, big ring, Flickies, all animations and textures) comes out identical from both. `Jam` finds the shift by
+  checking Sonic's group footer.
 
 ## Open questions
 

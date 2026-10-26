@@ -81,9 +81,10 @@ serves index.html from main.
   where `artBaker(...).palms` finds them (pattern match on the picture; pieces use `bare` with the palm cut out),
   trunk quad turned to the camera, hidden between chase camera and player; springs (coil squashed to `SPRING_REST`,
   stretched when fired), big ring (1.6 m, centred at the sprite's anchor, spins; shrinks when used), Flickies (one
-  model per colour per slot, flying animation, `FLICKY_YAW`). 16-bit parts: texture definition = index - 1, flat
-  normals, shadow lifted out of the floor. Jam meshes carry `userData.jam` and are shared: never disposed with a level.
+  model per colour per slot, flying animation, `FLICKY_YAW`). Texture definition = quad's number - 1 (all models; Sonic
+  was wrong before 2026-10-26 evening). 16-bit parts: flat normals, shadow lifted out of the floor. Jam meshes carry `userData.jam` and are shared: never disposed with a level.
   `jamOn`/`heroMode`/`hero3d` are declared near the top of game.js: level building reads them during start-up.
+  Addresses are the USA disc's; the European MUSEUM.MUS is the same 96 bytes later (`shiftOf`), SPRDATA.MUS identical.
 - Scar: `sun` is already the scene's light at the top of game.js; the scene's hemisphere and sun light the hero.
 - Big ring in ROM look: object art 0x3D068 frame 0, floating 56 units up, squeezed in x to turn.
 - ROM files: `S3D.openRomFile` takes a plain ROM, an .smd dump (de-interleaved) or either inside a .zip (stored or

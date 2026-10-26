@@ -1,4 +1,4 @@
-// Reads Sonic's 3D model and animations from the player's own Sonic Jam (Saturn) disc, in the browser.
+// Reads Sonic's 3D model, some Sonic World objects and their animations from the player's own Sonic Jam (Saturn) disc.
 // Rules only: no data from the disc is in this file. Formats after the Sonic Retro SCHG pages for Sonic Jam
 // (Models, Animations, Textures) and checked by drawing every animation; see re/NOTES.md.
 const Jam = (() => {
@@ -41,10 +41,17 @@ const Jam = (() => {
     if (why) throw new Error(why);
     return { museum, sprdata };
   }
+  // Addresses below are the USA disc's. The European MUSEUM.MUS has 96 more bytes before 0x1BBC and is otherwise the
+  // same, with every pointer 96 higher; SPRDATA.MUS is the same file. A version is known when Sonic's group footer
+  // (at its address plus the shift) lists his 15 parts at their addresses plus the shift.
+  const SHIFTS = [0, 96];
+  function shiftOf(museum) {
+    if (museum.length < 0x60000) return null;
+    for (const sh of SHIFTS) if (SONIC.parts.every((f, k) => u32(museum, SONIC.group + sh + 4 * k) - HWRAM === f + sh)) return sh;
+    return null;
+  }
   function check(museum, sprdata) {
-    if (museum.length < 0x50000 || sprdata.length < 0x40000) return 'This Sonic Jam disc is a version the game does not know';
-    const inRam = f => { const p = u32(museum, f); return p >= HWRAM && p < HWRAM + museum.length; };
-    if (!SONIC.parts.every(inRam)) return 'This Sonic Jam disc is a version the game does not know';
+    if (sprdata.length < 0x40000 || shiftOf(museum) === null) return 'This Sonic Jam disc is a version the game does not know';
     return null;
   }
 
@@ -81,9 +88,9 @@ const Jam = (() => {
       // indices count in 8s; a negative index -8k is an alias of vertex k - 1
       const idx = [0, 2, 4, 6].map(k => { const v = s16(m, ip + 8 * i + k); return ((v >= 0 ? v / 8 : -v / 8 - 1) % nv + nv) % nv; });
       const o = dp + 16 * i, tex = u16(m, o + 2), pmod = u16(m, o + 4);
-      // VDP1 draws colour 0 of a 16-colour texture as see-through unless CMDPMOD bit 6 (SPD) is set. Parts with
-      // 16-bit vertices count their textures from 1 (palm and bush: fronds, trunk and shadow line up only that way)
-      const key = tex ? (tex - (wide ? 0 : 1)) * 2 + (pmod & 0x40 ? 0 : 1) : 0;
+      // VDP1 draws colour 0 of a 16-colour texture as see-through unless CMDPMOD bit 6 (SPD) is set. Texture numbers
+      // count from 1 (SCHG: $1..$1DB): definition = number - 1
+      const key = tex ? (tex - 1) * 2 + (pmod & 0x40 ? 0 : 1) : 0;
       quads.push({ idx, flags: m[o], tex, key, pmod, colour: u16(m, o + 6), ctrl: u16(m, o + 10) });
     }
     // a 16-bit part's shadow lies flat at y = 0, in the floor: lift it a little (y is down)
@@ -99,7 +106,7 @@ const Jam = (() => {
   // a texture: width, height and RGBA pixels (4 bits a pixel through a 16-colour table of 15-bit colours);
   // key = id * 2 + 1 when colour 0 is see-through
   function texture(m, s, key) {
-    const id = key >> 1, clear = key & 1, o = TEXDEFS + 8 * id, w = m[o + 2] * 8, h = m[o + 3], pa = u16(m, o) * 8 - VDP1, ca = u16(m, o + 4) * 8 - VDP1;
+    const id = key >> 1, clear = key & 1, o = TEXDEFS + shiftOf(m) + 8 * id, w = m[o + 2] * 8, h = m[o + 3], pa = u16(m, o) * 8 - VDP1, ca = u16(m, o + 4) * 8 - VDP1;
     const lut = [];
     for (let k = 0; k < 16; k++) { const v = u16(s, ca + 2 * k); lut.push([(v & 31) * 255 / 31 | 0, ((v >> 5) & 31) * 255 / 31 | 0, ((v >> 10) & 31) * 255 / 31 | 0]); }
     const px = new Uint8ClampedArray(w * h * 4);
@@ -130,9 +137,9 @@ const Jam = (() => {
     return frames;
   }
   function sonic(museum, sprdata) {
-    const body = group(museum, SONIC.group, 15), ball = group(museum, SONIC.ball, 1);
+    const sh = shiftOf(museum), body = group(museum, SONIC.group + sh, 15), ball = group(museum, SONIC.ball + sh, 1);
     const anims = {};
-    for (const name of Object.keys(ANIMS)) anims[name] = anim(museum, ANIMS[name]);
+    for (const name of Object.keys(ANIMS)) anims[name] = anim(museum, ANIMS[name] + sh);
     return { parts: body.parts, offsets: body.offsets, parent: SONIC.parent, ball: ball.parts[0], textures: texturesOf(museum, sprdata, body.parts.concat(ball.parts)), anims };
   }
   function texturesOf(museum, sprdata, parts) {
@@ -143,10 +150,11 @@ const Jam = (() => {
   // the Sonic World objects Blast Grid uses, with one texture map for all of them
   function props(museum, sprdata) {
     const out = {}, all = [];
-    for (const name of ['palm', 'spring', 'bigRing']) { out[name] = group(museum, MODELS[name][0], MODELS[name][1]); all.push(...out[name].parts); }
-    out.flickies = MODELS.flicky[0].map(f => { const g = group(museum, f, MODELS.flicky[1]); all.push(...g.parts); return g; });
+    const sh = shiftOf(museum);
+    for (const name of ['palm', 'spring', 'bigRing']) { out[name] = group(museum, MODELS[name][0] + sh, MODELS[name][1]); all.push(...out[name].parts); }
+    out.flickies = MODELS.flicky[0].map(f => { const g = group(museum, f + sh, MODELS.flicky[1]); all.push(...g.parts); return g; });
     out.flickyParent = FLICKY.parent;
-    out.fly = anim(museum, FLICKY.fly, MODELS.flicky[1], true);
+    out.fly = anim(museum, FLICKY.fly + sh, MODELS.flicky[1], true);
     out.textures = texturesOf(museum, sprdata, all);
     return out;
   }
