@@ -462,6 +462,20 @@ test('a raised spring (a trampoline) bounces a player landing on it; a lift sink
   run(v, 30, {}); near(v.p.y, 2, 1e-9, 'still up after half a second');
   run(v, 120, {}); near(v.p.y, 1.2, 1e-9, 'sank with the player on it');
 });
+test('a mace ball circling its post hurts; a flamethrower fires while the player stands in front of it', () => {
+  const w = world(arena([{ type: 'mace', x: 8.5, z: 2.5, y: 1.4, r: 2, w: 1.5, balls: [0] }]));
+  let hit = false; Object.assign(w.p, { x: 8.5, z: 4.4 });
+  run(w, 300, (f, ww) => { if (ww.events.includes('respawn') || ww.events.includes('hurt')) hit = true; return {}; });
+  assert.ok(hit, 'the ball came round and hit');
+  const v = world(arena([{ type: 'flame', x: 4, z: 2.5, y: 1, dir: [1, 0] }]));
+  let fired = 0, burnt = false; Object.assign(v.p, { x: 6.5, z: 2.5 });
+  run(v, 60, (f, ww) => { if (ww.events.includes('flame')) fired++; if (ww.events.includes('respawn')) burnt = true; return {}; });
+  assert.ok(fired >= 1 && burnt, `fired ${fired}, burnt ${burnt}`);
+  const u = world(arena([{ type: 'flame', x: 4, z: 2.5, y: 1, dir: [1, 0] }]));
+  Object.assign(u.p, { x: 12.5, z: 2.5 }); let quiet = true;
+  run(u, 60, (f, ww) => { if (ww.events.includes('flame')) quiet = false; return {}; });
+  assert.ok(quiet, 'quiet when the player is not in front');
+});
 test('converted spike blocks (H) hurt', () => {
   const tiles = []; for (let k = 0; k < 15; k++) tiles.push({ c: [1, 1, 1, 1], t: k === 7 ? 'H' : 'F' });
   const w = world({ version: 1, format: 'tiles', width: 5, depth: 3, tiles, entities: [{ type: 'start', x: 0.5, z: 1.5 }] });

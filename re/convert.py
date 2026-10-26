@@ -43,13 +43,13 @@ GIMMICKS = {
     1: {'cannons': [(116, 12, 248, 9, 7.067)], 'cracks': [([(108, 17)], 480, [0, -1])]},
     2: {'cannons': [(21, 48, 576, 9, 6.1)], 'cracks': [([(59, 47)], 784, [-1, 0]), ([(108, 41), (109, 41)], 688, [0, -1])]},
     # Rusty Ruin 1 (see s3d.js GIMMICKS): spike and fan cell marks, door and pillar tables, pockets after rings, rides
-    7: {'spikes': 0xFF, 'fans': 0x55, 'doors': (0x7994, 4), 'pillars': (0x7ACC, 23),
+    7: {'spikes': 0xFF, 'fans': 0x55, 'doors': (0x7994, 4), 'pillars': (0x7ACC, 23), 'maces': (0x75C2, 5), 'flames': (0x7548, 5),
         'links': [(1696, 1840, 90), (2576, 1216, 180)],
         'rides': [(60, 48, 1, 0x36, (1888, 392, 768), 0x400, (0, 0, 5)), (80, 50, 2, 0x38, None, None, (0, 0, 0))],
         'pads': [(0, -1, 1), (1, -1, 2)],
         'cracks': [([(88, 62)], 432, [-1, 0]), ([(100, 41), (100, 15, 560)], 432, [0, -1])]},
     # Rusty Ruin 2 (see s3d.js GIMMICKS)
-    6: {'spikes': 0xFF, 'fans': 0x55, 'pillars': (0x8266, 23), 'padRise': 138, 'pads': [(0, 1, 1), (1, 0, 1), (2, 3, 2), (3, 2, 2)],
+    6: {'spikes': 0xFF, 'fans': 0x55, 'pillars': (0x8266, 23), 'maces': (0x80B8, 6), 'flames': (0x7EC4, 9), 'padRise': 138, 'pads': [(0, 1, 1), (1, 0, 1), (2, 3, 2), (3, 2, 2)],
         'slides': [(0xC3, [1, 0]), (0xF0, [0, 1])], 'pillarLinks': [(85, 101, 0x05, [(99, 96, 0x22)])],
         'rides': [(98, 96, 0, 0x30, None, None, (0, 0, 0)), (85, 101, 0, 0x2E, None, None, (0, 0, 0), 40),
                   (100, 60, 0, 0x32, None, None, (0, 0, 0)), (91, 71, 0, 0x34, None, None, (0, 0, 0))],
@@ -172,6 +172,20 @@ def convert(rom, level_id, vscale=1.0):
     if 'fans' in gm:
         cells = [[x - x0, z - z0] for z in range(z0, z1 + 1) for x in range(x0, x1 + 1) if w[z * 128 + x] and (w[z * 128 + x] & 0xFF) == gm['fans']]
         if cells: ents.append({"type": "fan", "cells": cells})
+    import math
+    if 'maces' in gm:
+        o, n = gm['maces']
+        for k in range(n):
+            x, y, z, turn, second = struct.unpack('>5h', rom[o + 14 * k + 4:o + 14 * k + 14])
+            if not floor_cell(x // CELL, z // CELL): continue
+            ents.append({"type": "mace", "x": jround(x / CELL - x0, 3), "z": jround(z / CELL - z0, 3), "y": jround(y / CELL * vscale, 3), "r": jround(64 / CELL, 3),
+                         "link": jround(16 / CELL, 3), "w": jround(turn * math.pi * 2 / 2048 * 60, 6), "balls": [0, jround(second * math.pi * 2 / 2048, 6)] if second else [0]})
+    if 'flames' in gm:
+        o, n = gm['flames']
+        for k in range(n):
+            x, z, y = struct.unpack('>3h', rom[o + 8 * k:o + 8 * k + 6]); fl = struct.unpack('>H', rom[o + 8 * k + 6:o + 8 * k + 8])[0]
+            if not floor_cell(x // CELL, z // CELL): continue
+            ents.append({"type": "flame", "x": jround(x / CELL - x0, 3), "z": jround(z / CELL - z0, 3), "y": jround(y / CELL * vscale, 3), "dir": [0, 1] if fl & 0x800 else [1, 0]})
     if 'doors' in gm:
         o, n = gm['doors']
         for k in range(n):

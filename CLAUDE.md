@@ -152,8 +152,9 @@ serves index.html from main.
   fixed by bounding to the map, stopping at tall tiles, and the open-space swing.
 
 ## Status
-- 2026-10-27 early: RR2 gimmicks; pads with the original sequence (GG too); 78 sim tests. Open: RR maces, flamethrowers,
-  0AC crawler (hurts), RR3 boss.
+- 2026-10-27 early: RR2 gimmicks; pads with the original sequence (GG too); maces (`mace`: tables 0x75C2/0x80B8, ball 64
+  units out, 2048 a turn) and flamethrowers (`flame`: tables 0x7548/0x7EC4, box 128x64 units, a fireball every 6
+  frames, `w.puffs`); 79 sim tests. Open: 0AC crawler (patrols 1 unit a frame, hurts), RR3 boss.
 - 2026-10-26 late: Jam discs as CHD, ECM, zip, .img, .mdf, .nrg (all checked byte for byte against the files).
 - 2026-10-26 evening: Rusty Ruin 1 gimmicks (above); 75 sim tests. Open in RR: maces (084/088 orbit, helper 0x86B0),
   flamethrowers (helper 0x84F2, sound 0x7F), green dome buttons (0xAA cells, cosmetic), RR2 rides (states 2E-34),

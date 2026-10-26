@@ -46,7 +46,8 @@ untested.
   cracked walls break when you spin dash into them, and the cannons fire you across the level as in the original.
   Reaching the last ring ends the act and moves on to the next one.
 - Rusty Ruin 1 and 2: fans that set you whirling (it breaks pillars and enemies), spike blocks, doors, slides,
-  trampolines, sinking slabs, teleport pads, and the original's own scripted rides through tunnels and arches.
+  trampolines, sinking slabs, teleport pads, maces, flamethrowers, and the original's own scripted rides through
+  tunnels and arches.
 - Monitors show their icon and give rings, a shield, a gold shield, invincibility, speed shoes or a 1-up.
 - Mines, Turrets, chasing enemies, Hunters with their circling spike balls, and superchargers (stand on one and press jump).
 - The original's act results screen, then the next act.
@@ -56,8 +57,7 @@ untested.
 - With your ROM: the original music and sound effects, played by an emulated Mega Drive sound chip running the
   game's own sound program from your ROM. Without a ROM: simple sound effects made in the browser. M turns sound off.
 
-Not done yet: section gimmicks after Rusty Ruin 2 (lifts, tubes, slides, objects that change the map), Rusty Ruin's
-maces and flamethrowers, bosses. See `re/NOTES.md` for what is known and what is not.
+Not done yet: section gimmicks after Rusty Ruin 2 (lifts, tubes, slides, objects that change the map), bosses. See `re/NOTES.md` for what is known and what is not.
 
 ## Working on it
 

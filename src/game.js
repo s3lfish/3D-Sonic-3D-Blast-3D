@@ -326,6 +326,7 @@
       crack: () => { noise(0.5, 0.9, 1400); noise(0.3, 0.5, 300); },
       whirl: () => tone('sawtooth', 300, 1100, 0.12, 0.12),
       padIn: () => tone('triangle', 500, 120, 0.9, 0.2),
+      flame: () => noise(0.25, 0.35, 900),
       padOut: () => { tone('triangle', 180, 1400, 0.32, 0.4); noise(0.2, 0.3, 2000); },
       boost: () => { noise(0.35, 0.6, 2500); tone('square', 700, 120, 0.4, 0.25); },
       enemy: () => { noise(0.22, 0.7, 1400); tone('square', 520, 90, 0.2, 0.3); },
@@ -709,7 +710,15 @@
   let levelGroup = null, waterMesh = null, ringSprites = [], springSprites = [], tallDecor = [];
   let enemySprites = [], monitorSprites = [], goalSprites = [], looseSprites = [], flickySprites = [], ringSize = 0.62;
   let mineSprites = [], turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
-  let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [];
+  let jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [];
+  // a fireball: an orange glow drawn once
+  const puffMat = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 32; const g = c.getContext('2d');
+    const gr = g.createRadialGradient(16, 16, 2, 16, 16, 15); gr.addColorStop(0, '#fff6b0'); gr.addColorStop(0.35, '#ffb020'); gr.addColorStop(0.75, '#e04010'); gr.addColorStop(1, 'rgba(160,20,0,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 32, 32);
+    return new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false });
+  })();
+  const linkGeo = new THREE.SphereGeometry(0.1, 8, 6), linkMat = new THREE.MeshLambertMaterial({ color: 0x6a6660 });
   const SPRING_REST = 0.3;   // how far the Jam spring's coil stands at rest (fired: 1)
   function buildLevelObjects() {
     if (levelGroup) {
@@ -807,6 +816,14 @@
       g.position.set(x, y, z); levelGroup.add(g); return g;
     };
     liftMeshes = (world.lifts || []).map(f => slab(Math.floor(f.x) + 0.5, f.top, Math.floor(f.z) + 0.5, 0x9a9680));
+    // maces: chain links and the spiked ball (the ROM's spike ball sprite, a size up, or the scribbled one)
+    maceObjs = (world.maces || []).map(m => m.balls.map(() => {
+      const links = [1, 2, 3].map(() => { const l = new THREE.Mesh(linkGeo, linkMat); levelGroup.add(l); return l; });
+      const rm = rom ? romObjMat('enemy', 'SPK', false) : null, b = new THREE.Sprite(rm || mineMat);
+      if (rm) { b.center.set(0.5, OBJ_FOOT); b.scale.set(ROM_SIZE * 1.4, ROM_SIZE * 1.4, 1); } else b.scale.set(0.8, 0.8, 1);
+      levelGroup.add(b); return { links, ball: b, rom: !!rm };
+    }));
+    puffSprites = Array.from({ length: 24 }, () => { const s = new THREE.Sprite(puffMat); s.visible = false; levelGroup.add(s); return s; });
     springSprites = world.springs.map(sp => {
       if (sp.raised) { jamSprings.push(null); return slab(sp.x, sp.y, sp.z, 0xa8a492); }
       if (rom && jamOn()) {
@@ -1839,6 +1856,19 @@
       else s.material = springMats[fired ? 1 : 0];
     }
     for (let q = 0; q < liftMeshes.length; q++) liftMeshes[q].position.y = world.lifts[q].top;
+    for (let q = 0; q < maceObjs.length; q++) {
+      const m = world.maces[q];
+      m.balls.forEach((off, k) => {
+        const a = m.phase + off + m.w * world.time, sx = Math.sin(a), sz = Math.cos(a), o = maceObjs[q][k];
+        o.links.forEach((l, i) => l.position.set(m.x + sx * m.link * (i + 1), m.y, m.z + sz * m.link * (i + 1)));
+        o.ball.position.set(m.x + sx * m.r, m.y - (o.rom ? 0.35 : 0), m.z + sz * m.r);
+      });
+    }
+    for (let q = 0; q < puffSprites.length; q++) {
+      const f = world.puffs[q], s = puffSprites[q];
+      s.visible = !!f;
+      if (f) { const k = f.t / Sim.P.flameLife; s.position.set(f.x, f.y + 0.3, f.z); s.scale.setScalar(0.45 + 0.6 * k); s.material.opacity = 1; }
+    }
     if (waterMesh) waterTex.offset.set(t * 0.08, t * 0.03);
 
     if (shownRings !== world.ringCount) { shownRings = world.ringCount; $('ringCount').textContent = String(world.ringCount); }
