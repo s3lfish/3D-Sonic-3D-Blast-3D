@@ -45,10 +45,36 @@ GIMMICKS = {
     # Rusty Ruin 1 (see s3d.js GIMMICKS): spike and fan cell marks, door and pillar tables, pockets after rings, rides
     7: {'spikes': 0xFF, 'fans': 0x55, 'doors': (0x7994, 4), 'pillars': (0x7ACC, 23),
         'links': [(1696, 1840, 90), (2576, 1216, 180)],
-        'rides': [(60, 48, 1, 1888, 455, 730, 0, 5), (80, 50, 2, 2576, 264, 1676, 0, 0)],
+        'rides': [(60, 48, 1, 0x36, (1888, 392, 768), 0x400, (0, 0, 5)), (80, 50, 2, 0x38, None, None, (0, 0, 0))],
         'cracks': [([(88, 62)], 432, [-1, 0]), ([(100, 41), (100, 15, 560)], 432, [0, -1])]},
 }
 DOOR_PUSH = {0: (0, 4), 2: (-4, 0), 4: (0, -4)}
+SCRIPTS = 0x25DF2
+
+
+def ride_script(rom, state):
+    """RunSonic's scripted moves (see s3d.js rideScript)."""
+    u16 = lambda o: struct.unpack('>H', rom[o:o + 2])[0]
+    s16 = lambda o: struct.unpack('>h', rom[o:o + 2])[0]
+    base = SCRIPTS + s16(SCRIPTS + state - 2); sp = mo = left = 0; path, turns, end = [], [], None
+    while len(path) < 5000:
+        left -= 1
+        if left <= 0:
+            a = base + sp; w0 = u16(a)
+            if w0 == 0x8000:
+                back = s16(a + 2)
+                if back > 0: sp -= back; left = 0; continue
+                if back < 0: end = [s16(a + 4 + 2 * i) for i in range(7)]
+                break
+            w1 = u16(a + 2); mo = w0; left = w1 & 0xFF; sp += 4
+            if w1 & 0xFF00: turns.append([len(path), (w1 & 0xFF00) - 0x8000])
+        if u16(SCRIPTS + mo) == 0x8000: mo -= s16(SCRIPTS + mo + 2)
+        path.append([s16(SCRIPTS + mo), s16(SCRIPTS + mo + 2), s16(SCRIPTS + mo + 4)]); mo += 6
+    return path, turns, end
+
+
+def compass_of(f):
+    return (180 + f * 360 / 2048) % 360
 
 def convert(rom, level_id, vscale=1.0):
     h = HEADERS + (level_id - 1) * HSIZE
@@ -138,10 +164,18 @@ def convert(rom, level_id, vscale=1.0):
             if floor_cell(cx, cz) and floor_cell(x // CELL, z // CELL):
                 ents.append({"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": 0, "exit": [jround(x / CELL - x0, 3), jround(z / CELL - z0, 3)],
                              "exitY": jround(y / CELL * vscale, 3), "push": [jround(vx * mps, 3), jround(vz * mps, 3)], "launch": 0})
-    for cx, cz, after, x, y, z, vx, vz in gm.get('rides', []):
-        if floor_cell(cx, cz) and floor_cell(x // CELL, z // CELL):
-            ents.append({"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": after, "exit": [jround(x / CELL - x0, 3), jround(z / CELL - z0, 3)],
-                         "exitY": jround(y / CELL * vscale, 3), "push": [jround(vx * mps, 3), jround(vz * mps, 3)], "launch": 0})
+    r3, r6 = (lambda v: jround(v, 3)), (lambda v: jround(v, 6))
+    for cx, cz, after, state, frm, facing, vel in gm.get('rides', []):
+        if floor_cell(cx, cz) and (frm is None or floor_cell(frm[0] // CELL, frm[2] // CELL)):
+            path, turns, end = ride_script(rom, state)
+            ride = {"start": [r3(frm[0] / CELL - x0), r3(frm[1] / CELL * vscale), r3(frm[2] / CELL - z0)] if frm else None,
+                    "facing": None if facing is None else compass_of(facing),
+                    "vel": [r3(vel[0] * mps), r3(vel[1] * mps * vscale), r3(vel[2] * mps)],
+                    "path": [[r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)] for dx, dy, dz in path],
+                    "turns": [[i, compass_of(f)] for i, f in turns],
+                    "end": {"at": [r3(end[0] / CELL - x0), r3(end[1] / CELL * vscale), r3(end[2] / CELL - z0)], "facing": compass_of(end[3]),
+                            "vel": [r3(end[4] * mps), r3(-end[5] * mps * vscale), r3(end[6] * mps)]} if end else None}
+            ents.append({"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": after, "ride": ride})
     if table_rings:
         for k in range(3):
             x, z = struct.unpack('>h', rom[st + 0x14 + 6 * k:st + 0x16 + 6 * k])[0], struct.unpack('>h', rom[st + 0x18 + 6 * k:st + 0x1A + 6 * k])[0]

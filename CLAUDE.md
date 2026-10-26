@@ -78,7 +78,10 @@ serves index.html from main.
   breaks enemies and pillars, ended by a jump or a hit); pillars = `crack` with `by: 'whirl'` from the table at 0x7ACC
   (drawn as stone columns); doors = `hole` with `exitY`/`push`/`size`, `opens` 0 (table 0x7994); after rings 1 and 2
   the routine puts Sonic in a closed pocket (`goal.put`, also the respawn) and a ride (hole opened by that ring) takes
-  him on. Crock (9C) is an enemy. Crack cells may carry their own height ([x, z, top]). Holes with `opens` 0 are open.
+  him on: the pocket walks him out itself (`p.auto`, after `P.autoWait`), and the ride plays the original's scripted
+  move (`rideScript`: RunSonic's interpreter 0x2EFC, scripts at 0x25DF2 per player state; hole `ride` {start, facing,
+  vel, path, turns, end}; `p.ride`), checked to the unit against the emulator. Cuts fade from black (`fadeCut`); while
+  a ride is under the ground the hero is hidden and the camera stays on the ground above. Crock (9C) is an enemy. Crack cells may carry their own height ([x, z, top]). Holes with `opens` 0 are open.
 - Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
   ROM look draws springs as 3D drums coloured from the ROM sprite (`romSpringMats`).
 - Act end: the `goal` event shows `#clearCard`, flashes, and after 5 s converts the next act in `S3D.LEVELS` order.

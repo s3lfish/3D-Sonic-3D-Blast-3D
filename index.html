@@ -82,6 +82,9 @@ body {
 .tally canvas { width: min(100vw, calc(100vh * 320 / 224)); height: auto; image-rendering: pixelated; }
 .flash { position: fixed; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 25; }
 .flash.on { animation: flash 0.5s ease-out; }
+.fade { position: fixed; inset: 0; background: #000; opacity: 0; pointer-events: none; z-index: 24; }
+.fade.on { animation: fadeIn 0.7s ease-in; }
+@keyframes fadeIn { 0%, 35% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes flash { from { opacity: 0.9; } to { opacity: 0; } }
 .levels.rom p { font-size: 14px; }
 .levels.rom strong { color: var(--gold); }
@@ -189,6 +192,7 @@ body {
 <div class="toast" id="toast" hidden></div>
 <div class="clearcard" id="clearCard" hidden><h2 id="clearTitle"></h2><p id="clearInfo"></p></div>
 <div class="flash" id="flash"></div>
+<div class="fade" id="fade"></div>
 <div class="tally" id="tally" hidden><canvas id="tallyCanvas" width="320" height="224"></canvas></div>
 
 <script type="application/json" id="level">
@@ -1022,6 +1026,7 @@ const Sim = (() => {
     // the whirl (Rusty Ruin fans), measured in the emulator: held on the fan 32 frames, then 0.094 units a frame per frame
     // towards the stick, up to 5 units a frame, 0.03 a frame per frame of drag with the stick let go, 0.94 kept off a wall
     whirlHold: 32 / 60, whirlAccel: 10.5, whirlTop: 9.375, whirlDrag: 3.4, whirlBounce: 0.94,
+    autoWait: 1,        // a pocket: the original stands the player still about a second, then walks them out
     rollFriction: 2.5,
     rollMin: 2.0,       // rolling stops below this speed
     rollTurn: 3.0,      // rad/s steering while rolling
@@ -1209,14 +1214,22 @@ const Sim = (() => {
           // a hole that opens once the player has used `opens` big rings (0: open from the start) and throws them out at
           // `exit`: up at `launch` m/s, or, with `exitY`, at that height moving `push` [vx, vz] m/s (a door, a ride's end);
           // it takes a player standing within `size` m of its middle
-          const ex = Array.isArray(e.exit) ? e.exit : [];
+          // with a "ride" it starts a scripted move instead: {start [x, y, z] or null, facing, vel [vx, vy, vz], path of
+          // [dx, dy, dz] a frame, turns [[frame, compass degrees]], end null or {at, facing, vel}}
+          const ride = e.ride && Array.isArray(e.ride.path) && e.ride.path.every(q => Array.isArray(q) && q.length === 3 && q.every(Number.isFinite)) ? e.ride : null;
+          if (e.ride && !ride) { errs.push(`A ride at (${e.x}, ${e.z}) needs a "path" of [dx, dy, dz] steps.`); break; }
+          const ex = ride ? [e.x, e.z] : Array.isArray(e.exit) ? e.exit : [];
           if (!inBounds(e.x, e.z) || !inBounds(ex[0], ex[1])) { errs.push(`A hole at (${e.x}, ${e.z}) needs a position and an "exit" [x, z] on the map.`); break; }
           if (!Number.isFinite(floorAt(L, e.x, e.z)) || !Number.isFinite(floorAt(L, ex[0], ex[1]))) { errs.push(`A hole at (${e.x}, ${e.z}) or its exit is over a pit.`); break; }
           const opens = e.opens ?? 0, launch = e.launch ?? 8, size = e.size ?? 0.375;
           const push = Array.isArray(e.push) && e.push.length === 2 && e.push.every(Number.isFinite) ? e.push : [0, 0];
           if (!(Number.isInteger(opens) && opens >= 0 && opens <= 9) || !(launch >= 0 && launch <= 30) || !(size > 0 && size <= 1)) { errs.push(`A hole needs "opens" from 0 to 9, "launch" from 0 to 30 m/s and "size" from 0 to 1.`); break; }
+          const deg = f => (r => Math.atan2(Math.sin(r), -Math.cos(r)))(f * Math.PI / 180);
           L.entities.push({ type: 'hole', x: e.x, z: e.z, y: floorAt(L, e.x, e.z), opens, exit: [ex[0], ex[1]], launch, size, push,
-            exitY: Number.isFinite(e.exitY) ? e.exitY : null });
+            exitY: Number.isFinite(e.exitY) ? e.exitY : null,
+            ride: ride && { start: Array.isArray(ride.start) ? ride.start : null, facing: Number.isFinite(ride.facing) ? deg(ride.facing) : null,
+              vel: Array.isArray(ride.vel) ? ride.vel : [0, 0, 0], path: ride.path, turns: (ride.turns || []).map(([i, f]) => [i, deg(f)]),
+              end: ride.end && Array.isArray(ride.end.at) ? { at: ride.end.at, facing: deg(ride.end.facing || 0), vel: ride.end.vel || [0, 0, 0] } : null } });
           break;
         }
         case 'spring': {
@@ -1396,13 +1409,20 @@ const Sim = (() => {
     w.goals = L.entities.filter(e => e.type === 'goal').map(e => ({ x: e.x, z: e.z, y: e.y, put: e.put }));
     respawn(w);
   }
+  // the way out of a pocket: the ride that the ring just used opens
+  function autoWalk(w) {
+    const h = w.holes.find(q => q.ride && q.opens === w.section);
+    return h ? { x: h.x, z: h.z, t: P.autoWait } : null;
+  }
   // back to the start, or to the last big ring used (the original restarts a section there)
   function respawn(w) {
     if (w.flickies) scatterFlickies(w);
     const s = w.spawn || w.L.start;
     w.p = { x: s.x, y: floorAt(w.L, s.x, s.z), z: s.z, vx: 0, vy: 0, vz: 0, grounded: true, coyote: 0,
       rolling: false, ball: false, sprung: false, charge: 0, facing: s.facing, jumping: false, prevJump: false, prevDash: false, invuln: 0,
-      shield: null, inv: 0, fast: 0, boost: null, goldUsed: false, dashHeld: 0, cannon: null, flyT: 0, whirl: false, whirlHold: 0 };
+      shield: null, inv: 0, fast: 0, boost: null, goldUsed: false, dashHeld: 0, cannon: null, flyT: 0, whirl: false, whirlHold: 0,
+      ride: null, auto: null };
+    if (s.auto) w.p.auto = autoWalk(w);
   }
 
   const _g = [0, 0];
@@ -1410,6 +1430,11 @@ const Sim = (() => {
     const L = w.L, p = w.p, dt = P.dt;
     w.events.length = 0;
     w.time += dt;
+    // after a ring that puts the player in a pocket, the original walks them to the way out (input is the routine's)
+    if (p.auto && !p.ride) {
+      if (p.auto.t > 0) { p.auto.t -= dt; inp = {}; }
+      else { const dx = p.auto.x - p.x, dz = p.auto.z - p.z, l = Math.hypot(dx, dz) || 1; inp = { mx: dx / l, mz: dz / l }; }
+    }
     let mx = inp.mx || 0, mz = inp.mz || 0;
     let m = Math.hypot(mx, mz);
     if (m > 1) { mx /= m; mz /= m; m = 1; }
@@ -1430,6 +1455,21 @@ const Sim = (() => {
         p.facing = 0; c.firedAt = w.time; w.events.push('cannon');
       }
       return w;
+    }
+    // a ride: the original's scripted move, played back a frame at a time; at its end the player carries on with the
+    // velocity the act's routine gave (or the script's own place and velocity)
+    if (p.ride) {
+      const r = p.ride, R = r.ride;
+      if (r.i < R.path.length) {
+        const [dx, dy, dz] = R.path[r.i];
+        p.x += dx; p.y += dy; p.z += dz;
+        for (const [i, f] of R.turns) if (i === r.i) p.facing = f;
+        r.i++; p.ball = true; p.grounded = false; p.vx = p.vz = p.vy = 0;
+        return w;
+      }
+      if (R.end) { [p.x, p.y, p.z] = R.end.at; p.facing = R.end.facing; [p.vx, p.vy, p.vz] = R.end.vel; w.events.push('warp'); }
+      else [p.vx, p.vy, p.vz] = R.vel;
+      p.ride = null; p.ball = false; p.grounded = false; p.jumping = false; w.warpedAt = w.time;
     }
     if (p.flyT > 0) { p.flyT -= dt; if (p.grounded) p.flyT = 0; else { mx = mz = 0; m = 0; p.ball = true; } }
     // dropping (or jumping) into a cannon's mouth: the cell's north quarter (the original's player is a point; ours is a
@@ -1720,6 +1760,7 @@ const Sim = (() => {
           if (gl.put) {
             p.x = gl.put.x; p.z = gl.put.z; p.y = floorAt(L, p.x, p.z); p.vx = p.vy = p.vz = 0; p.facing = gl.put.facing;
             p.grounded = true; p.ball = p.rolling = p.jumping = p.whirl = false; p.whirlHold = 0; p.charge = 0;
+            p.auto = autoWalk(w); w.spawn.auto = true;
             w.warpedAt = w.time; w.events.push('warp');
           }
         }
@@ -1731,6 +1772,14 @@ const Sim = (() => {
     // up, or at a given height moving a given way; not again within a second
     if (p.grounded && w.time - w.warpedAt > 1) for (const h of w.holes) {
       if (h.opens > w.section || Math.abs(p.x - h.x) >= h.size || Math.abs(p.z - h.z) >= h.size) continue;
+      if (h.ride) {
+        const R = h.ride;
+        p.ride = { ride: R, i: 0 }; p.auto = null; p.rolling = p.whirl = false; p.whirlHold = 0; p.charge = 0;
+        if (R.start) { [p.x, p.y, p.z] = R.start; w.events.push('warp'); }
+        if (R.facing !== null) p.facing = R.facing;
+        w.events.push('ride'); w.warpedAt = w.time; w.inGoal = true;
+        break;
+      }
       const fy = floorAt(L, h.exit[0], h.exit[1]);
       p.x = h.exit[0]; p.z = h.exit[1]; p.y = h.exitY === null ? fy + 0.05 : Math.max(fy, h.exitY);
       p.vx = h.push[0]; p.vz = h.push[1]; p.vy = h.launch; p.rolling = false; p.charge = 0; p.whirl = false; p.whirlHold = 0;
@@ -2392,17 +2441,46 @@ const S3D = (() => {
   // 0x55 are fans (standing on one starts the whirl); doors = table at 0x7994 [cell, x, y, z (16.16), ...; direction
   // word at +0x16: 0 south, 2 west, 4 north, else east, pushed 4 units a frame]; pillars = table at 0x7ACC [screen x,
   // screen y, x, y, z, cell, raised word] (the act raises them at the start; the whirl breaks them). After a big ring
-  // the routine puts Sonic in a closed pocket [x, z, compass degrees]; walking into a cell [x, z, after ring n] takes
-  // him to [x, y, z] moving [vx, vz] units a frame (watched in the emulator: the end of each scripted ride).
+  // the routine puts Sonic in a closed pocket [x, z, compass degrees] and walks him to a cell [x, z, after ring n] that
+  // starts a ride: player state n (a scripted move, see rideScript), from [x, y, z] facing f if the routine moves him
+  // there first, keeping velocity [vx, vy, vz] units a frame (y up) for when the move ends.
   // cracks: [cells (optionally [x, z, own raised height]), raised height, the way a dash must go].
   const GIMMICKS = {
     1: { cannons: [[116, 12, 248, 9, 7.067]], cracks: [[[[108, 17]], 480, [0, -1]]] },
     2: { cannons: [[21, 48, 576, 9, 6.1]], cracks: [[[[59, 47]], 784, [-1, 0]], [[[108, 41], [109, 41]], 688, [0, -1]]] },
     7: { spikes: 0xFF, fans: 0x55, doors: [0x7994, 4], pillars: [0x7ACC, 23],
       links: [[1696, 1840, 90], [2576, 1216, 180]],
-      rides: [[60, 48, 1, 1888, 455, 730, 0, 5], [80, 50, 2, 2576, 264, 1676, 0, 0]],
+      rides: [[60, 48, 1, 0x36, [1888, 392, 768], 0x400, [0, 0, 5]], [80, 50, 2, 0x38, null, null, [0, 0, 0]]],
       cracks: [[[[88, 62]], 432, [-1, 0]], [[[100, 41], [100, 15, 560]], 432, [0, -1]]] },
   };   // units: spike ball circle radius (measured) and height (estimated)
+  // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
+  // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
+  // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
+  // a negative word and [x, y, z, facing, vx, vy, vz] (placed there). Motion (from 0x25DF2 + offset) is [dx, dy, dz]
+  // a frame, 0x8000 and a step back repeating it. A segment lasts its frame count (at least one frame). Checked against
+  // the emulator: RR1's two rides end where the original's do, to the unit.
+  const SCRIPTS = 0x25DF2;
+  function rideScript(d, state) {
+    const base = SCRIPTS + s16(d, SCRIPTS + state - 2), path = [], turns = [];
+    let sp = 0, mo = 0, left = 0, end = null;
+    while (path.length < 5000) {
+      if (--left <= 0) {
+        const a = base + sp, w0 = u16(d, a);
+        if (w0 === 0x8000) {
+          const back = s16(d, a + 2);
+          if (back > 0) { sp -= back; left = 0; continue; }
+          if (back < 0) end = [0, 1, 2, 3, 4, 5, 6].map(i => s16(d, a + 4 + 2 * i));
+          break;
+        }
+        const w1 = u16(d, a + 2); mo = w0; left = w1 & 0xFF; sp += 4;
+        if (w1 & 0xFF00) turns.push([path.length, (w1 & 0xFF00) - 0x8000]);
+      }
+      if (u16(d, SCRIPTS + mo) === 0x8000) mo -= s16(d, SCRIPTS + mo + 2);
+      path.push([s16(d, SCRIPTS + mo), s16(d, SCRIPTS + mo + 2), s16(d, SCRIPTS + mo + 4)]); mo += 6;
+    }
+    return { path, turns, end };
+  }
+  const compassOf = f => (180 + f * 360 / 2048) % 360;   // the original's facing: 0 south, 0x200 west, 0x400 north
   // object types, identified by watching the game run: player start, springs, monitors, the act-end ring, main enemies
   const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
@@ -2617,9 +2695,17 @@ const S3D = (() => {
         ents.push({ type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: 0, exit: [r3(x / CELL - x0), r3(z / CELL - z0)],
           exitY: r3(y / CELL * vscale), push: [r3(vx * mps), r3(vz * mps)], launch: 0 });
     }
-    for (const [cx, cz, after, x, y, z, vx, vz] of gm.rides || []) if (floorCell(cx, cz) && floorCell(Math.floor(x / CELL), Math.floor(z / CELL)))
-      ents.push({ type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: after, exit: [r3(x / CELL - x0), r3(z / CELL - z0)],
-        exitY: r3(y / CELL * vscale), push: [r3(vx * mps), r3(vz * mps)], launch: 0 });
+    const r6 = v => Math.round(v * 1e6) / 1e6;
+    for (const [cx, cz, after, state, from, facing, vel] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
+      const sc = rideScript(d, state), ride = {
+        start: from ? [r3(from[0] / CELL - x0), r3(from[1] / CELL * vscale), r3(from[2] / CELL - z0)] : null, facing: facing === null ? null : compassOf(facing),
+        vel: [r3(vel[0] * mps), r3(vel[1] * mps * vscale), r3(vel[2] * mps)],
+        path: sc.path.map(([dx, dy, dz]) => [r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)]),
+        turns: sc.turns.map(([i, f]) => [i, compassOf(f)]),
+        end: sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3(sc.end[1] / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
+          vel: [r3(sc.end[4] * mps), r3(-sc.end[5] * mps * vscale), r3(sc.end[6] * mps)] } : null };
+      ents.push({ type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: after, ride });
+    }
     if (tableRings) for (let k = 0; k < 3; k++) {
       const x = s16(d, st + 0x14 + 6 * k), z = s16(d, st + 0x18 + 6 * k);
       if (!x) break;
@@ -4774,6 +4860,7 @@ const Art = (() => {
   };
   let cam = view.mode === 'iso' ? isoCam : chaseCam;
   const lastRp = new THREE.Vector3();
+  const camPt = new THREE.Vector3();
   const orbit = { yaw: 0, pitch: 0 }; // continuous look input this frame (radians)
   // put the camera behind the player's start facing
   function resetCamera() {
@@ -5232,6 +5319,8 @@ const Art = (() => {
   let cleared = false, clearTimer = 0, wasCharging = false;
   // a white flash when a big ring is used, as in the original
   function flash() { const f = $('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
+  // a cut, as the original fades: from black back to the scene (a pocket after a ring, a ride that starts elsewhere)
+  function fadeCut() { const f = $('fade'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
   function clearCardOff() { $('clearCard').hidden = true; $('tally').hidden = true; tally = null; clearTimeout(clearTimer); clearTimer = 0; }
   // act clear: show the result, then move on to the next act in the original's order (ROM levels)
   // act results: in the ROM look the original's own results screen (fonts and layout from the ROM, bonuses counted
@@ -5341,7 +5430,10 @@ const Art = (() => {
       if (world.events.includes('needFlickies')) toast(`The ring needs ${L.flickies} Flickies. Free them from enemies and bring them here.`, 3);
       if (world.events.includes('section')) toast(world.goals[world.section - 1].put ? 'Ring used. Find the way out of here.'
         : world.holes.some(h => h.opens === world.section && h.exitY === null) ? 'Ring used. Step into the hole beneath it.' : 'Ring used. On to the next one.', 3);
-      if (world.events.includes('warp')) { prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z; }
+      if (world.events.includes('warp')) {
+        prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
+        if (world.events.includes('ride') || (world.events.includes('section') && world.goals[world.section - 1].put)) { fadeCut(); resetCamera(); }
+      }
       acc -= STEP; steps++;
     }
     if (steps === 5) acc = 0;
@@ -5529,8 +5621,13 @@ const Art = (() => {
     if (!cleared && world.rings.length && world.ringCount === world.rings.length) { cleared = true; toast(`All ${world.rings.length} rings. Level clear. Open ? to restart.`, 6); }
     if (toastTimer > 0) { toastTimer -= dt; if (toastTimer <= 0) $('toast').hidden = true; }
 
-    if (view.mode === 'iso') updateIso(rp, dt); else updateChase(rp, dt, p);
-    lastRp.copy(rp);
+    // a ride that goes through solid ground (a tunnel the original draws over Sonic): hide him and keep the camera on
+    // the ground above, as the original keeps its view outside
+    const rideFloor = p.ride ? Sim.floorAt(L, rp.x, rp.z) : -Infinity, buried = p.ride && Number.isFinite(rideFloor) && rp.y < rideFloor - 0.3;
+    if (buried) { hero.visible = sil.visible = false; if (hero3d) hero3d.root.visible = false; camPt.set(rp.x, rideFloor, rp.z); }
+    const cp = buried ? camPt : rp;
+    if (view.mode === 'iso') updateIso(cp, dt); else updateChase(cp, dt, p);
+    lastRp.copy(cp);
     fadeBlockers(dt);
     updateFoliage();
     updateLevelAnim(t);

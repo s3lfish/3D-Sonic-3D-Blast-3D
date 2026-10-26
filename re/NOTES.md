@@ -248,3 +248,11 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   0x2000 (sound 0x59). Dash walls (88, 62) and (100, 41) (the latter also lowers (100, 15)) as in Green Grove.
 - Helpers not yet used: 0x84F2 (flamethrowers: fire objects when Sonic is in front, sound 0x7F), 0x86B0 (maces: a
   ball circling a centre, angle step per frame from the table at 0x75C2).
+- Scripted moves (player states 2..0x5E): RunSonic's interpreter at 0x2EFC plays a script from 0x25DF2 + the word at
+  0x25DF2 + state - 2: segments [motion offset, word (high byte 0x80 + facing / 256, low byte frames)], ended by
+  0x8000 then 0 (done), a positive step back (repeat), or a negative word then [x, y, z, facing, vx, vy, vz]. Motion
+  at 0x25DF2 + offset is [dx, dy, dz] a frame, with 0x8000 and a step back to repeat. Bit 7 of the state mirrors x/z.
+  RR1's 0x36 from (1888, 392, 768) ends at (1888, 455, 730) and 0x38 from (2576, 136, 1607) at (2576, 262, 1676), as
+  in the emulator. The original's facing word: 0 south, 0x200 west, 0x400 north, 0x600 east.
+- The pocket walk: while $0A18 counts down, the pad byte is replaced by $0A1A (0xFF: nothing); the routine holds
+  Sonic still about a second, then he walks to the ride's cell (modelled as walking straight at it, sliding on walls).

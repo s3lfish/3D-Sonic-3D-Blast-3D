@@ -1061,6 +1061,7 @@
   };
   let cam = view.mode === 'iso' ? isoCam : chaseCam;
   const lastRp = new THREE.Vector3();
+  const camPt = new THREE.Vector3();
   const orbit = { yaw: 0, pitch: 0 }; // continuous look input this frame (radians)
   // put the camera behind the player's start facing
   function resetCamera() {
@@ -1519,6 +1520,8 @@
   let cleared = false, clearTimer = 0, wasCharging = false;
   // a white flash when a big ring is used, as in the original
   function flash() { const f = $('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
+  // a cut, as the original fades: from black back to the scene (a pocket after a ring, a ride that starts elsewhere)
+  function fadeCut() { const f = $('fade'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
   function clearCardOff() { $('clearCard').hidden = true; $('tally').hidden = true; tally = null; clearTimeout(clearTimer); clearTimer = 0; }
   // act clear: show the result, then move on to the next act in the original's order (ROM levels)
   // act results: in the ROM look the original's own results screen (fonts and layout from the ROM, bonuses counted
@@ -1628,7 +1631,10 @@
       if (world.events.includes('needFlickies')) toast(`The ring needs ${L.flickies} Flickies. Free them from enemies and bring them here.`, 3);
       if (world.events.includes('section')) toast(world.goals[world.section - 1].put ? 'Ring used. Find the way out of here.'
         : world.holes.some(h => h.opens === world.section && h.exitY === null) ? 'Ring used. Step into the hole beneath it.' : 'Ring used. On to the next one.', 3);
-      if (world.events.includes('warp')) { prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z; }
+      if (world.events.includes('warp')) {
+        prev.x = world.p.x; prev.y = world.p.y; prev.z = world.p.z;
+        if (world.events.includes('ride') || (world.events.includes('section') && world.goals[world.section - 1].put)) { fadeCut(); resetCamera(); }
+      }
       acc -= STEP; steps++;
     }
     if (steps === 5) acc = 0;
@@ -1816,8 +1822,13 @@
     if (!cleared && world.rings.length && world.ringCount === world.rings.length) { cleared = true; toast(`All ${world.rings.length} rings. Level clear. Open ? to restart.`, 6); }
     if (toastTimer > 0) { toastTimer -= dt; if (toastTimer <= 0) $('toast').hidden = true; }
 
-    if (view.mode === 'iso') updateIso(rp, dt); else updateChase(rp, dt, p);
-    lastRp.copy(rp);
+    // a ride that goes through solid ground (a tunnel the original draws over Sonic): hide him and keep the camera on
+    // the ground above, as the original keeps its view outside
+    const rideFloor = p.ride ? Sim.floorAt(L, rp.x, rp.z) : -Infinity, buried = p.ride && Number.isFinite(rideFloor) && rp.y < rideFloor - 0.3;
+    if (buried) { hero.visible = sil.visible = false; if (hero3d) hero3d.root.visible = false; camPt.set(rp.x, rideFloor, rp.z); }
+    const cp = buried ? camPt : rp;
+    if (view.mode === 'iso') updateIso(cp, dt); else updateChase(cp, dt, p);
+    lastRp.copy(cp);
     fadeBlockers(dt);
     updateFoliage();
     updateLevelAnim(t);

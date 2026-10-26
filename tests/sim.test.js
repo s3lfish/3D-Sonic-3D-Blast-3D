@@ -423,6 +423,20 @@ test('a ring with a pocket puts the player there; a ride from it opens with the 
   run(w, 90, (f, ww) => { if (ww.events.includes('warp')) rode = true; if (rode) high = Math.max(high, ww.p.y); return { mx: rode ? 0 : 1, mz: 0 }; });
   assert.ok(rode, 'took the ride'); near(high, 4, 0.05, 'came out at the given height'); assert.ok(w.p.grounded, 'landed');
 });
+test('a pocket walks the player to its ride, which plays its path and lets them go with the given velocity', () => {
+  const path = []; for (let i = 0; i < 30; i++) path.push([0, i < 15 ? 0.1 : -0.05, 0.05]);
+  const w = world(arena([{ type: 'goal', x: 4.5, z: 2.5, put: [9.5, 2.5, 90] }, { type: 'goal', x: 19.5, z: 2.5 },
+    { type: 'hole', x: 14.5, z: 2.5, size: 0.5, opens: 1, ride: { start: [16.5, 2, 1.5], facing: 180, vel: [0, 0, 2], path, turns: [[20, 90]], end: null } }]));
+  let sec = false, rode = -1, f0 = 0;
+  run(w, 300, (f, ww) => { if (ww.events.includes('section')) { sec = true; f0 = f; } if (ww.events.includes('ride')) rode = f; return { mx: sec ? -1 : 1, mz: 0 }; });
+  assert.ok(sec, 'ring used'); assert.ok(rode > f0 + 60, `walked out by itself after a wait (${rode - f0} frames)`);
+  const w2 = world(arena([{ type: 'hole', x: 3.5, z: 2.5, size: 0.5, opens: 0, ride: { start: [16.5, 2, 1.5], facing: 180, vel: [0, 0, 2], path, turns: [[20, 90]], end: null } }]));
+  for (let f = 0; f < 120 && !(w2.p.ride && w2.p.ride.i === 25); f++) Sim.step(w2, { mx: w2.p.ride ? 0 : 1, mz: 0 });
+  assert.ok(w2.p.ride, 'riding'); near(w2.p.x, 16.5, 1e-9, 'moved to the start'); near(w2.p.facing, Math.PI / 2, 1e-9, 'turned on frame 20');
+  near(w2.p.z, 1.5 + 25 * 0.05, 1e-9, 'followed the path');
+  run(w2, 60, {});
+  assert.ok(!w2.p.ride, 'ride over'); assert.ok(w2.p.z > 1.5 + 1.5 + 0.2, `carried on south with the routine's velocity: z ${w2.p.z}`);
+});
 test('converted spike blocks (H) hurt', () => {
   const tiles = []; for (let k = 0; k < 15; k++) tiles.push({ c: [1, 1, 1, 1], t: k === 7 ? 'H' : 'F' });
   const w = world({ version: 1, format: 'tiles', width: 5, depth: 3, tiles, entities: [{ type: 'start', x: 0.5, z: 1.5 }] });

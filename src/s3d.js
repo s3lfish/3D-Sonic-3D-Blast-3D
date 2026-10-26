@@ -17,17 +17,46 @@ const S3D = (() => {
   // 0x55 are fans (standing on one starts the whirl); doors = table at 0x7994 [cell, x, y, z (16.16), ...; direction
   // word at +0x16: 0 south, 2 west, 4 north, else east, pushed 4 units a frame]; pillars = table at 0x7ACC [screen x,
   // screen y, x, y, z, cell, raised word] (the act raises them at the start; the whirl breaks them). After a big ring
-  // the routine puts Sonic in a closed pocket [x, z, compass degrees]; walking into a cell [x, z, after ring n] takes
-  // him to [x, y, z] moving [vx, vz] units a frame (watched in the emulator: the end of each scripted ride).
+  // the routine puts Sonic in a closed pocket [x, z, compass degrees] and walks him to a cell [x, z, after ring n] that
+  // starts a ride: player state n (a scripted move, see rideScript), from [x, y, z] facing f if the routine moves him
+  // there first, keeping velocity [vx, vy, vz] units a frame (y up) for when the move ends.
   // cracks: [cells (optionally [x, z, own raised height]), raised height, the way a dash must go].
   const GIMMICKS = {
     1: { cannons: [[116, 12, 248, 9, 7.067]], cracks: [[[[108, 17]], 480, [0, -1]]] },
     2: { cannons: [[21, 48, 576, 9, 6.1]], cracks: [[[[59, 47]], 784, [-1, 0]], [[[108, 41], [109, 41]], 688, [0, -1]]] },
     7: { spikes: 0xFF, fans: 0x55, doors: [0x7994, 4], pillars: [0x7ACC, 23],
       links: [[1696, 1840, 90], [2576, 1216, 180]],
-      rides: [[60, 48, 1, 1888, 455, 730, 0, 5], [80, 50, 2, 2576, 264, 1676, 0, 0]],
+      rides: [[60, 48, 1, 0x36, [1888, 392, 768], 0x400, [0, 0, 5]], [80, 50, 2, 0x38, null, null, [0, 0, 0]]],
       cracks: [[[[88, 62]], 432, [-1, 0]], [[[100, 41], [100, 15, 560]], 432, [0, -1]]] },
   };   // units: spike ball circle radius (measured) and height (estimated)
+  // Scripted moves (RunSonic's interpreter at 0x2EFC): player state n (even) has a script at 0x25DF2 + the word at
+  // 0x25DF2 + n - 2. A script is segments [motion offset, word: high byte 0x80 + facing / 256 (0: keep), low byte
+  // frames], ended by 0x8000 and then 0 (done: the move ends where it is), a positive step back (repeat from there), or
+  // a negative word and [x, y, z, facing, vx, vy, vz] (placed there). Motion (from 0x25DF2 + offset) is [dx, dy, dz]
+  // a frame, 0x8000 and a step back repeating it. A segment lasts its frame count (at least one frame). Checked against
+  // the emulator: RR1's two rides end where the original's do, to the unit.
+  const SCRIPTS = 0x25DF2;
+  function rideScript(d, state) {
+    const base = SCRIPTS + s16(d, SCRIPTS + state - 2), path = [], turns = [];
+    let sp = 0, mo = 0, left = 0, end = null;
+    while (path.length < 5000) {
+      if (--left <= 0) {
+        const a = base + sp, w0 = u16(d, a);
+        if (w0 === 0x8000) {
+          const back = s16(d, a + 2);
+          if (back > 0) { sp -= back; left = 0; continue; }
+          if (back < 0) end = [0, 1, 2, 3, 4, 5, 6].map(i => s16(d, a + 4 + 2 * i));
+          break;
+        }
+        const w1 = u16(d, a + 2); mo = w0; left = w1 & 0xFF; sp += 4;
+        if (w1 & 0xFF00) turns.push([path.length, (w1 & 0xFF00) - 0x8000]);
+      }
+      if (u16(d, SCRIPTS + mo) === 0x8000) mo -= s16(d, SCRIPTS + mo + 2);
+      path.push([s16(d, SCRIPTS + mo), s16(d, SCRIPTS + mo + 2), s16(d, SCRIPTS + mo + 4)]); mo += 6;
+    }
+    return { path, turns, end };
+  }
+  const compassOf = f => (180 + f * 360 / 2048) % 360;   // the original's facing: 0 south, 0x200 west, 0x400 north
   // object types, identified by watching the game run: player start, springs, monitors, the act-end ring, main enemies
   const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
     0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
@@ -242,9 +271,17 @@ const S3D = (() => {
         ents.push({ type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: 0, exit: [r3(x / CELL - x0), r3(z / CELL - z0)],
           exitY: r3(y / CELL * vscale), push: [r3(vx * mps), r3(vz * mps)], launch: 0 });
     }
-    for (const [cx, cz, after, x, y, z, vx, vz] of gm.rides || []) if (floorCell(cx, cz) && floorCell(Math.floor(x / CELL), Math.floor(z / CELL)))
-      ents.push({ type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: after, exit: [r3(x / CELL - x0), r3(z / CELL - z0)],
-        exitY: r3(y / CELL * vscale), push: [r3(vx * mps), r3(vz * mps)], launch: 0 });
+    const r6 = v => Math.round(v * 1e6) / 1e6;
+    for (const [cx, cz, after, state, from, facing, vel] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
+      const sc = rideScript(d, state), ride = {
+        start: from ? [r3(from[0] / CELL - x0), r3(from[1] / CELL * vscale), r3(from[2] / CELL - z0)] : null, facing: facing === null ? null : compassOf(facing),
+        vel: [r3(vel[0] * mps), r3(vel[1] * mps * vscale), r3(vel[2] * mps)],
+        path: sc.path.map(([dx, dy, dz]) => [r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)]),
+        turns: sc.turns.map(([i, f]) => [i, compassOf(f)]),
+        end: sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3(sc.end[1] / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
+          vel: [r3(sc.end[4] * mps), r3(-sc.end[5] * mps * vscale), r3(sc.end[6] * mps)] } : null };
+      ents.push({ type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: after, ride });
+    }
     if (tableRings) for (let k = 0; k < 3; k++) {
       const x = s16(d, st + 0x14 + 6 * k), z = s16(d, st + 0x18 + 6 * k);
       if (!x) break;
