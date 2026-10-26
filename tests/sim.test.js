@@ -855,10 +855,10 @@ test('the original\'s hit: thrown back along his facing till he lands, rings out
   let hitAt = -1; run(ww, 12, (f, x) => { if (hitAt < 0 && x.events.includes('hurt')) hitAt = f; return hitAt < 0 ? { mx: 1 } : {}; });
   assert.ok(hitAt >= 0, 'hit');
   near(ww.p.vx / UF(1), -0x7800 * 4 / 65536, 1e-9, 'back at 1.875 units a frame'); near(ww.p.vz, 0, 1e-9, 'straight back');
-  assert.ok(ww.ringCount === 0 && ww.loose.length > 0 && ww.loose.length < 25, `rings coming out: ${ww.loose.length}`);
+  assert.ok(ww.ringCount === 0 && ww.loose.length > 0 && ww.loose.length + ww.ringOut === 25, `rings coming out one a frame: ${ww.loose.length} + ${ww.ringOut}`);
   let landed = -1; run(ww, 60, (f, x) => { if (landed < 0 && x.p.grounded && !(x.p.knockT > 0)) landed = f; return {}; });
   assert.ok(landed > 0 && ww.p.grounded && ww.p.vx === 0, 'landed and stopped');
-  assert.ok(ww.loose.length + ww.ringCount === 25, `25 rings out (some caught again): ${ww.loose.length} + ${ww.ringCount}`);
+  assert.ok(ww.ringOut === 0 && ww.loose.length + ww.ringCount <= 25, `all out: ${ww.loose.length} + ${ww.ringCount}`);
   near(ww.p.invuln, 2 - (59 - landed) / 60, 0.05, 'safe 2 s from landing');
 });
 test('Diamond Dust: ice spikes hurt until a roll breaks them; a low roof stops a jump', () => {

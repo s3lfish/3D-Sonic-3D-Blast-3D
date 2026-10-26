@@ -147,7 +147,11 @@ original art. The browser code carries reading rules only.
   in the air, $40 - 1 (0 ends it), x/z = table 0x1B826 by facing >> 8 (backward: [0, -0x7800], [0x54DA, -0x54DA],
   ...) x 4; grounded: $3E = 120, speed 0; counting down, blinking. Lost rings (0x19E36): one a frame while $0A52,
   a particle (template 0xD94C, life 0xF0 frames) at Sonic with x/z = sin/cos($0A54) x 2 (16.16) and 3 up, $0A54 +=
-  0x480. Their flight (bounces, catching) is not read yet.
+  0x480. Particles: pool $C28C, 30 of 0x38 bytes, updated by 0xD20E. Type 0 ($31; lost rings): x moves, a cell crossed
+  whose edge corner (NW for +x and +z, NE for -x, SE for -z) is 9+ over the ring's height or has no floor puts it
+  at the edge and turns that part back; then z the same; vy += $22 (0x2000), y -= vy; the floor (triangles, NW-SE
+  split always) under it while falling: y = floor, vy = -(vy - vy/4), each horizontal part 0x1000 toward 0, and a
+  landing with both already 0 ends it; $32 counts the life down (0xF0). How Sonic catches them again is not read.
 
 ## Sections, rings and holes
 

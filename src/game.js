@@ -1596,7 +1596,8 @@
     $('flickyHud').hidden = !L.flickies;
     if (typeof satScene === 'function' && satReady) satScene();
     looseSprites = [];
-    for (let i = 0; i < Sim.P.scatterMax; i++) { const s = new THREE.Sprite(rom ? romArt.rings[0] : ringMats[0]); s.scale.set(0.5, 0.5, 1); s.visible = false; levelGroup.add(s); looseSprites.push(s); }
+    for (let i = 0; i < Math.max(Sim.P.scatterMax, 25); i++) { const s = new THREE.Sprite(rom ? romArt.rings[0] : ringMats[0]);   // (the original lets out 25 at most)
+      s.scale.set(0.5, 0.5, 1); s.visible = false; levelGroup.add(s); looseSprites.push(s); }
     for (const e of L.entities) {
       const mats = decorMats[e.type];
       if (!mats) continue;

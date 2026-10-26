@@ -245,7 +245,9 @@ serves index.html from main.
   * A hit (`origKnock`, 0x1B6B2; a shield too): facing cut to an eighth, thrown back along it at 0x7800 x 4 and 5 up,
     that speed set each frame (`p.knockT`, pad ignored) till he lands (100 frames at most), then 120 frames safe, no
     blinking while thrown; lost rings: 25 at most, one a frame (`w.ringOut`), 1 unit a frame out (angle + 0x480 each),
-    3 up.
+    3 up; their flight `origRing` (0xD20E: cell edges turn them back, gravity 1/8, bounce 3/4 up and 1/16 off each
+    part, gone when stopped or after 240 frames; floor triangles without the split). Caught after 0.6 s (ours: the
+    original's catch rule is not read).
   A cannon's flight skips it. `runRef()` in game.js scales animation and camera thresholds.
 - Object handlers: the table at 0x1BF42 + type (bra.w per type); `re/NOTES.md` lists the ones read.
 - Springs: `power` = launchFor(140 units); the sim subtracts one step of gravity on launch so the rise matches.
