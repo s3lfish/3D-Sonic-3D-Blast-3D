@@ -358,7 +358,19 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 ## Bosses (bosswatch.py, rr3watch.py, armstand.py, armgrid.py)
 - Object art by type: the long at 0x280E8 + type. Type 48 is Robotnik's pod in every boss (frames 0-7, 9-11 cracked,
   12 front); GG3: 50 ball, 4C claw.
-- GG3 (RunLevel_GGz3 0xDDE4): see CLAUDE.md "Bosses"; measured to the unit.
+- GG3 (InitLevel 0xDD12, RunLevel_GGz3 0xDDE4; a4 vars: (a4) x, $2 y, $4 z words; $8 timer; $E script offset; $10
+  action; $12 next (st.b $13); $14 ball 1 held / 0 loose / 2 still; $16/$1A/$1E ball longs; $22/$26/$2A speed ($26 +
+  down); $2E hops; $32 sub-step; $38 cooldown; $3A hit flag; $3C hits left 5; $3E dying count). Script words 0xDFC6:
+  0, 1 10, 2, 3, 4, -1 10. Action 0: y -= $0AF4 to 0xA0. 1: toward Sonic + 4 by 2, $8 frames, then each frame until
+  within 0x2400 (squares). 2 (at its read): the ball let go. 3: once $14 = 2, a unit a frame to the ball's x, z. 4: y
+  - 1 to ball y + 0x28, 60 frames (ball held again at 30, sound 0x76), y + 1 to 0xA0. x, z kept in 0x320..0x55F. The
+  check (0xDDF6): Sonic's $3E >= 0, y from pod - 0x20 to + 0x40, squares <= 0x400: vx, vz negated, 5 up, pad 30
+  frames; y >= pod + 8: a hit (sound 0x59), else sound 0xB4 only (no hurt). Ball (0xE26A): x += vx, $26 += 0x2000, y
+  -= $26, z += vz; x, z kept in 0x321..0x55E (speed negated). Record $CD3A = ball - (4, 0, 4); floor 0xDB36 under it
+  (the triangles without the split); loose, falling and the floor >= its y: $26 = -2, record y = floor (the ball's
+  long keeps going), $2E + 1, sound 0x96, speed from Sonic's octant to the record (table 0xE4B8 into pairs 0xE498:
+  0x1000 / 0xB50) x 32; at 5 hops $14 = 2. The ball's record touches 16/32 and runs (keys valid) only on screen.
+  Exact over the three private scripts with the world run 120 frames first.
 - RR3 (InitLevel 0x6D84, RunLevel_RRz3 0x6DE8). Level vars (a4 = 0xFFFF0B6C): arm 1 [reach, lift], arm 2, script
   offset $8, action $A, timer $C, pod y $E (0x142 to 152), cap y $10 (0x156 to 162), active arm pointer $12, hits left
   $3C (5). Hit: Sonic within 32 units of the pod (0xCCD8/0xCCE0) and y in [pod - 32, pod + 64], his $3E not negative,

@@ -212,7 +212,7 @@ const S3D = (() => {
   // back) reaches a fist out towards Sonic, raises the other arm, slams (sine table 0x27AC8), rests, lifts, pulls back
   // and swaps arms. Heights here are 8 units up on the emulator's (Sonic stands at 56 on a floor the map gives as 64).
   // Any touch on the pod (within 32 units, from 32 below to 64 above it) is a hit, 60 frames apart; five.
-  const BOSSES = { 3: { kind: 'gg', at: [1152, 350, 1152], home: [1088, 1088], cruise: 160, arena: [800, 1375, 800, 1375], hp: 5 },
+  const BOSSES = { 3: { kind: 'gg', at: [1152, 350, 1152], home: [1088, 1088], cruise: 160, arena: [800, 1375, 800, 1375], hp: 5, script: 0xDFC6 },
     8: { kind: 'rr', at: [1856, 330, 2080], cruise: 160, cap: 350, arms: [1792, 1920], root: [136, 2080],
       reach: [2144, 2190], script: 0x7170, home: [1856, 2080], arena: [1760, 1983, 2080, 2271], hp: 5,
       pit: [[[57, 65], [58, 65]], 0x830, 0x70] },   // (0x6F64: in those cells, z <= 0x830 and y <= 0x70, he is hit)
@@ -961,6 +961,11 @@ const S3D = (() => {
         const Y = v => r3(v / CELL * vscale), Z = v => r3(v / CELL - z0);
         e.first = Y(bs.first); e.high = Y(bs.high); e.low = Y(bs.low); e.belt = bs.belt.map(Z); e.lanes = [r3(bs.lanes[0] / CELL - x0), r3(bs.lanes[1] / CELL)];
         e.end = Z(bs.end); e.loads = bs.loads.map(Z); e.drops = bs.drops.map(v => r3(v / CELL)); e.dropZ = r3(bs.dropZ / CELL);
+      }
+      if (bs.kind === 'gg') {   // its script words (0xDFC6, to the first going back) and the ball's screen window (type 50's art header)
+        const sc = []; for (let o = bs.script; sc.length < 16; o += 2) { sc.push(s16(d, o)); if (sc[sc.length - 1] < 0) { sc.push(s16(d, o + 2)); break; } }
+        e.script = sc;
+        const art = typeArt(d, 0x50); if (art > 0 && art + 8 <= d.length) e.ballWin = [u16(d, art), u16(d, art + 2), s16(d, art + 4), s16(d, art + 6)];
       }
       if (bs.kind === 'dd') {
         const Y = v => r3(v / CELL * vscale);

@@ -102,11 +102,14 @@ serves index.html from main.
   cell [x, z, top, after, quiet]; quiet linked cell (99, 96)) whose ride 0x2E runs under the floor to (98, 96); rides
   0x30/0x32/0x34; dash wall (101, 60). Private flow check: s3d/flow.py, comps.py, simat.js.
 - Bosses (`BOSSES` in s3d.js/convert.py, `boss` entity {kind, x, y, z, home, cruise, arena, hp, vs}, `w.boss`,
-  `bossStep`, `initBoss` on every respawn: a lost life restarts the fight). GG3 (`gg`, RunLevel_GGz3 0xDDE4): pod
-  descends to 160, then loops follow (2/frame, 10 frames, until within 96) / drop the ball (falls, hops 5 times at
-  the player in 8 directions, 2 out 2 up, gravity 0.125) / home (1/frame) / sink to ball + 40, wait 60 (takes it
-  back at 30) / rise. Hit = within 32 units and at pod y + 8 or above; 5 hits, 60 frames apart; beaten: rises 4 s,
-  then `goal`. ROM look: object art by type (`S3D.typeArt`: 0x280E8 + type): 48 pod (frames 0-7, 9-11 cracked),
+  `bossStep`, `initBoss` on every respawn: a lost life restarts the fight). GG3 (`gg`, `ggStep`, RunLevel_GGz3 0xDDE4, in
+  its units: pod words `PX/PY/PZ`, ball longs `BX/BY/BZ`, script words `script` read from 0xDFC6 by the converters):
+  pod descends a unit on the 2-count to 160, then loops follow (2/frame toward Sonic + 4, 10 frames, until within
+  96) / drop the ball (falls 1/8, off the arena's walls; its record 4 units in hops at the floor (0xDB36, no split)
+  2 up and 2 out at Sonic in 8 ways (0xB50 on diagonals) five times) / go to the ball (1/frame) / sink to ball + 40,
+  wait 60 (takes it back at 30) / rise. The check: within 32 units (squares), Sonic thrown back and 5 up either way;
+  from pod y + 8 a hit, else a bump that does not hurt; 60 frames apart. The ball hurts by its touch bytes 16/32
+  while on the screen (`ballWin`, type 50's art header). 5 hits; beaten: rises 4 s, then `goal`. ROM look: object art by type (`S3D.typeArt`: 0x280E8 + type): 48 pod (frames 0-7, 9-11 cracked),
   50 ball, 4C claw (unused), level palette line 3 (`romBossMat`); otherwise a drone of our own design.
   RR3 (`rr`, RunLevel_RRz3 0x6DE8, `rrStep`): pod 330 to 160 (every other frame), cap 350 to 170; script of [action,
   frames] read from 0x7170 (`script`, `loop`); arms [reach, lift] from `root`, joints by `Sim.rrArm` (routine 0x727C:
@@ -418,7 +421,7 @@ serves index.html from main.
   VV2 too (its balls' angle at the trace start fitted: 0x348). VV3 (lava: whole-unit feet y exactly 0x40, 0xA2C2) and
   FF (cannons and fists touch 16 / 24 by their bytes) exact on all three scripts; DD3 too (walls stop the axis part
   whichever way it points, after a diagonal turn; the pod and puffs in the routine's units, the touch's list order, the
-  frozen hop on the jump button). All regular acts and every boss but GG3 exact on the three scripts. A hit shows from the next frame (`p.pre` {anim, facing}:
+  frozen hop on the jump button). All 22 acts, bosses included, exact on the three scripts (GG3 too: PRE 120). A hit shows from the next frame (`p.pre` {anim, facing}:
   the original's player ran before it); the knock-back's eighth is taken from the whole facing; 2 s safe is 120
   frames (the timer snaps to 0). SS1 and SS2 too: the jump word $46 (`p.jb`, 0x2E0E: pressed in the air and held,
   he jumps as he lands), floor springs' exact speed, the scroll after springs. A second private script (jumps, rolls,
@@ -430,7 +433,7 @@ serves index.html from main.
   else VV1's [52, 34]); SS spike fields count on the original's 4-frame count ($0AF8, `gZero(w, 4)`); the start
   faces the start table's way, bosses too (SS3's is not toward the boss). Still off: GnG1 after its reload (51 blank frames, VV1 52: not modelled), the 13
   frames after a reload when the original shows frame 0 (its player not yet run), RR3's boss scroll targets
-  ($084A/$084C), GG3 in places (boss state at a trace's start; their models), a fall onto a no-floor cell (the original lands at map
+  ($084A/$084C), a fall onto a no-floor cell (the original lands at map
   height 0; the act never lets him there). 144 sim tests.
 - Open (2026-10-27): SS objects 13C/140/154 (animation only, not drawn); DD1's sled-end burst (the sound is in); PP1's
   belt reversal animation; FF hatch and pad frames;

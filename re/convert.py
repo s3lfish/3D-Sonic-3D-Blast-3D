@@ -138,7 +138,7 @@ GIMMICKS = {
          'spears': (0x9494, 16), 'spikeWall': (122, [22, 24, 27, 28, 29, 30], 0x380)},
 }
 DOOR_PUSH = {0: (0, 4), 2: (-4, 0), 4: (0, -4)}
-BOSSES = {3: {'kind': 'gg', 'at': (1152, 350, 1152), 'home': (1088, 1088), 'cruise': 160, 'arena': (800, 1375, 800, 1375), 'hp': 5},
+BOSSES = {3: {'kind': 'gg', 'at': (1152, 350, 1152), 'home': (1088, 1088), 'cruise': 160, 'arena': (800, 1375, 800, 1375), 'hp': 5, 'script': 0xDFC6},
           8: {'kind': 'rr', 'at': (1856, 330, 2080), 'cruise': 160, 'cap': 350, 'arms': (1792, 1920), 'root': (136, 2080),
               'reach': (2144, 2190), 'script': 0x7170, 'home': (1856, 2080), 'arena': (1760, 1983, 2080, 2271), 'hp': 5,
               'pit': (((57, 65), (58, 65)), 0x830, 0x70)},
@@ -691,6 +691,14 @@ def convert(rom, level_id, vscale=1.0):
             e["first"] = Y(bs['first']); e["high"] = Y(bs['high']); e["low"] = Y(bs['low']); e["belt"] = [Z(v) for v in bs['belt']]
             e["lanes"] = [r3(bs['lanes'][0] / CELL - x0), r3(bs['lanes'][1] / CELL)]; e["end"] = Z(bs['end']); e["loads"] = [Z(v) for v in bs['loads']]
             e["drops"] = [r3(v / CELL) for v in bs['drops']]; e["dropZ"] = r3(bs['dropZ'] / CELL)
+        if bs['kind'] == 'gg':   # (see s3d.js)
+            sc = []; o = bs['script']
+            while len(sc) < 16:
+                sc.append(struct.unpack('>h', rom[o:o + 2])[0]); o += 2
+                if sc[-1] < 0: sc.append(struct.unpack('>h', rom[o:o + 2])[0]); break
+            e["script"] = sc
+            art = struct.unpack('>I', rom[0x280E8 + 0x50:0x280EC + 0x50])[0]
+            if 0 < art and art + 8 <= len(rom): e["ballWin"] = list(struct.unpack('>HHhh', rom[art:art + 8]))
         if bs['kind'] == 'dd':
             Y = lambda v: jround(v / CELL * vscale, 3)
             e["low"] = Y(bs['low']); e["high"] = Y(bs['high']); e["dropY"] = Y(bs['dropY'])
