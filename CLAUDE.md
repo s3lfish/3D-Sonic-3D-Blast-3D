@@ -307,7 +307,8 @@ serves index.html from main.
   its 16.16 units (bit-exact against 4 emulator traces: private sstrace.py + bonus_parity.js), game.js draws it
   (`startBonus`, `frameBonus`, `endBonus`; own slabs/grating/river/posts/gem in the stage's palette colours; ROM look:
   the stage's own spiked ball and ring (`S3D.bonusSprite`), ROM hero; scribbled: our 3D spiked ball; camera with the
-  original's projection via setViewOffset). Emeralds in localStorage
+  original's projection via setViewOffset; won: the original's result screen, `S3D.tallyImage` kind 'emerald' /
+  'bonus', palette 28). Emeralds in localStorage
   `blastgrid.emeralds` (HUD `#emeraldHud`); the Final Fight follows PP3 only with 7. VV2 vent 0x63AC off while its
   partner's rock stands (`offWhileRock`). 123 sim tests.
 - 2026-10-27: DD1 warp holes (`warpHole`: land on (57, 50), fall through, thrown out of the other; watched and matched to

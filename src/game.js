@@ -2300,7 +2300,7 @@
     const key = shown;
     if (tally.key === key) return;
     tally.key = key;
-    const img = S3D.tallyImage(romArt.d, { act: tally.act, time: tally.time, score: shown, bonus: left, total: shown });
+    const img = S3D.tallyImage(romArt.d, { kind: tally.kind, act: tally.act, time: tally.time, score: shown, bonus: left, total: shown });
     const c = $('tallyCanvas'); c.getContext('2d').putImageData(new ImageData(img.px, img.width, img.height), 0, 0);
     $('tally').style.background = `rgb(${img.background.join(',')})`;
     if (k > 0 && k < 1 && Math.floor(now * 12) % 2) Sfx.play('tick');
@@ -2556,8 +2556,11 @@
     else { title = 'No emerald this time'; info = ''; }
     bonus = null;
     $('bonusMsg').hidden = true;
-    $('clearTitle').textContent = title; $('clearInfo').textContent = info; $('clearCard').hidden = false;
-    clearTimeout(clearTimer); clearTimer = setTimeout(clearCardOff, 4000);
+    clearTimeout(clearTimer);
+    if (won && romOn()) {   // the original's own screen, its bonuses counted down
+      tally = { kind: B.noEm ? 'bonus' : 'emerald', t0: performance.now() / 1000, bonus: [B.b.rings * 100, B.noEm ? 0 : 10000], key: null };
+      $('tally').hidden = false; drawTally(tally.t0); clearTimer = setTimeout(clearCardOff, 6000);
+    } else { $('clearTitle').textContent = title; $('clearInfo').textContent = info; $('clearCard').hidden = false; clearTimer = setTimeout(clearCardOff, 4000); }
     // the original reloads the act with Sonic where he was (0x4FCE): rings, enemies and monitors back
     Sim.reloadAct(world, { x: world.p.x, z: world.p.z, facing: world.p.facing });
     for (let q = 0; q < ringSprites.length; q++) ringSprites[q].visible = true;

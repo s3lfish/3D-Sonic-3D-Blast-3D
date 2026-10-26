@@ -1100,7 +1100,8 @@ const S3D = (() => {
   function tallyImage(d, info) {
     if (!tallyFonts.has(d)) tallyFonts.set(d, { big: rncUnpack(d, TALLY_BIG), small: rncUnpack(d, TALLY_SMALL) });
     const F = tallyFonts.get(d), W = 320, H = 224, px = new Uint8ClampedArray(W * H * 4);
-    const white = paletteRGB(d, 26), yellow = paletteRGB(d, 27), digits = paletteRGB(d, 3);
+    const after = info.kind === 'emerald' || info.kind === 'bonus';   // (0x21114 loads palettes 28, 29, 31, 32)
+    const white = paletteRGB(d, after ? 28 : 26), yellow = after ? white : paletteRGB(d, 27), digits = paletteRGB(d, 3);
     for (let i = 0; i < W * H; i++) { px.set(white[0], i * 4); px[i * 4 + 3] = 255; }
     const tile = (src, t, x, y, pal) => {
       for (let py = 0; py < 8; py++) for (let qx = 0; qx < 8; qx++) {
@@ -1124,6 +1125,14 @@ const S3D = (() => {
       }
     };
     const right = (n, endCol, row) => { const t = String(n); small(t, endCol - t.length + 1, row, white); };
+    if (after) {   // after a special stage (0x21114, screens 1 and 2)
+      const lines = info.kind === 'emerald' ? ['SONIC GOT A', 'CHAOS EMERALD'] : ['SPECIAL STAGE', 'CLEAR'];
+      lines.forEach((l, i) => big(l, (W - 16 * l.length) / 2, 16 + i * 20));
+      small('SCORE', 14, 10, yellow); right(info.score, 27, 10);
+      small('RING', 7, 13, yellow); small('BONUS', 12, 13, yellow); right(info.bonus[0], 27, 13);
+      if (info.kind === 'emerald') { small('EMERALD', 4, 15, yellow); small('BONUS', 12, 15, yellow); right(info.bonus[1], 27, 15); }
+      return { px, width: W, height: H, background: white[0] };
+    }
     big('SONIC GOT', 88, 16); big('THROUGH ACT', 64, 36);
     const a = Math.min(3, Math.max(1, info.act | 0)) - 1;
     for (let k = 0; k < 8; k++) tile(F.big, 104 + a * 8 + k, 244 + (k >> 2) * 8, 22 + (k & 3) * 8, digits);
