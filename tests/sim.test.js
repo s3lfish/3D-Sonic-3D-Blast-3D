@@ -1067,6 +1067,15 @@ test('warp holes: landing on the first opens both; falling in comes out of the o
   assert.ok(out - warped >= 100 && out - warped <= 110, `held while the camera pans (${out - warped})`);
   assert.ok(w.p.grounded && w.p.x > 9 && w.p.x < 12 && Math.abs(w.p.y - 1) < 0.01, `landed by the other hole (${w.p.x.toFixed(2)}, ${w.p.y.toFixed(2)})`);
 });
+test('a fire bar turns six fireballs about its line every 64 frames; they burn, but not with the fire shield', () => {
+  let w = GNG([{ type: 'fireBar', x: 6, y: 1.5, z: 2.5 }]); w.ringCount = 5; place(w, 6.8, 2.5);
+  const ys = []; run(w, 65, (f, ww) => { if (f) ys.push(ww.barBalls[2][1]); return {}; });
+  assert.ok(w.barBalls.length === 6 && Math.abs(w.barBalls[5][0] - w.barBalls[0][0] - 85 / 32) < 1e-6, 'six, 85 units along x');
+  near(Math.max(...ys) - Math.min(...ys), 24 / 32, 0.01, 'the middle ones swing 12 units each way');
+  assert.ok(w.ringCount === 0, 'burnt');
+  w = GNG([{ type: 'fireBar', x: 6, y: 1.5, z: 2.5 }]); w.ringCount = 5; w.p.shield = 'fire'; place(w, 6.8, 2.5);
+  run(w, 64, {}); assert.ok(w.ringCount === 5, 'the fire shield spares');
+});
 // Final Fight: a flat floor at the act's height (25.25 m) over the act's 34 x 22 cells; the doors as the converter makes them
 const FF = () => {
   const tiles = []; for (let k = 0; k < 34 * 22; k++) tiles.push({ c: [25.25, 25.25, 25.25, 25.25], t: 'F' });

@@ -791,7 +791,7 @@
   // Panic Puppet 2's beam posts (180): the frame shown in each of the 24 animation steps (list 0x16030, frame offsets / 4)
   const BEAM_FRAMES = [4, 4, 4, 4, 3, 3, 3, 2, 2, 2, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3];
   let rockObjs = [], jetObjs = [], moverObjs = [], spikeBallObjs = [], fireObjs = [], fireballObjs = [], iceSpikeObjs = [], mineSprites = [], crawlerSprites = [], balloonSprites = [], spikeMesh = null, spearObj = null, turretSprites = [], shotSprites = [], boosterMarks = [], goalFx = null, satReady = false;
-  let warpHoleMarks = [], doorMeshes = [], jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
+  let barObjs = [], warpHoleMarks = [], doorMeshes = [], jamSprings = [], jamFlickies = [], ballSprites = [], crackMeshes = [], liftMeshes = [], maceObjs = [], puffSprites = [], bossObj = null;
   // a boss machine of our own design (a hovering four-rotor drone with one lamp; never the original's look-alike), its
   // spiked ball on a chain, and a burst of fireballs when beaten
   function buildBoss() {
@@ -1425,6 +1425,11 @@
     });
     // lava spouts' and fire runs' fireballs (ROM look: object 114's frames)
     const ballFrames = rom && (world.spouts.length || world.fireRuns.length) ? romTypeFrames(0x114, 3) : [];
+    // fire bars' fireballs: object 120 (fire, line 3) as the original's records are, or our own glow
+    barObjs = world.fireBars.flatMap(() => Array.from({ length: 6 }, () => {
+      const sp = fireFrames.length ? bottomSprite(fireFrames[0], 0, 0, 0, ROM_SIZE, ROM_SIZE, OBJ_FOOT) : (() => { const s = new THREE.Sprite(puffMat); s.scale.set(0.6, 0.6, 1); levelGroup.add(s); return s; })();
+      sp.userData.frames = fireFrames; return sp;
+    }));
     fireballObjs = (world.spouts.length || world.fireRuns.length) ? Array.from({ length: 24 }, () => {
       const s = ballFrames.length ? bottomSprite(ballFrames[0], 0, 0, 0, ROM_SIZE, ROM_SIZE, 0.5) : (() => { const q = new THREE.Sprite(puffMat); q.scale.set(0.55, 0.55, 1); levelGroup.add(q); return q; })();
       s.visible = false; s.userData.frames = ballFrames; return s;
@@ -2491,6 +2496,12 @@
     }
     for (const o of iceSpikeObjs) o.visible = !!world.iceSpikes.get(o.userData.cell);
     for (const o of rockObjs) o.visible = world.rocks.has(o.userData.cell);
+    for (let q = 0; q < barObjs.length; q++) {
+      const o = barObjs[q], b = world.barBalls[q]; o.visible = !!b;
+      if (!b) continue;
+      o.position.set(b[0], b[1] + (o.userData.frames.length ? 0 : 0.3), b[2]); const fr = o.userData.frames;
+      if (fr.length) o.material = fr[(Math.floor(t * 15) + q) % fr.length];
+    }
     for (let q = 0; q < fireballObjs.length; q++) {
       const o = fireballObjs[q], b = world.fireballs[q]; o.visible = !!b;
       if (!b) continue;

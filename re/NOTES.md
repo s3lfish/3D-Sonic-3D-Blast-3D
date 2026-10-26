@@ -449,6 +449,11 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   (1.5 on average) along x, or z with flag 0x800, until animation frame 0x2A (42 frames); one hurt Sonic about 16 units
   away (vvfire.py).
 
+- Fire bars (helper 0xBA68; VV1 table 0xAB26 (2), VV2 0xB25C (3); 14-byte records [camera box x, w, z, h, x, y, z]):
+  while the camera is in its box, records $D046.. (object 120, line 3, frame 7) at x + 17k (k 0..5), y + r sin(a),
+  z + r cos(a) with r 4, 8, 12, 12, 8, 4; a goes down 0x20 of 0x800 a frame (64 frames a turn). They burn (watched:
+  Sonic hurt in the bar's middle cell), not with the fire shield.
+
 ## Volcano Valley 2 (2026-10-27; vvae20_dis, mapdiff.py)
 - RunLevel 0xAE20: 0xBA68 (0xB25C, 3), spouts 0xB286 (16), fire runs 0xB194 (5), rocks 0xB484 (27), vents 0xB394 (8,
   skipped at cell 0x63AC while byte $956F is 0xFF), pads 0xB10C/0xB130, roofs 0xB386. Cracked walls: trigger (95, 114)

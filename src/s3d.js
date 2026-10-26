@@ -105,9 +105,9 @@ const S3D = (() => {
     // phase, window]; fire runs: 0x28-byte records [x0, w, z0, h, then 4 x [x, y, z, flags (0x800: along z)]]
     // Volcano Valley 2 (RunLevel 0xAE20, labelled VVz1): pads 0xB10C/0xB130 (record 2 <-> 4 after ring 1); cracked walls
     // at (55, 61) (a roll north) and (94, 114) (west); spiked balls 118 swing about z 0xE80
-    12: { pads: [[0, 1, 1]], lava: 0x55, rocks: [0xB484, 27], roofs: 0xB386, vents: [0xB394, 8], spouts: [0xB286, 16], fireRuns: [0xB194, 5],
+    12: { pads: [[0, 1, 1]], lava: 0x55, rocks: [0xB484, 27], roofs: 0xB386, vents: [0xB394, 8], spouts: [0xB286, 16], fireRuns: [0xB194, 5], fireBars: [0xB25C, 3],
       cracks: [[[[55, 61]], 744, [0, -1]], [[[94, 114]], 424, [-1, 0]]], balls: [0xE80, 56, 8] },
-    13: { pads: [[0, 1, 1], [2, 3, 2]], lava: 0x55, rocks: [0xAB42, 42], roofs: 0xAA4A, vents: [0xA8F6, 6], spouts: [0xA9AA, 10], fireRuns: [0xAA5E, 5],
+    13: { pads: [[0, 1, 1], [2, 3, 2]], lava: 0x55, rocks: [0xAB42, 42], roofs: 0xAA4A, vents: [0xA8F6, 6], spouts: [0xA9AA, 10], fireRuns: [0xAA5E, 5], fireBars: [0xAB26, 2],
       cracks: [[[[59, 55]], 680, [-1, 0]], [[[65, 63]], 584, [-1, 0]]] },
     14: { lava: 0x55 },   // Volcano Valley 3: the crater's lava
     18: { roofs: 0x11482 },   // Gene Gadget 3: the row under the pod
@@ -747,6 +747,12 @@ const S3D = (() => {
         if (x) shots.push([r3(x / CELL - x0), r3((s16(d, q + 2) + 8) / CELL * vscale), r3(s16(d, q + 4) / CELL - z0), u16(d, q + 6) & 0x800 ? 'z' : 'x', j]);
       }
       if (shots.length) ents.push({ type: 'fireRun', box: [r3(bx / CELL - x0), r3((bx + bw) / CELL - x0), r3(bz / CELL - z0), r3((bz + bh) / CELL - z0)], shots });
+    }
+    // fire bars (helper 0xBA68: 14-byte records [camera box x, w, z, h, then x, y, z]): six fireballs 17 units apart along
+    // x from (x, y, z), turning about it in y and z 4, 8, 12, 12, 8, 4 units out, a turn every 64 frames
+    if (gm.fireBars) for (let k = 0; k < gm.fireBars[1]; k++) {
+      const o = gm.fireBars[0] + 14 * k, x = s16(d, o + 8), y = s16(d, o + 10), z = s16(d, o + 12);
+      if (floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) ents.push({ type: 'fireBar', x: r3(x / CELL - x0), y: r3((y + 8) / CELL * vscale), z: r3(z / CELL - z0) });
     }
     if (gm.vents) for (let k = 0; k < gm.vents[1]; k++) {
       const o = gm.vents[0] + 30 * k, c = u16(d, o) >> 1, cx = c % 128, cz = c >> 7, tx = s16(d, o + 2), ty = s16(d, o + 6), tz = s16(d, o + 10);

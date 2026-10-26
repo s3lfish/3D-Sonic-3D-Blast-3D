@@ -96,9 +96,9 @@ GIMMICKS = {
         'gates': [([(88, 54), (89, 54)], 0x6D, 0, 1), ([(90, 47), (91, 47)], 0x6D, 0, 1), ([(86, 75), (87, 75)], 0x59, 0, 2), ([(78, 67), (79, 67)], 0x65, 0, 2)],
         'passOff': [(91, 46), (86, 74, 2)], 'shuts': [([(38, 76)], [(37, 75), (38, 75)], 0x7D)],
         'warps': [(57, 50, 0x770, 0x1E0, 0x910, 0x320), (59, 72, 0x730, 0x340, 0x650, 0x1C0)]},   # Diamond Dust 1 (see s3d.js)
-    12: {'pads': [(0, 1, 1)], 'lava': 0x55, 'rocks': (0xB484, 27), 'roofs': 0xB386, 'vents': (0xB394, 8), 'spouts': (0xB286, 16), 'fireRuns': (0xB194, 5),
+    12: {'pads': [(0, 1, 1)], 'lava': 0x55, 'rocks': (0xB484, 27), 'roofs': 0xB386, 'vents': (0xB394, 8), 'spouts': (0xB286, 16), 'fireRuns': (0xB194, 5), 'fireBars': (0xB25C, 3),
          'cracks': [([(55, 61)], 744, [0, -1]), ([(94, 114)], 424, [-1, 0])], 'balls': (0xE80, 56, 8)},
-    13: {'pads': [(0, 1, 1), (2, 3, 2)], 'lava': 0x55, 'rocks': (0xAB42, 42), 'roofs': 0xAA4A, 'vents': (0xA8F6, 6), 'spouts': (0xA9AA, 10), 'fireRuns': (0xAA5E, 5),
+    13: {'pads': [(0, 1, 1), (2, 3, 2)], 'lava': 0x55, 'rocks': (0xAB42, 42), 'roofs': 0xAA4A, 'vents': (0xA8F6, 6), 'spouts': (0xA9AA, 10), 'fireRuns': (0xAA5E, 5), 'fireBars': (0xAB26, 2),
          'cracks': [([(59, 55)], 680, [-1, 0]), ([(65, 63)], 584, [-1, 0])]},
     14: {'lava': 0x55},
     18: {'roofs': 0x11482},   # Gene Gadget 3
@@ -484,6 +484,11 @@ def convert(rom, level_id, vscale=1.0):
                 q = o + 8 + 8 * j; x = s16(q)
                 if x: shots.append([r3(x / CELL - x0), r3((s16(q + 2) + 8) / CELL * vscale), r3(s16(q + 4) / CELL - z0), 'z' if struct.unpack('>H', rom[q + 6:q + 8])[0] & 0x800 else 'x', j])
             if shots: ents.append({"type": "fireRun", "box": [r3(bx / CELL - x0), r3((bx + bw) / CELL - x0), r3(bz / CELL - z0), r3((bz + bh) / CELL - z0)], "shots": shots})
+    if 'fireBars' in gm:   # fire bars (helper 0xBA68; see s3d.js)
+        o0, n = gm['fireBars']
+        for k in range(n):
+            o = o0 + 14 * k; x, y, z = s16(o + 8), s16(o + 10), s16(o + 12)
+            if floor_cell(x // CELL, z // CELL): ents.append({"type": "fireBar", "x": r3(x / CELL - x0), "y": r3((y + 8) / CELL * vscale), "z": r3(z / CELL - z0)})
     if 'vents' in gm:
         o0, n = gm['vents']
         for k in range(n):

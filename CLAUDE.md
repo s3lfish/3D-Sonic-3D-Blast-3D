@@ -156,8 +156,9 @@ serves index.html from main.
   gravity) and `fireRun` (0xB900: in its box, fireballs at slot frames 69/79, 70/80, 139/149, 140/150 of a 151 count,
   1.5 units a frame for 42 frames; measured) share `w.fireballs`; the fire shield spares. VV2 (`GIMMICKS[12]`, 0xAE20):
   the same helpers, `movePlat` (128: box swinging 63 units along x/z about +0x28, +4 a frame of 0x800 from +0x26) and
-  `spikeBall` (118: swung by the routine about z 0xE80, 56 units, alternate records opposite). Not yet: 0xBA68 fire
-  wheels, the sinking 128 kind, VV2's 0x63AC vent exception and $7A flag.
+  `spikeBall` (118: swung by the routine about z 0xE80, 56 units, alternate records opposite). `fireBar` (0xBA68,
+  tables 0xAB26 VV1 / 0xB25C VV2: six object-120 fireballs 17 units apart along x, turning 4/8/12/12/8/4 units about the
+  line, a turn per 64 frames; `w.barBalls`). Not yet: the sinking 128 kind, VV2's 0x63AC vent exception and $7A flag.
 - Gene Gadget 1 (`GIMMICKS[4]`, RunLevel_GnGdz1 0x11D2A, InitLevel 0x11C78; GnG labels are not swapped): `updraft`
   (0x55: grounded, `p.hover`: 0.125 a frame per frame up under floor + 48, down over it, the climb halved crossing it,
   ball table steers, pose spring); `zapCells` (0xAA, object 068: armed on stepping on, sparks at 22 frames for 12,
