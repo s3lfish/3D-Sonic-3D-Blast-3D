@@ -670,3 +670,17 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - Estimated, not measured: the fists' touch box (20 units across, 32 up), the serpent links' (14), the bombs' (16
   falling, 24 on the floor).
 - Not done: the floor pads' frames, the hatch's frames and the original's camera.
+
+## Tails, Knuckles and the special stage (2026-10-27; started, not used yet)
+- 15C Tails (handler 0x161C4, art 0x8EFF4) and 160 Knuckles (0x1626A, 0x93AA2) call 0xCF1E: a grounded Sonic with rings
+  whose x + 8 and z + 8 are within 0..16 of the record's is walked beside it; all his rings go to its running count
+  ($069E Tails, $06A0 Knuckles; shown over its head with font 0x144C1E), $24 = 120 frames, sound 0xB0 at 50 left. If
+  this gift took the count past 50, at the end $0684 = 1 (Tails) or 2 (Knuckles) and the main loop (0x60C) goes to the
+  special stage (0x760).
+- 0x760: stage = emeralds ($06A2, 7 and over: 6, no emerald); Tails adds 7; a stage played before ($06AE Tails /
+  $06B0 Knuckles, stage + 1) is replayed with no emerald. Entry 0x1E218 (init 0x1C2AA): table 0x1CA94, 14 entries of
+  24 bytes [kind (1: stages 0-6, 0: 7-13), 0x2000..0x2C00 (rising by stage), 0x15, a word, layout (RNC1), three
+  palette pointers]. Layouts unpack to 8-byte records [distance (from -0x17A, rising), across, a small value, 1 ring /
+  0 spike ball]; 337 in stage 0.
+- Watched (poke $0684 = 2 in GG1): a stone path over lava, "COLLECT 50 RINGS", rings and spike balls; in the emulator
+  the run stalled after a few seconds (not understood; possibly the entry by poke). Not implemented.
