@@ -332,9 +332,12 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   only reachable this way (`gaps.py`). After a lost life InitLevel sets mode 3 and the pocket is used again.
 - Doors: table 0x7994, 28-byte records [cell, x, y, z (16.16), $38, cell, sprite, direction, camera x2]; grounded on
   the cell, Sonic is moved and pushed 4 units a frame (direction 0 south, 2 west, 4 north, else east).
-- Fans: map low byte 0x55 (helper 0x83A8): grounded, not whirling: $5C = 1 (whirl), $56 = 2, held 32 frames with
-  sound 0xAB every 8. Measured: 0.094 units a frame per frame towards the stick, top 5, drag 0.03 with the stick
-  released, a wall sends back about 0.94 of the speed. Spike blocks: low byte 0xFF sets $3E = -1 (a hit).
+- Fans: map low byte 0x55 (helper 0x83FA): grounded, not whirling: $5C = 1 (whirl), $56 = 2, a count of 32, his
+  target ($6C/$70/$6E) the cell's middle (x & ~31 + 16) and his y: while it counts, his move is a unit a frame toward
+  it (as a supercharger's) and the pad nothing ($0A18 = 2); sound 0xAB when the count & 7 is 0. Whirling, the
+  velocity routine takes its own table (0x3380: accel 0x200, frictions 0x80 / 0x80, top 0x5000), the turn as ever,
+  the slope's pull quartered and walls, corners and diagonal pieces as a roll ($56 = 2); a jump's frame still uses
+  the whirl's table. Exact over the RR1 fifth trace. Spike blocks: low byte 0xFF sets $3E = -1 (a hit).
   Low byte 0xAA: green domes, a puff (object 0A8) and sound 0xAA only.
 - Pillars: table 0x7ACC (helper 0x85AC), 14-byte records [screen x, screen y, x, y, z, cell, raised word]; InitLevel
   raises each cell by 0x2000; while whirling, cells touched are let in and a pillar whose cell Sonic enters drops by

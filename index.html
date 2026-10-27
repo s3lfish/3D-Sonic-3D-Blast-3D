@@ -1107,7 +1107,7 @@ const Sim = (() => {
       // raw: the same in the original's own units, for the frame-exact routine (Sim origVelocity); sin: its table
       // 0x276E8 is floor(sin(i / 0x400 turn) x 0x7FFF), 0x500 words (cos 0x100 on); dashDir: launch table 0x3312
       const sin = new Int16Array(0x500); for (let i = 0; i < 0x500; i++) sin[i] = i % 0x200 ? Math.floor(Math.sin(i * 2 * Math.PI / 0x400) * 0x7FFF) : 0;   // (sin of a whole turn is 0 there, not -1)
-      return { raw: { walk: [0x480, 0x260, 0x380], ball: [0x300, 0x160, 0x200], ice: [0x100, 0x20, 0x20], roll: [0, 0x10, 0x200], top: 0x5000, shoes: 0x6800, dashTop: 0x7800 },
+      return { raw: { walk: [0x480, 0x260, 0x380], ball: [0x300, 0x160, 0x200], ice: [0x100, 0x20, 0x20], roll: [0, 0x10, 0x200], whirl: [0x200, 0x80, 0x80], top: 0x5000, shoes: 0x6800, dashTop: 0x7800 },
         sin, dashDir: [0x7800, 0x54DA],
         walk: [t(0x480), t(0x260), t(0x380)], ball: [t(0x300), t(0x160), t(0x200)], ice: [t(0x100), t(0x20), t(0x20)],
         roll: [0, t(0x10), t(0x200)], rollMin: u(1), run: u(5), shoes: 6.5 / 5, cap: u(0x7F00 / 0x1000), turn: 0x40 / 0x800 * 2 * Math.PI * 60,
@@ -1999,7 +1999,7 @@ const Sim = (() => {
     p.x = X / S / 32; p.z = Z / S / 32;
     const U = 60 / 32, vx = Math.round(p.vx / U * S), vz = Math.round(p.vz / U * S);   // (across: a unit is 1/32 m whatever the height scale)
     const face = origFace(p), setFace = f => { let a = -(((f % 0x800) + 0x800) % 0x800) / 0x800 * 2 * Math.PI; if (a <= -Math.PI) a += 2 * Math.PI; p.facing = a; };
-    if (p.rolling) {   // ($56 = 2)
+    if (p.rolling || (p.whirl && L.rom)) {   // ($56 = 2: a roll, or a whirl)
       if (line === 0) { p.vx = -vz / S * U; p.vz = -vx / S * U; setFace(0x200 - face); }
       else { p.vx = vz / S * U; p.vz = vx / S * U; setFace(0x600 - face); }
       return true;
@@ -2044,7 +2044,8 @@ const Sim = (() => {
     // (0x3406: walking this frame; ended in the air its state is 0: the walk table there, no ball, no attack)
     if (p.rolling && (p.fwdWord === undefined ? 0x1000 : p.fwdWord) < 0x1000) { p.rolling = false; if (L.rom) p.ball = false; }   // ($56 = 0: no ball left, landed rolls too)
     const roll = p.rolling;
-    const tab = p.frozen > 0 ? R.ice : roll ? R.roll : (p.ball || p.hover) && !p.grounded && !walkNow ? R.ball : w.ice ? R.ice : R.walk;
+    const whirl = p.whirl || p.whirlJump; p.whirlJump = false;
+    const tab = p.frozen > 0 ? R.ice : whirl ? R.whirl : roll ? R.roll : (p.ball || p.hover) && !p.grounded && !walkNow ? R.ball : w.ice ? R.ice : R.walk;
     if (!roll || p.topW === undefined) p.topW = p.fast > 0 ? R.shoes : R.top;
     const k = Math.min(1, m), A = m > 0.3 ? Math.round(tab[0] * k) : tab[0];
     const top = Math.max(m > 0.3 ? Math.round(p.topW * k) : p.topW, Math.round(minTop / U * 0x1000));   // (a forced run keeps its speed)
@@ -2065,7 +2066,7 @@ const Sim = (() => {
     if (L.rom && (p.grounded || walkNow)) {
       const g = origPull(L, p.x, p.z, _pull);
       if (Math.abs(g[0]) >= 0x1000 || Math.abs(g[1]) >= 0x1000 || Math.abs(X) >= 0x800 || Math.abs(Z) >= 0x800) {
-        let a = g[0], b = g[1]; if (p.rolling) { a >>= 2; b >>= 2; }
+        let a = g[0], b = g[1]; if (p.rolling || (whirl && L.rom)) { a >>= 2; b >>= 2; }
         X += a + (a >> 2); Z += b + (b >> 2);
       }
       if (walkNow) { X += g[0] * 32; Z += g[1] * 32; p.vy = g[2] * 16 / S * 60 / 32 * L.rom.vscale; }
@@ -3400,6 +3401,14 @@ const Sim = (() => {
         const face = b.dir[1] > 0 ? 0 : b.dir[1] < 0 ? 0x400 : b.dir[0] > 0 ? 0x600 : 0x200;
         p.boost = { pad: b, n: 0x46, tx, tz, ty: Math.floor(p.y * 32 / L.rom.vscale - 8 + 1e-6), face }; w.events.push('boostIn'); break;
       }
+      // (a fan, helper 0x83FA, after Sonic each frame: grounded on one, not whirling: whirling ($5C = 1), held 32 counts
+      // with his own move a unit a frame toward the cell's middle (as a supercharger's), the pad nothing; a sound every 8)
+      if (!p.boost && !p.whirl && p.grounded && w.fans.size && w.fans.has(Math.floor(p.z) * L.width + Math.floor(p.x))) {
+        const o = L.rom.origin;
+        p.whirl = true; p.rolling = false; p.ball = false; p.charge = 0;
+        p.fanHold = { n: 32, tx: (Math.floor((p.x + o[0]) * 32 + 1e-6) & ~31) + 16, tz: (Math.floor((p.z + o[1]) * 32 + 1e-6) & ~31) + 16, ty: Math.floor(p.y * 32 / L.rom.vscale - 8 + 1e-6) };
+      }
+      if (p.fanHold) { const F = p.fanHold; if ((F.n & 7) === 0) w.events.push('whirl'); inp = {}; if (--F.n === 0) p.fanHold = null; }
       if (p.boost) {
         const B = p.boost, fw = () => Math.round(origFace(p)) & 0x7FF;
         if (--B.n === 0) { p.boost = null; inp = {}; p.force = { t: 30 / 60, dir: null, top: 0, pass: true }; w.passOn.add(1); B.pad.firedAt = w.time; }   // (fired: the gates' flag set; the dash sounds as it goes)
@@ -3611,7 +3620,7 @@ const Sim = (() => {
 
     // a fan (Rusty Ruin) sets a grounded player whirling like a top: held on its middle for a moment, then steered
     // slowly and bouncing off walls; enemies and pillars it touches break. A jump or a hit ends it.
-    if (!p.whirl && p.grounded && w.fans.size && w.fans.has(Math.floor(p.z) * L.width + Math.floor(p.x))) {
+    if (!(L.rom && L.phys.orig) && !p.whirl && p.grounded && w.fans.size && w.fans.has(Math.floor(p.z) * L.width + Math.floor(p.x))) {
       p.whirl = true; p.whirlHold = P.whirlHold; p.rolling = false; p.ball = false; p.charge = 0;
     }
     if (p.whirlHold > 0) {
@@ -3626,7 +3635,7 @@ const Sim = (() => {
     // that frame. While the button is held standing he neither moves nor jumps (that routine's early exit).
     let holdO = false;
     if (O) {
-      if (!p.whirl && !(p.flyT > 0)) origTurn(p, mx, mz, m);   // (the turn comes first there)
+      if ((!p.whirl || L.rom) && !(p.flyT > 0)) origTurn(p, mx, mz, m);   // (the turn comes first there; whirling too)
       if (p.grounded && !p.whirl) {
         const U = 60 / 32;
         if (Math.round(p.vx / U * 65536) !== 0 || Math.round(p.vz / U * 65536) !== 0) {
@@ -3684,7 +3693,7 @@ const Sim = (() => {
     // jump
     let jumpedNow = false;   // (the original jumps after its velocity update: that frame still walks)
     if (groundJump && (p.grounded || p.coyote > 0) && !charging) {
-      jumpedNow = true; p.vy = L.phys.jumpV; p.grounded = false; p.coyote = 0; p.jumping = true; p.ball = true; p.whirl = false; p.whirlHold = 0;
+      jumpedNow = true; p.vy = L.phys.jumpV; p.grounded = false; p.coyote = 0; p.jumping = true; p.ball = true; if (p.whirl && L.rom) p.whirlJump = true; p.whirl = false; p.whirlHold = 0;   // (whirlJump: this frame's speed still by the whirl's table, 0x3336 comes first)
       launchW(p, L, L.phys.jumpV);
       w.events.push('jump');
     }
@@ -3710,7 +3719,7 @@ const Sim = (() => {
     p.skid = p.grounded && !p.rolling && !p.whirl && !charging && m > 0.3 && speed > P.run * 0.5 && (mx * p.vx + mz * p.vz) / (m * speed) < -0.3;
     if (p.skid && !wasSkid) w.events.push('skid');
     if (charging) { /* braking handled above */ }
-    else if (O && !p.whirl && !(p.flyT > 0)) {   // (a cannon's flight keeps its speed: no steering, no drag)
+    else if (O && (!p.whirl || L.rom) && !(p.flyT > 0)) {   // (a cannon's flight keeps its speed: no steering, no drag; whirling: its own table, 0x3380)
       if (!holdO) origVelocity(w, L, p, m, p.force && p.force.dir ? p.force.top : 0, jumpedNow);
     }
     else if (p.whirl) {
@@ -3757,7 +3766,7 @@ const Sim = (() => {
       }
     }
     // slope pull and gravity
-    if (p.grounded && !(O && L.rom && !p.whirl && !(p.flyT > 0))) { gradientAt(L, p.x, p.z, _g); const k = O ? P.slopeOrig / (L.rom ? L.rom.vscale : 1) : P.slope; p.vx -= _g[0] * k * dt; p.vz -= _g[1] * k * dt; }   // (converted levels: origVelocity)
+    if (p.grounded && !(O && L.rom && !(p.flyT > 0))) { gradientAt(L, p.x, p.z, _g); const k = O ? P.slopeOrig / (L.rom ? L.rom.vscale : 1) : P.slope; p.vx -= _g[0] * k * dt; p.vz -= _g[1] * k * dt; }   // (converted levels: origVelocity)
     else if (p.hover && O && L.rom) {
       // (the original, 0x2E84, in its units, y up and speed down: 0.25 up against gravity; under the line (floor + 48)
       // 0.125 more up, over it 0.125 down; then, by its own test of y + speed against the line, a fall of 1.5 or more
@@ -3823,9 +3832,9 @@ const Sim = (() => {
 
     // (held by a supercharger, 0x4330: a whole unit a frame on each axis toward its cell's middle, fractions and speeds
     // cleared; no walls, no floor)
-    const boostStep = !!(O && L.rom && p.boost);
+    const boostStep = !!(O && L.rom && (p.boost || p.fanHold));
     if (boostStep) {
-      const B = p.boost, o = L.rom.origin, vs = L.rom.vscale;
+      const B = p.boost || p.fanHold, o = L.rom.origin, vs = L.rom.vscale;
       const X = Math.floor((p.x + o[0]) * 32 + 1e-6), Z = Math.floor((p.z + o[1]) * 32 + 1e-6), Y = Math.floor(p.y * 32 / vs - 8 + 1e-6);
       p.x = (X + Math.sign(B.tx - X)) / 32 - o[0]; p.z = (Z + Math.sign(B.tz - Z)) / 32 - o[1]; p.y = (Y + Math.sign(B.ty - Y) + 8) / 32 * vs;
       p.vx = p.vy = p.vz = 0;
@@ -3846,12 +3855,12 @@ const Sim = (() => {
       if (nrm) {
         // a whirl bounces off; so does a roll in the original's movement (watched: Green Grove 1's first wall, Gene
         // Gadget 1's corridor), turning to its new way
-        const bounce = O && p.rolling && (p.grounded || L.rom);   // (the original: $56 = 2, in the air too)
+        const bounce = O && (p.rolling || (p.whirl && !!L.rom)) && (p.grounded || L.rom);   // (the original: $56 = 2, in the air too; a whirl has it too)
         if (bounce && _dn[2]) { nrm[0] = _dn[0]; nrm[1] = _dn[1]; }   // (a point in the original: the diagonal alone turns it)
         // (in the air the original only stops him at the wall: his speed is kept, so he goes on once over the ledge;
         // watched: thrown out of Diamond Dust 1's warp hole against its edge)
         const keep = false;   // (0x40D6: the same wall in the air; watched in Green Grove 2)
-        if (O && _ax[2] && !_dn[2] && !p.whirl) {   // (a cell wall in the original: each axis met on its own, the other kept)
+        if (O && _ax[2] && !_dn[2] && (!p.whirl || L.rom)) {   // (a cell wall in the original: each axis met on its own, the other kept)
           if (!keep) {
             // (0x42A0: a roll comes back 0x4000 slower, stopping on that axis if that crosses zero, the roll over once both
             // are; coming back, the facing is mirrored: 0x800 - f off an x wall, 0x400 - f off a z wall)
@@ -3901,7 +3910,7 @@ const Sim = (() => {
       }
     }
 
-    if (speed > 0.3 && !charging && !(O && !p.whirl)) p.facing = Math.atan2(p.vx, p.vz);
+    if (speed > 0.3 && !charging && !(O && (!p.whirl || L.rom))) p.facing = Math.atan2(p.vx, p.vz);
     if (p.y < L.killY) { death(w); return w; }
     // (thrown back: its movement ran on the speed as usual; the hit routine sets the knock speed again after, 0x1B7FC)
     if (p.knockT > 0 && !p.grounded) { p.vx = p.knock[0]; p.vz = p.knock[1]; }
@@ -5178,7 +5187,7 @@ const Sim = (() => {
   function hurt(w, awayX, awayZ) {
     const p = w.p, m0 = Math.hypot(awayX, awayZ) || 1;
     if (p.inv > 0) return;
-    p.whirl = false; p.whirlHold = 0;
+    p.whirl = false; p.whirlHold = 0; p.fanHold = null;
     const OH = w.L.rom && w.L.phys.orig;   // (converted levels: the original's hit, 0x1B6B2)
     // a shield takes the hit instead: no rings or Flickies lost
     if (p.shield) {
