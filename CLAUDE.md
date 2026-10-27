@@ -418,7 +418,10 @@ serves index.html from main.
   0xCA6A (unit steps to the middle, turned, revved by the forced pad, the pad let go); rides without a speed keep
   his (`keep`); air walls at the moved height; triangle bumpers' flag; GnG3's end row sees the safe count before this
   frame's; FF lasers and cannon balls are the original's particles. All four private scripts exact in all 22 acts
-  (bosses with PRE; `move_gg1s` 70 the one known gap).
+  (bosses with PRE; `move_gg1s` 70 the one known gap). A fifth, random script (ex5, 1500 frames an act, /tmp mk5.py):
+  PP3 drops in at start and reload (`start.dropY`, `lock`), ride starts keep fractions, placed ends hold the pad 10
+  and stand still, tubes wait for a free pad (`hole.free`), pad locks count N frames (`p.force` t <= 1e-9).
+  ex5 still off: 4, 6, 7, 8, 11, 14, 20, 22.
 - 2026-10-27: lives (game.js `lives`, HUD `#livesHud`: 3, a 1-up monitor or a special stage won with all seven adds
   one, 9 at most; none left: "Game over", the act again with 3); a death reloads the act (Sim `death`: rings, enemies,
   monitors, mines and capsules back, Flickies not in a ring gone; `reloadAct`, also after a special stage with the player

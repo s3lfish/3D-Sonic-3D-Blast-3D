@@ -1242,7 +1242,12 @@ const Sim = (() => {
           if (!inBounds(e.x, e.z)) errs.push('The start is outside the map.');
           else if ('PW'.includes(L.coll[Math.floor(e.z) * L.width + Math.floor(e.x)])) errs.push('The start is over a pit.');
           else if (e.facing !== undefined && !Number.isFinite(e.facing)) errs.push('The start "facing" must be compass degrees (0 north, 90 east).');
-          else { const r = (e.facing ?? 180) * Math.PI / 180; L.start = { x: e.x, z: e.z, facing: Math.atan2(Math.sin(r), -Math.cos(r)) }; }
+          else {
+            const r = (e.facing ?? 180) * Math.PI / 180; L.start = { x: e.x, z: e.z, facing: Math.atan2(Math.sin(r), -Math.cos(r)) };
+            // (converted: dropped in from the loaded cell's height, the pad held `lock` frames, as Panic Puppet 3 starts)
+            if (Number.isFinite(e.dropY)) L.start.dropY = e.dropY;
+            if (Number.isInteger(e.lock) && e.lock > 0 && e.lock < 600) L.start.lock = e.lock;
+          }
           break;
         case 'ring':
           if (e.absY !== undefined) {
@@ -1672,7 +1677,7 @@ const Sim = (() => {
           const half = Array.isArray(e.half) && e.half.length === 2 && e.half.every(v => v > 0 && v <= 1) ? e.half : null;
           // "run": taken only in a supercharged run; "key": the ride gives that key (see gate)
           L.entities.push({ type: 'hole', x: e.x, z: e.z, y: floorAt(L, e.x, e.z), opens, exit: [ex[0], ex[1]], launch, size, half, push,
-            exitY: Number.isFinite(e.exitY) ? e.exitY : null, air: !!e.air, maxY: Number.isFinite(e.maxY) ? e.maxY : null, run: !!e.run, key: e.key ?? null,
+            exitY: Number.isFinite(e.exitY) ? e.exitY : null, air: !!e.air, maxY: Number.isFinite(e.maxY) ? e.maxY : null, run: !!e.run, key: e.key ?? null, free: !!e.free,
             pad: e.pad && Number.isFinite(e.pad.sink) ? { sink: e.pad.sink, bury: e.pad.bury || 0, pocket: !!e.pad.pocket } : null,
             ride: ride && normRide(ride) });
           break;
@@ -3270,6 +3275,10 @@ const Sim = (() => {
       shield: null, inv: 0, fast: 0, boost: null, goldUsed: false, dashHeld: 0, cannon: null, flyT: 0, whirl: false, whirlHold: 0,
       ride: null, auto: null, pad: null, slideT: 0, slideDir: null, lock: 0, force: null, bumpCell: -1, chute: null, sled: null, frozen: 0, dashCell: -1, vent: null, carry: null, hidden: false, friend: null , anim: 0, a96: 0, a98: 0, aLoad: 0 };
     if (s.auto) w.p.auto = autoWalk(w);
+    if (!w.spawn && w.L.rom && w.L.phys.orig) {   // (the act's start as its InitLevel leaves it: dropped in, the pad held)
+      if (s.dropY > w.p.y) w.p.y = s.dropY;   // (standing: the first frame finds no floor under him and lets him go)
+      if (s.lock) w.p.force = { t: (s.lock + 1) / 60, dir: null, top: 0 };   // ($0A18: the pad replaced while it is not yet 0 before each frame's count)
+    }
     for (const f of w.friends || []) { f.t = 0; f.flag = false; }
     if (w.boss) initBoss(w);
     for (const g of w.gates || []) if (g.shut) g.closed = false;   // (the cells that shut behind the player open again)
@@ -3344,7 +3353,7 @@ const Sim = (() => {
     if (p.force) {
       p.force.t -= dt; p.force.el = (p.force.el || 0) + dt;
       if (p.force.jumpAt && !p.force.jumped && p.force.el >= p.force.jumpAt) { p.force.jumped = true; p.vy = p.force.jumpV; p.grounded = false; p.jumping = false; w.events.push('jump'); }
-      if (p.force.t <= 0) p.force = null; else inp = p.force.dir ? { mx: p.force.dir[0], mz: p.force.dir[1] } : {};
+      if (p.force.t <= 1e-9) p.force = null; else inp = p.force.dir ? { mx: p.force.dir[0], mz: p.force.dir[1] } : {};   // (whole frames: a float just over 0 is none left)
     }
     // frozen by snow: the pad taken; a hop, the last one breaks the ice (routine 0x3050). Original movement: a hop only
     // when he stands and the jump word ($46, read first) is 1, so the jump button hops him free; held, it goes to -1
@@ -3393,7 +3402,7 @@ const Sim = (() => {
       }
       if (p.boost) {
         const B = p.boost, fw = () => Math.round(origFace(p)) & 0x7FF;
-        if (--B.n === 0) { p.boost = null; inp = {}; p.force = { t: 29 / 60, dir: null, top: 0, pass: true }; w.passOn.add(1); B.pad.firedAt = w.time; }   // (fired: the gates' flag set; the dash sounds as it goes)
+        if (--B.n === 0) { p.boost = null; inp = {}; p.force = { t: 30 / 60, dir: null, top: 0, pass: true }; w.passOn.add(1); B.pad.firedAt = w.time; }   // (fired: the gates' flag set; the dash sounds as it goes)
         else {
           if (p.revWait > 6) p.revWait = 6;
           if (fw() !== B.face) { p.turnTgt = B.face; p.turnExact = true; p.turnFace = p.facing; p.faceSet = false; }
@@ -3553,6 +3562,9 @@ const Sim = (() => {
         jumpPress = dashPress = dashRelease = groundJump = false; p.prevJump = p.prevDash = false; if (L.rom && L.phys.orig) p.jb = 0;
       }
       p.ride = null; p.ball = false; p.grounded = false; p.jumping = false; w.warpedAt = w.time;
+      // (the original, 0x2F3C: a script that ends by placing him sets his speed, ends the roll, holds the pad 10 frames
+      // ($0A18) and moves him no more this frame)
+      if (R.end && L.rom && L.phys.orig) { p.rolling = false; if (!p.force || p.force.t < 11 / 60) p.force = { t: 11 / 60, dir: null, top: 0 }; return w; }
       // a move that ends on (or a unit into) the floor carries on along it
       const fe = floorAt(L, p.x, p.z);
       if (Number.isFinite(fe) && p.y < fe + 0.05 && p.y > fe - L.phys.stepUp && p.vy <= 0) { p.y = fe; p.vy = 0; p.grounded = true; }
@@ -4239,7 +4251,7 @@ const Sim = (() => {
         const d0 = (tri.band === 'x' ? p.x : p.z) - tri.b, c = (tri.band === 'x' ? p.z : p.x) - tri.s, d1 = tri.flip ? 2 - c : c;
         if (tri.along && d1 < 2 * d0 - 2) { if (tri.band === 'x') p.vx = P.bumpSpeed; else p.vz = P.bumpSpeed; }
         else { p.vx = tri.v[0]; p.vz = tri.v[1]; }
-        bumped(w, p);
+        bumped(w, p, 1);   // (0x93DE: the triangles' routine calls the bumper helper after, which counts this frame)
       }
       w.inTri = !!tri && low;   // (0x93D0: the flag goes once he is out of every one or over 16 above the floor)
     }
@@ -4603,6 +4615,7 @@ const Sim = (() => {
       if (!p.grounded && !h.air) continue;
       if (h.maxY !== null && p.y > h.maxY + 0.01) continue;
       if (h.run && !(p.force && p.force.pass)) continue;
+      if (h.free && L.rom && L.phys.orig && (p.force || p.lock > 0)) continue;   // (its routine waits for the pad: $0A18 = 0)
       // a pad takes a slow player only (the original: under 2 units a frame), and not the one just thrown out of it
       // until they have stepped off
       if (h.pad) {
@@ -4616,7 +4629,12 @@ const Sim = (() => {
         p.ride = { ride: R, i: 0, wait: R.wait, v0 }; p.auto = null; p.force = null; p.sled = null; if (p.chute) { p.chute.st = 0; p.chute = null; } p.rolling = p.whirl = false; p.whirlHold = 0; p.charge = 0;   // (a ride ends a sled's push, Diamond Dust 1's jump at (86, 81), and the chute that led to it)
         if (L.rom && L.phys.orig) p.ride.snap = true;   // (the original's ride moves whole units: its first step drops the fractions)
         if (R.anim !== undefined) p.anim = R.anim;   // (the routine sets the animation itself: Diamond Dust 1's 0x3A, 2)
-        if (R.start) { p.x = R.start[0]; p.z = R.start[2]; if (Number.isFinite(R.start[1])) p.y = R.start[1]; w.events.push('warp'); }   // (no height: kept)
+        if (R.start) {   // (no height: kept; the original's routines write the whole units only, his fractions kept till the first step)
+          if (L.rom && L.phys.orig) { const o = L.rom.origin, fr = v => v - Math.floor(v + 1e-9);
+            p.x = (Math.round((R.start[0] + o[0]) * 32) + fr((p.x + o[0]) * 32)) / 32 - o[0]; p.z = (Math.round((R.start[2] + o[1]) * 32) + fr((p.z + o[1]) * 32)) / 32 - o[1]; }
+          else { p.x = R.start[0]; p.z = R.start[2]; }
+          if (Number.isFinite(R.start[1])) p.y = R.start[1]; w.events.push('warp');
+        }
         if (R.facing !== null) p.facing = R.facing;
         if (h.key !== null) w.keys.add(h.key);
         if (R.hidden) w.events.push('tubeIn');
@@ -4942,8 +4960,8 @@ const Sim = (() => {
   }
   // after a bumper: the original (0x9A18, 0x988E) turns the ice flag on for 20 counts of its helper (19 frames of
   // Sonic's moving after this one; w.bumpIce), the pad still working; ours locked the pad
-  function bumped(w, p) {
-    if (w.L.rom && w.L.phys.orig) { w.ice = true; w.bumpIce = 20; }
+  function bumped(w, p, counted = 0) {
+    if (w.L.rom && w.L.phys.orig) { w.ice = true; w.bumpIce = 20 - counted; }   // (counted: the helper has already run this frame)
     else { p.lock = P.bumpLock; p.rolling = false; p.charge = 0; }
     w.events.push('bumper');
   }
@@ -6051,7 +6069,7 @@ const S3D = (() => {
     // west or east by the lever value ($1A ? levers 8/9 : lever 7; 1 east): the first, east, throws him into ride 0x56
     // (roll, 7 a frame, pad held 220 frames, the key) and at its end puts him at (0x860, 0x100, 0xC40) (watched); the
     // second runs through a tunnel (hidden x 0x920..0xA80) to the column with the act's ring
-    21: { mapSet: [[45, 44, 0x3D00]], mapClear: 185 },   // Panic Puppet 3: InitLevel 0x1258C lowers the start cell and takes the first 370 bytes
+    21: { mapSet: [[45, 44, 0x3D00]], mapClear: 185, startLock: 50 },   // Panic Puppet 3: InitLevel 0x1258C lowers the start cell (after Sonic is put on it: he drops in, the pad held 50 frames) and takes the first 370 bytes
     20: { updrafts: 0x55, zapCells: 0xAA, roofs: 0x13B00, slides: [[0xC3, [1, 0]], [0xF0, [0, 1]]], cracks: [[[[48, 48]], 840, [0, -1]]],
       gates: [[[[68, 97], [68, 98]], 0x41, 0, 0, 1], [[[40, 62]], 0x61, 0, 0, 1]], keyOff: [[69, 98, 1, { f: 1 }], [40, 63, 1, { f: 0 }]],
       tubes2: [0x13464, 4, [], [[1, 1]], 8, 1],
@@ -6336,7 +6354,7 @@ const S3D = (() => {
   const RAND_TABLE = 0xFAB40;
   // [frames the screen stays blank while an act reloads after a death (the level's unpacking time), frames after that
   // before the pad acts]: measured in the emulator; [52, 34] elsewhere as watched in Volcano Valley 1: `rom.blank`
-  const BLANK = { 3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 32], 14: [44, 34], 17: [46, 30], 18: [44, 32], 20: [51, 34] };
+  const BLANK = { 3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 32], 14: [44, 34], 17: [46, 30], 18: [44, 32], 20: [51, 34], 21: [44, 32] };
   const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };
   const springPower = vscale => launchFor(vscale, 140);   // measured: a spring throws Sonic 140 units up
   function convert(d, id, vscale = 1) {
@@ -6592,7 +6610,7 @@ const S3D = (() => {
     };
     for (const [cx, cz, after, state, from, facing, vel, maxY, force, run, anim] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
       const { sc, ...rd } = rideOf(state, from, facing, vel), ride = { ...rd,
-        end: sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3(sc.end[1] / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
+        end: sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3((sc.end[1] + 8) / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
           vel: [r3(sc.end[4] * mps), r3(-sc.end[5] * mps * vscale), r3(sc.end[6] * mps)] } : null };
       if (anim !== undefined) ride.anim = anim;   // the animation the routine sets (Diamond Dust 1's 0x3A: 2, with $56 = 2)
       if (force) { ride.force = { t: r3(force[0] / 60), dir: force[1] }; if (force[2]) ride.force.roll = 1; if (force[3]) ride.force.pass = 1; }   // roll: left rolling ($56 = 2); pass: gates let it through
@@ -6781,7 +6799,7 @@ const S3D = (() => {
       for (let k = 0; k < n; k++) {
         const o = tab + (size || 12) * k, c = u16(d, o) >> 1, cx = c % 128, cz = c >> 7, x = s16(d, o + 2), z = s16(d, o + 4), state = u16(d, o + 6);
         if (!floorCell(cx, cz)) continue;   // (the place is in the tube: no floor there)
-        const endOf = sc => sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3(sc.end[1] / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
+        const endOf = sc => sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3((sc.end[1] + 8) / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
           vel: [r3(sc.end[4] * mps), r3(-sc.end[5] * mps * vscale), r3(sc.end[6] * mps)] } : null;
         const { sc, ...rd } = rideOf(state, null, null, null), ride = { ...rd, start: [r3(x / CELL - x0), null, r3(z / CELL - z0)], end: endOf(sc) };
         const alt = (alts || []).find(q => q[0] === k);
@@ -6789,7 +6807,7 @@ const S3D = (() => {
           const a = rideOf(alt[2], null, null, null);
           ride.alt = { at: sc.starts[alt[1]], ride: { vel: a.vel, path: a.path, turns: a.turns, end: endOf(a.sc) } };
         }
-        const e = { type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: 0, ride }, key = (keys || []).find(q => q[0] === k);
+        const e = { type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: 0, free: 1, ride }, key = (keys || []).find(q => q[0] === k);   // (free: the routines take it only with the pad free, $0A18 = 0)
         if (key) e.key = key[1];   // (the act's routine lets Sonic out through a door after this tube)
         if (hidden) ride.hidden = 1;
         ents.push(e);
@@ -6920,6 +6938,13 @@ const S3D = (() => {
     // player starts facing the boss (compass degrees)
     if (fromTable) st0.facing = compassOf(s16(d, st + 4) & 0x7FF);
     else if (bs) st0.facing = (Math.floor(Math.atan2(bs.at[0] / CELL - start[0], start[1] - bs.at[2] / CELL) * 180 / Math.PI + 0.5) + 360) % 360;
+    // (Sonic is put on the start cell's floor as the map was loaded; an InitLevel that then lowers it drops him in:
+    // `dropY`, the loaded cell's height byte; `lock`, the frames InitLevel holds the pad)
+    if (fromTable) {
+      const scx = Math.floor(start[0]), scz = Math.floor(start[1]);
+      if ((gm.mapSet || []).some(([cx, cz]) => cx === scx && cz === scz)) st0.dropY = Math.round((u16(raw, (scz * 128 + scx) * 2) >> 8) * unit * 1e4) / 1e4;
+    }
+    if (gm.startLock) st0.lock = gm.startLock;
     ents.unshift(st0);
     const name = (LEVELS.find(l => l[0] === id) || [id, 'Level ' + id])[1];
     return {

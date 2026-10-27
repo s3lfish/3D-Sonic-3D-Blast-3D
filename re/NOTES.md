@@ -405,7 +405,9 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   flag, rolling sets it (a monitor breaks). Inside on both axes: ball or roll with a flag sets it; else, coming from
   above its last top, he rides it ($8a; carried by its moves). The sim: monSides for monitors, boxSides for boxes.
 - An act's start is a reload's end: C = 1, 2 run (a boss's script starts: RR3's timer 140, 139), 17 frames held, the
-  pad acts from C = 3 (GG1, RR3, VV3 measured with cardt2.py). The private emulator states are saved later (about 110
+  pad acts from C = 3 (GG1, RR3, VV3 measured with cardt2.py). Sonic is put on the start cell's floor from the map as
+  loaded (0x4FBC); PP3's InitLevel then lowers that cell (0x5D00 to 0x3D00) and holds the pad 50 frames: he drops in,
+  at the act's start and at every reload (blank 44, then 32 frames to C = 1). The private emulator states are saved later (about 110
   frames on in RR3), so the boss traces run the world on first (PRE).
 - Roll bounces: 0x41A0/0x41C0/0x41DE/0x4202 put him at the old cell's edge on the axis met and stop (or bounce) that
   part whichever way it points (after a diagonal piece's turn it may already point away: DD3 trace); rolling, 0x42A0 (x) /
@@ -445,6 +447,12 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   fractions and speeds cleared, no walls or floor. Each frame after: $24 - 1; at 0, $6C cleared and the pad nothing
   for 30 ($0A18; the rev lets go: the dash, 7.5 units a frame); else $0A18 = 2 and $0A1A = 0xEF (the dash button) once
   $24 <= 60 and his facing is d4, else 0xFF; the rev wait $5A cut to 6. Exact over SS1/SS2 traces (sim `p.boost`).
+- The pad lock $0A18 (0x4BCC): counted down at each frame's start; the pad is replaced by $0A1A while the count was not
+  yet 0 before that frame's step, so N replaces N frames.
+- Script ends by placing him (negative word, 0x2F3C): x, y, z words (y is his own: floor + 8 style), facing, speed
+  words with the fractions cleared, roll ended, sound 0xB6, the pad held 10 frames; no move that frame (0x4330 tail).
+  Routines starting a script write his whole x and z only: the fractions stay till the first step clears them. The
+  tube tables (0x120F8, 0x11998, 0x13464, 0x13BCA) take him only with $8E clear and the pad free ($0A18 = 0).
 - Scripts done (0x8000 then 0, 0x2FA2) leave his speed, roll and top as they were: the SS loops (state 4) carry the
   supercharger's dash on (converted rides without a speed: `keep`). The routines take a ride's cell the frame after
   he enters it, with no rest after the last ride.
@@ -477,7 +485,8 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - Triangle bumpers (SS1 0x9818, SS2 0x925C): 64-unit boxes; inside the triangle (side offset, from the far side when
   flipped, no more than the band offset) within 16 of the floor: near the tip (side < 2 band - 64) pushed 5 along the
   band, else (+-4, +-4) off the long side; pad 20 frames; sound 0xAE. The once-flag $C(a4) is cleared whenever he is
-  in none of them or more than 16 over his floor (0x93D0), so a fall into one bumps as he comes within 16.
+  in none of them or more than 16 over his floor (0x93D0), so a fall into one bumps as he comes within 16. The routine
+  then calls the bumper helper (0x9974), which counts the ice down the same frame.
 - SS2 spears (0x9146, cells 0x9494, object $D422): Sonic's cell in the list with x & 31 >= 24 raises a spear at the
   cell's east edge (sound 0x8C); it waits ~34 frames, then rises (counter 28 -> 0 by 4 every 2 frames); its tip is
   floor - 16 + 2 x (28 - counter); Sonic in that quarter under the tip is hurt. Spiked wall: x == 0xF40, y < 0x380 in

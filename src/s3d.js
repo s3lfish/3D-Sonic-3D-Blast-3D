@@ -178,7 +178,7 @@ const S3D = (() => {
     // west or east by the lever value ($1A ? levers 8/9 : lever 7; 1 east): the first, east, throws him into ride 0x56
     // (roll, 7 a frame, pad held 220 frames, the key) and at its end puts him at (0x860, 0x100, 0xC40) (watched); the
     // second runs through a tunnel (hidden x 0x920..0xA80) to the column with the act's ring
-    21: { mapSet: [[45, 44, 0x3D00]], mapClear: 185 },   // Panic Puppet 3: InitLevel 0x1258C lowers the start cell and takes the first 370 bytes
+    21: { mapSet: [[45, 44, 0x3D00]], mapClear: 185, startLock: 50 },   // Panic Puppet 3: InitLevel 0x1258C lowers the start cell (after Sonic is put on it: he drops in, the pad held 50 frames) and takes the first 370 bytes
     20: { updrafts: 0x55, zapCells: 0xAA, roofs: 0x13B00, slides: [[0xC3, [1, 0]], [0xF0, [0, 1]]], cracks: [[[[48, 48]], 840, [0, -1]]],
       gates: [[[[68, 97], [68, 98]], 0x41, 0, 0, 1], [[[40, 62]], 0x61, 0, 0, 1]], keyOff: [[69, 98, 1, { f: 1 }], [40, 63, 1, { f: 0 }]],
       tubes2: [0x13464, 4, [], [[1, 1]], 8, 1],
@@ -463,7 +463,7 @@ const S3D = (() => {
   const RAND_TABLE = 0xFAB40;
   // [frames the screen stays blank while an act reloads after a death (the level's unpacking time), frames after that
   // before the pad acts]: measured in the emulator; [52, 34] elsewhere as watched in Volcano Valley 1: `rom.blank`
-  const BLANK = { 3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 32], 14: [44, 34], 17: [46, 30], 18: [44, 32], 20: [51, 34] };
+  const BLANK = { 3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 32], 14: [44, 34], 17: [46, 30], 18: [44, 32], 20: [51, 34], 21: [44, 32] };
   const launchFor = (vscale, rise) => { const g = 900 / CELL * vscale, hh = rise / CELL * vscale; return Math.round((g / 60 + Math.sqrt((g / 60) ** 2 + 8 * g * hh)) / 2 * 1e4) / 1e4; };
   const springPower = vscale => launchFor(vscale, 140);   // measured: a spring throws Sonic 140 units up
   function convert(d, id, vscale = 1) {
@@ -719,7 +719,7 @@ const S3D = (() => {
     };
     for (const [cx, cz, after, state, from, facing, vel, maxY, force, run, anim] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
       const { sc, ...rd } = rideOf(state, from, facing, vel), ride = { ...rd,
-        end: sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3(sc.end[1] / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
+        end: sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3((sc.end[1] + 8) / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
           vel: [r3(sc.end[4] * mps), r3(-sc.end[5] * mps * vscale), r3(sc.end[6] * mps)] } : null };
       if (anim !== undefined) ride.anim = anim;   // the animation the routine sets (Diamond Dust 1's 0x3A: 2, with $56 = 2)
       if (force) { ride.force = { t: r3(force[0] / 60), dir: force[1] }; if (force[2]) ride.force.roll = 1; if (force[3]) ride.force.pass = 1; }   // roll: left rolling ($56 = 2); pass: gates let it through
@@ -908,7 +908,7 @@ const S3D = (() => {
       for (let k = 0; k < n; k++) {
         const o = tab + (size || 12) * k, c = u16(d, o) >> 1, cx = c % 128, cz = c >> 7, x = s16(d, o + 2), z = s16(d, o + 4), state = u16(d, o + 6);
         if (!floorCell(cx, cz)) continue;   // (the place is in the tube: no floor there)
-        const endOf = sc => sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3(sc.end[1] / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
+        const endOf = sc => sc.end ? { at: [r3(sc.end[0] / CELL - x0), r3((sc.end[1] + 8) / CELL * vscale), r3(sc.end[2] / CELL - z0)], facing: compassOf(sc.end[3]),
           vel: [r3(sc.end[4] * mps), r3(-sc.end[5] * mps * vscale), r3(sc.end[6] * mps)] } : null;
         const { sc, ...rd } = rideOf(state, null, null, null), ride = { ...rd, start: [r3(x / CELL - x0), null, r3(z / CELL - z0)], end: endOf(sc) };
         const alt = (alts || []).find(q => q[0] === k);
@@ -916,7 +916,7 @@ const S3D = (() => {
           const a = rideOf(alt[2], null, null, null);
           ride.alt = { at: sc.starts[alt[1]], ride: { vel: a.vel, path: a.path, turns: a.turns, end: endOf(a.sc) } };
         }
-        const e = { type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: 0, ride }, key = (keys || []).find(q => q[0] === k);
+        const e = { type: 'hole', x: cx + 0.5 - x0, z: cz + 0.5 - z0, size: 0.5, opens: 0, free: 1, ride }, key = (keys || []).find(q => q[0] === k);   // (free: the routines take it only with the pad free, $0A18 = 0)
         if (key) e.key = key[1];   // (the act's routine lets Sonic out through a door after this tube)
         if (hidden) ride.hidden = 1;
         ents.push(e);
@@ -1047,6 +1047,13 @@ const S3D = (() => {
     // player starts facing the boss (compass degrees)
     if (fromTable) st0.facing = compassOf(s16(d, st + 4) & 0x7FF);
     else if (bs) st0.facing = (Math.floor(Math.atan2(bs.at[0] / CELL - start[0], start[1] - bs.at[2] / CELL) * 180 / Math.PI + 0.5) + 360) % 360;
+    // (Sonic is put on the start cell's floor as the map was loaded; an InitLevel that then lowers it drops him in:
+    // `dropY`, the loaded cell's height byte; `lock`, the frames InitLevel holds the pad)
+    if (fromTable) {
+      const scx = Math.floor(start[0]), scz = Math.floor(start[1]);
+      if ((gm.mapSet || []).some(([cx, cz]) => cx === scx && cz === scz)) st0.dropY = Math.round((u16(raw, (scz * 128 + scx) * 2) >> 8) * unit * 1e4) / 1e4;
+    }
+    if (gm.startLock) st0.lock = gm.startLock;
     ents.unshift(st0);
     const name = (LEVELS.find(l => l[0] === id) || [id, 'Level ' + id])[1];
     return {

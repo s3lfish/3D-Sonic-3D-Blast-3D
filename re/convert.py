@@ -49,7 +49,7 @@ def spring_power(vscale):
     return launch_for(vscale, 140)   # measured: a spring throws Sonic 140 units up
 
 
-BLANK = {3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 32], 14: [44, 34], 17: [46, 30], 18: [44, 32], 20: [51, 34]}   # frames blank while an act reloads (see s3d.js)
+BLANK = {3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 32], 14: [44, 34], 17: [46, 30], 18: [44, 32], 20: [51, 34], 21: [44, 32]}   # frames blank while an act reloads (see s3d.js)
 GIMMICKS = {
     4: {'updrafts': 0x55, 'zapCells': 0xAA, 'roofs': 0x12254, 'pyramids': (0x11EE4, 4),   # Gene Gadget 1 (see s3d.js)
         'dashes': [(65, 101, 0x7FFF, (6, 0), 1, 0, 0), (65, 102, 0x7FFF, (6, 0), 1, 0, 0), (74, 94, 0x7FFF, (0, 6), 1, 0, 0), (75, 94, 0x7FFF, (0, 6), 1, 0, 0)],
@@ -113,7 +113,7 @@ GIMMICKS = {
          'shuts': [([(66, 87)], [(65, 86), (65, 87)], 0x55), ([(63, 34), (64, 34)], [(63, 33), (64, 33)], 0x91, 'shut'),
                    ([(cx, 46) for cx in range(66, 73)], [(67, 45), (68, 45), (71, 45), (72, 45)], 0x91, 'shut'), ([(89, 46)], [(89, 45)], 0x4D, 'doorShut')],
          'lifts': [(0x810, 0x82F, 0x620, 0x627, (0x820, 0x390, 0x628), 0x54, 30, 110)]},
-    21: {'mapSet': [(45, 44, 0x3D00)], 'mapClear': 185},   # Panic Puppet 3 (see s3d.js)
+    21: {'mapSet': [(45, 44, 0x3D00)], 'mapClear': 185, 'startLock': 50},   # Panic Puppet 3 (see s3d.js)
     20: {'updrafts': 0x55, 'zapCells': 0xAA, 'roofs': 0x13B00, 'slides': [(0xC3, [1, 0]), (0xF0, [0, 1])], 'cracks': [([(48, 48)], 840, [0, -1])],   # Panic Puppet 1 (see s3d.js)
          'gates': [([(68, 97), (68, 98)], 0x41, 0, 0, 1), ([(40, 62)], 0x61, 0, 0, 1)], 'keyOff': [(69, 98, 1, {'f': 1}), (40, 63, 1, {'f': 0})],
          'tubes2': (0x13464, 4, [], [(1, 1)], 8, 1),
@@ -197,7 +197,7 @@ def compass_of(f):
 def convert(rom, level_id, vscale=1.0):
     h = HEADERS + (level_id - 1) * HSIZE
     mp, start_tab = struct.unpack('>I', rom[h + 4:h + 8])[0], struct.unpack('>I', rom[h + 0x20:h + 0x24])[0]
-    w = struct.unpack('>16384H', rnc.unpack(rom, mp))
+    w = struct.unpack('>16384H', rnc.unpack(rom, mp)); w0 = w
     if GIMMICKS.get(level_id, {}).get('mapSet') or GIMMICKS.get(level_id, {}).get('mapClear'):   # (InitLevel's writes; see s3d.js)
         w = list(w)
         for cx, cz, v in GIMMICKS[level_id].get('mapSet', []): w[cz * 128 + cx] = v
@@ -442,7 +442,7 @@ def convert(rom, level_id, vscale=1.0):
     for cx, cz, after, state, frm, facing, vel, *rest in gm.get('rides', []):
         if floor_cell(cx, cz) and (frm is None or floor_cell(frm[0] // CELL, frm[2] // CELL)):
             ride, end = ride_of(state, frm, facing, vel)
-            ride["end"] = {"at": [r3(end[0] / CELL - x0), r3(end[1] / CELL * vscale), r3(end[2] / CELL - z0)], "facing": compass_of(end[3]),
+            ride["end"] = {"at": [r3(end[0] / CELL - x0), r3((end[1] + 8) / CELL * vscale), r3(end[2] / CELL - z0)], "facing": compass_of(end[3]),
                            "vel": [r3(end[4] * mps), r3(-end[5] * mps * vscale), r3(end[6] * mps)]} if end else None
             if len(rest) > 3 and rest[3] is not None: ride["anim"] = rest[3]   # the animation the routine sets
             if len(rest) > 1 and rest[1]:
@@ -632,7 +632,7 @@ def convert(rom, level_id, vscale=1.0):
         ents.append({"type": "hole", "x": r3((ax + bx + 1) / 2 / CELL - x0), "z": r3((az + bz + 1) / 2 / CELL - z0), "half": [r3((bx + 1 - ax) / 2 / CELL), r3((bz + 1 - az) / 2 / CELL)], "opens": 0, "ride": rd})
     if 'tubes2' in gm:   # taken grounded in the cell, put at (x, z) at his own height (see s3d.js)
         tab, n, alts, *more = gm['tubes2']; kys = more[0] if more else []; size = more[1] if len(more) > 1 else 12; hidden = len(more) > 2 and more[2]
-        end_of = lambda end: {"at": [r3(end[0] / CELL - x0), r3(end[1] / CELL * vscale), r3(end[2] / CELL - z0)], "facing": compass_of(end[3]),
+        end_of = lambda end: {"at": [r3(end[0] / CELL - x0), r3((end[1] + 8) / CELL * vscale), r3(end[2] / CELL - z0)], "facing": compass_of(end[3]),
                               "vel": [r3(end[4] * mps), r3(-end[5] * mps * vscale), r3(end[6] * mps)]} if end else None
         for k2 in range(n):
             c, x, z, state = struct.unpack('>HhhH', rom[tab + size * k2:tab + size * k2 + 8]); c >>= 1; cx, cz = c % 128, c >> 7
@@ -643,7 +643,7 @@ def convert(rom, level_id, vscale=1.0):
             if alt:
                 a, aend = ride_of(alt[2], None, None, None)
                 ride["alt"] = {"at": ride_of(state, None, None, None, True)[alt[1]], "ride": {"vel": a["vel"], "path": a["path"], "turns": a["turns"], "end": end_of(aend)}}
-            e = {"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": 0, "ride": ride}
+            e = {"type": "hole", "x": cx + 0.5 - x0, "z": cz + 0.5 - z0, "size": 0.5, "opens": 0, "free": 1, "ride": ride}
             key = next((q for q in kys if q[0] == k2), None)
             if key: e["key"] = key[1]
             if hidden: ride["hidden"] = 1
@@ -767,6 +767,9 @@ def convert(rom, level_id, vscale=1.0):
     if from_table: st0["facing"] = compass_of(sdir & 0x7FF)   # the table's (see s3d.js)
     elif bs:   # in a boss arena the player starts facing the boss (compass degrees)
         st0["facing"] = (math.floor(math.atan2(bs['at'][0] / CELL - start[0], start[1] - bs['at'][2] / CELL) * 180 / math.pi + 0.5) + 360) % 360
+    if from_table and any(cx == int(start[0]) and cz == int(start[1]) for cx, cz, v in gm.get('mapSet', [])):   # (dropped in: see s3d.js)
+        st0["dropY"] = jround((w0[int(start[1]) * 128 + int(start[0])] >> 8) * unit, 4)
+    if gm.get('startLock'): st0["lock"] = gm['startLock']
     ents.insert(0, st0)
     return {"version": 1, "format": "tiles", "name": f"ROM level {level_id}", "width": W, "depth": D,
             "killY": jround(min(min(t["c"]) for t in tiles if t["t"] != "W") - 3, 2), "tiles": tiles, "entities": ents,
