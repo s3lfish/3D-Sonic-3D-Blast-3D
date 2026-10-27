@@ -414,8 +414,9 @@ serves index.html from main.
   player's ROM, `oRand(w, k)`: the pointer at C, k words on; roamers, ring scatter type 2, PP3 shots); hover as 0x2E84;
   particle type 8 (hops); RR maces as the original's shared angle and records (`maceRecs`, `w.maceSet`, touch in the
   display order via `w.sKey`); solid boxes as routine 0x3788 (`boxSides`, RR3 fists); an act starts as a reload ends
-  (`resetLevel`: count 0, two frames run, 17 held; tests' `world()` starts where the pad acts). Still off in ex4:
-  acts 15, 16, 18, 22.
+  (`resetLevel`: count 0, two frames run, 17 held; tests' `world()` starts where the pad acts); superchargers as
+  0xCA6A (unit steps to the middle, turned, revved by the forced pad, the pad let go); rides without a speed keep
+  his (`keep`); air walls at the moved height; triangle bumpers' flag. Still off in ex4: acts 18 (GnG3), 22 (FF).
 - 2026-10-27: lives (game.js `lives`, HUD `#livesHud`: 3, a 1-up monitor or a special stage won with all seven adds
   one, 9 at most; none left: "Game over", the act again with 3); a death reloads the act (Sim `death`: rings, enemies,
   monitors, mines and capsules back, Flickies not in a ring gone; `reloadAct`, also after a special stage with the player

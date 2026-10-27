@@ -438,7 +438,7 @@ def convert(rom, level_id, vscale=1.0):
                  "facing": None if facing is None else compass_of(facing),
                  "vel": [r6(vel[0] * mps), r6(vel[1] * mps * vscale), r6(vel[2] * mps)] if vel else [r3(last[0] * mps), 0, r3(last[2] * mps)],
                  "path": [[r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)] for dx, dy, dz in path],
-                 "turns": [[i, compass_of((0x200 - f) & 0x7FF if mir else f)] for i, f in turns]}, end) if not want_starts else starts
+                 "turns": [[i, compass_of((0x200 - f) & 0x7FF if mir else f)] for i, f in turns], **({} if vel else {"keep": 1})}, end) if not want_starts else starts
     for cx, cz, after, state, frm, facing, vel, *rest in gm.get('rides', []):
         if floor_cell(cx, cz) and (frm is None or floor_cell(frm[0] // CELL, frm[2] // CELL)):
             ride, end = ride_of(state, frm, facing, vel)

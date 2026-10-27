@@ -1224,6 +1224,7 @@ const Sim = (() => {
       end: ride.end && Array.isArray(ride.end.at) ? { at: ride.end.at, facing: deg(ride.end.facing || 0), vel: ride.end.vel || [0, 0, 0] } : null,
       wait: ride.wait > 0 ? ride.wait : 0, hidden: !!ride.hidden, clear: ride.clear > 0 ? ride.clear : 0,
       anim: Number.isInteger(ride.anim) ? ride.anim : undefined,   // (the original's animation number, set as it starts)
+      keep: !!ride.keep,   // (no speed given: the original's script leaves his own speed, which carries on after it)
       force: ride.force && ride.force.t > 0 ? { t: ride.force.t, dir: Array.isArray(ride.force.dir) && ride.force.dir.length === 2 ? ride.force.dir : null, roll: !!ride.force.roll, pass: !!ride.force.pass } : null,
       // "alt" {at, ride}: at that frame of the move, with the Flickies a ring would want following, the other move
       // (its path the same up to there) carries on instead
@@ -1905,11 +1906,12 @@ const Sim = (() => {
   const _ax = [0, 0, 0, 0];   // the axes resolveWallsOrig stopped ([2] set when any, [3] when a corner stopped both)
   // the highest floor Sonic at height y (m) goes onto: 8 whole units over his (his height cut to whole units, 0x40D0)
   const origLim = (L, y) => { const vs = L.rom.vscale; return (Math.floor(y * 32 / vs - 8 + 1e-6) + 8 + 8 + 0.5) / 32 * vs; };
-  function resolveWallsOrig(L, p, ox, oz) {
+  function resolveWallsOrig(L, p, ox, oz, yNew) {
     _dn[2] = 0; _ax[0] = _ax[1] = _ax[2] = _ax[3] = 0;
     const air = p.flyT > 0, E = 1 / (32 * 65536), ci = Math.floor(ox), cj = Math.floor(oz);
-    // (0x40D6: a wall where the floor there is 9 or more whole units over Sonic's, in the air too; converted levels)
-    const lim = L.rom ? origLim(L, p.y) : p.y + L.phys.stepUp;
+    // (0x40D6: a wall where the floor there is 9 or more whole units over Sonic's, in the air too; converted levels; his
+    // height already moved this frame, 0x373A: rising by a ledge he gets over it as he reaches 8 under its top)
+    const lim = L.rom ? origLim(L, yNew === undefined ? p.y : yNew) : p.y + L.phys.stepUp;
     if (L.rom && L.diag && L.diag.size && !air) origDiag(L, p, ci, cj);   // (the original meets its pieces first)
     // (then, 0x3BB2: a move of more than 8 whole units across the screen, x - z, against last frame's whole units,
     // gives back one unit in x and z)
@@ -3372,6 +3374,30 @@ const Sim = (() => {
       if (p.grounded || --p.knockT <= 0) { p.knockT = 0; p.vx = p.vz = 0; p.invuln = 120 / 60; inp = {}; }   // (the pad still taken this frame: $0A18)
       else { p.vx = p.knock[0]; p.vz = p.knock[1]; inp = {}; }
     }
+    // On the original's levels, routine 0xCA6A (run after Sonic each frame; here at the start of the next): grounded, the
+    // pad free, Sonic within 12 units (whole, the high side open) of the cell one step its way: held 70 frames, his
+    // own move replaced by a unit a frame on each axis toward that cell's middle, speeds and fractions cleared (0x4330,
+    // `p.boost`); turned 0x40 a frame to its way ($34 negative); the pad nothing, then, from 60 left and facing its way,
+    // the dash button held (a rev, its wait cut to 6 frames); at the end the pad let go 30 frames: the dash goes.
+    if (L.rom && L.phys.orig) {
+      if (!p.boost && p.grounded && !p.force && !(p.lock > 0)) for (const b of w.boosters) {
+        if (w.time - b.firedAt < 1.5) continue;
+        const o = L.rom.origin, tx = Math.round((b.x + o[0]) * 32), tz = Math.round((b.z + o[1]) * 32);
+        const X = Math.floor((p.x + o[0]) * 32 + 1e-6), Z = Math.floor((p.z + o[1]) * 32 + 1e-6);
+        if (X < tx - 12 || X >= tx + 12 || Z < tz - 12 || Z >= tz + 12) continue;
+        const face = b.dir[1] > 0 ? 0 : b.dir[1] < 0 ? 0x400 : b.dir[0] > 0 ? 0x600 : 0x200;
+        p.boost = { pad: b, n: 0x46, tx, tz, ty: Math.floor(p.y * 32 / L.rom.vscale - 8 + 1e-6), face }; w.events.push('boostIn'); break;
+      }
+      if (p.boost) {
+        const B = p.boost, fw = () => Math.round(origFace(p)) & 0x7FF;
+        if (--B.n === 0) { p.boost = null; inp = {}; p.force = { t: 29 / 60, dir: null, top: 0, pass: true }; w.passOn.add(1); B.pad.firedAt = w.time; }   // (fired: the gates' flag set; the dash sounds as it goes)
+        else {
+          if (p.revWait > 6) p.revWait = 6;
+          if (fw() !== B.face) { p.turnTgt = B.face; p.turnExact = true; p.turnFace = p.facing; p.faceSet = false; }
+          inp = B.n <= 60 && fw() === B.face ? { dash: true } : {};
+        }
+      }
+    }
     let mx = inp.mx || 0, mz = inp.mz || 0;
     let m = Math.hypot(mx, mz);
     if (m > 1) { mx /= m; mz /= m; m = 1; }
@@ -3514,9 +3540,10 @@ const Sim = (() => {
         return w;
       }
       if (R.end) { [p.x, p.y, p.z] = R.end.at; p.facing = R.end.facing; [p.vx, p.vy, p.vz] = R.end.vel; w.events.push('warp'); }
+      else if (R.keep && L.rom && L.phys.orig && r.v0) { p.vx = r.v0.vx; p.vz = r.v0.vz; p.vy = 0; p.rolling = r.v0.rolling; p.fwdWord = r.v0.fwdWord; p.topW = r.v0.topW; }   // (0x2FA2: the script done, his speed as it was)
       else [p.vx, p.vy, p.vz] = R.vel;
       // the pad was held from the move's start (the original counts its lock down through the move)
-      if (R.force && R.force.t > R.path.length / 60 + R.wait) p.force = { t: R.force.t - R.path.length / 60 - R.wait, dir: R.force.dir, top: Math.hypot(p.vx, p.vz), pass: R.force.pass };
+      if (R.force && R.force.t > R.path.length / 60 + R.wait) p.force = { t: R.force.t - R.path.length / 60 - R.wait, dir: R.force.dir, top: R.keep && L.rom && L.phys.orig ? 0 : Math.hypot(p.vx, p.vz), pass: R.force.pass };   // (the original: its own speed rules, the pad held)
       if (R.force && R.force.roll) p.rolling = true;
       if (p.force) {   // (and this frame's pad is the held one already: the original locked it as the move began)
         const d = p.force.dir; mx = d ? d[0] : 0; mz = d ? d[1] : 0; m = Math.hypot(mx, mz); p.lastStick = m > 0.3; w.stick = [mx, mz];
@@ -3549,7 +3576,7 @@ const Sim = (() => {
       }
       return w;
     }
-    if (p.boost) {
+    if (p.boost && !(O && L.rom)) {
       const b = p.boost;
       b.t += dt; p.x = b.pad.x; p.z = b.pad.z; p.y = b.pad.y; p.vx = p.vz = p.vy = 0; p.ball = true; p.charge = 0;
       if (b.t >= P.boostWait) {
@@ -3562,7 +3589,7 @@ const Sim = (() => {
     }
 
     // a supercharger takes a grounded player standing on its spot (routine 0xCA6A: within 12 units; no button needed)
-    if (p.grounded) for (const b of w.boosters) {
+    if (p.grounded && !(L.rom && L.phys.orig)) for (const b of w.boosters) {
       if (w.time - b.firedAt < 1.5 || Math.abs(p.x - b.x) > P.boostSpot || Math.abs(p.z - b.z) > P.boostSpot || Math.abs(p.y - b.y) > 0.5) continue;
       p.boost = { pad: b, t: 0 }; p.rolling = false; w.events.push('boostIn'); return w;
     }
@@ -3660,6 +3687,7 @@ const Sim = (() => {
       }
     } else if (!O && p.jumping && !inp.jump && p.vy > L.phys.jumpCut) p.vy = L.phys.jumpCut;
 
+    if (O && L.rom && p.boost) holdO = true;   // (held by a supercharger: his own move is replaced, below)
     // horizontal control
     speed = Math.hypot(p.vx, p.vz);
     // skidding: on the ground, moving fast, and the stick pushed against the direction of travel
@@ -3778,9 +3806,18 @@ const Sim = (() => {
       }
     }
 
+    // (held by a supercharger, 0x4330: a whole unit a frame on each axis toward its cell's middle, fractions and speeds
+    // cleared; no walls, no floor)
+    const boostStep = !!(O && L.rom && p.boost);
+    if (boostStep) {
+      const B = p.boost, o = L.rom.origin, vs = L.rom.vscale;
+      const X = Math.floor((p.x + o[0]) * 32 + 1e-6), Z = Math.floor((p.z + o[1]) * 32 + 1e-6), Y = Math.floor(p.y * 32 / vs - 8 + 1e-6);
+      p.x = (X + Math.sign(B.tx - X)) / 32 - o[0]; p.z = (Z + Math.sign(B.tz - Z)) / 32 - o[1]; p.y = (Y + Math.sign(B.ty - Y) + 8) / 32 * vs;
+      p.vx = p.vy = p.vz = 0;
+    }
     // move in substeps no longer than half the radius
     // (converted levels move once a frame, as the original: its point walls never need finer steps)
-    const n = O && L.rom ? 1 : Math.max(1, Math.ceil(Math.max(speed, Math.abs(p.vy)) * dt / (P.r * 0.5)));
+    const n = boostStep ? 0 : O && L.rom ? 1 : Math.max(1, Math.ceil(Math.max(speed, Math.abs(p.vy)) * dt / (P.r * 0.5)));
     const sdt = dt / n;
     let bouncedO = false;
     for (let s = 0; s < n; s++) {
@@ -3790,7 +3827,7 @@ const Sim = (() => {
       // (crouched, revving or launched this frame he does not move, but the original still meets its diagonal pieces and
       // walls where he stands, 0x3744 → 0x39DC: a dash from a piece's line is turned off it at once)
       const nrm = p.sled && p.grounded ? sledMove(L, p, sdt) : bouncedO ? null : holdO ? (O && L.rom ? (resolveWallsOrig(L, p, ox, oz), null) : null)
-        : (p.x += p.vx * sdt, p.z += p.vz * sdt, O ? resolveWallsOrig(L, p, ox, oz) : resolveWalls(L, p));
+        : (p.x += p.vx * sdt, p.z += p.vz * sdt, O ? resolveWallsOrig(L, p, ox, oz, L.rom && !p.grounded ? p.y + p.vy * sdt : undefined) : resolveWalls(L, p));
       if (nrm) {
         // a whirl bounces off; so does a roll in the original's movement (watched: Green Grove 1's first wall, Gene
         // Gadget 1's corridor), turning to its new way
@@ -4194,14 +4231,14 @@ const Sim = (() => {
         const d0 = (t.band === 'x' ? p.x : p.z) - t.b, c = (t.band === 'x' ? p.z : p.x) - t.s, d1 = t.flip ? 2 - c : c;
         if (d0 >= 0 && d0 <= 2 && c >= 0 && c <= 2 && d1 <= d0) { tri = t; break; }
       }
-      const f = floorAt(L, p.x, p.z);
-      if (tri && !w.inTri && Number.isFinite(f) && p.y - f <= 16 / 32 * (L.rom ? L.rom.vscale : 1)) {
+      const f = floorAt(L, p.x, p.z), low = Number.isFinite(f) && p.y - f <= 16 / 32 * (L.rom ? L.rom.vscale : 1);
+      if (tri && !w.inTri && low) {
         const d0 = (tri.band === 'x' ? p.x : p.z) - tri.b, c = (tri.band === 'x' ? p.z : p.x) - tri.s, d1 = tri.flip ? 2 - c : c;
         if (tri.along && d1 < 2 * d0 - 2) { if (tri.band === 'x') p.vx = P.bumpSpeed; else p.vz = P.bumpSpeed; }
         else { p.vx = tri.v[0]; p.vz = tri.v[1]; }
         bumped(w, p);
       }
-      w.inTri = !!tri;
+      w.inTri = !!tri && low;   // (0x93D0: the flag goes once he is out of every one or over 16 above the floor)
     }
     // spears (Spring Stadium 2): stepping into a spear cell's east quarter raises one there (one at a time): it waits
     // 34 frames, then rises over 28 from 16 units under the floor to 40 over it, hurting a player in that quarter under
@@ -4552,7 +4589,10 @@ const Sim = (() => {
         p.carry = c; p.rolling = false; p.force = null; w.events.push('carry'); break;
       }
     }
-    if (w.time - w.warpedAt > 1) for (const h of w.holes) {
+    const rested = w.time - w.warpedAt > 1;
+    if (rested || (L.rom && L.phys.orig)) for (const h of w.holes) {
+      // (a second's rest after a warp; on the original's levels only for warps: its routines take a ride's cell at once)
+      if (!rested && !h.ride) continue;
       // inside its square (or box) taken half open, so a hole the size of a cell is exactly that cell
       const hx = h.half ? h.half[0] : h.size, hz = h.half ? h.half[1] : h.size;
       if (h.opens > w.section || !(p.x >= h.x - hx && p.x < h.x + hx && p.z >= h.z - hz && p.z < h.z + hz)) continue;
@@ -4568,8 +4608,8 @@ const Sim = (() => {
         break;
       }
       if (h.ride) {
-        const R = h.ride;
-        p.ride = { ride: R, i: 0, wait: R.wait }; p.auto = null; p.force = null; p.sled = null; if (p.chute) { p.chute.st = 0; p.chute = null; } p.rolling = p.whirl = false; p.whirlHold = 0; p.charge = 0;   // (a ride ends a sled's push, Diamond Dust 1's jump at (86, 81), and the chute that led to it)
+        const R = h.ride, v0 = { vx: p.vx, vz: p.vz, rolling: p.rolling, fwdWord: p.fwdWord, topW: p.topW };
+        p.ride = { ride: R, i: 0, wait: R.wait, v0 }; p.auto = null; p.force = null; p.sled = null; if (p.chute) { p.chute.st = 0; p.chute = null; } p.rolling = p.whirl = false; p.whirlHold = 0; p.charge = 0;   // (a ride ends a sled's push, Diamond Dust 1's jump at (86, 81), and the chute that led to it)
         if (L.rom && L.phys.orig) p.ride.snap = true;   // (the original's ride moves whole units: its first step drops the fractions)
         if (R.anim !== undefined) p.anim = R.anim;   // (the routine sets the animation itself: Diamond Dust 1's 0x3A, 2)
         if (R.start) { p.x = R.start[0]; p.z = R.start[2]; if (Number.isFinite(R.start[1])) p.y = R.start[1]; w.events.push('warp'); }   // (no height: kept)
@@ -6544,7 +6584,7 @@ const S3D = (() => {
       return { start: from ? [r3(from[0] / CELL - x0), r3(from[1] / CELL * vscale), r3(from[2] / CELL - z0)] : null, facing: facing === null ? null : compassOf(facing),
         vel: vel ? [r6(vel[0] * mps), r6(vel[1] * mps * vscale), r6(vel[2] * mps)] : [r3(last[0] * mps), 0, r3(last[2] * mps)],
         path: path.map(([dx, dy, dz]) => [r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)]),
-        turns: sc.turns.map(([i, f]) => [i, compassOf(mir ? (0x200 - f) & 0x7FF : f)]), sc };
+        turns: sc.turns.map(([i, f]) => [i, compassOf(mir ? (0x200 - f) & 0x7FF : f)]), ...(vel ? {} : { keep: 1 }), sc };
     };
     for (const [cx, cz, after, state, from, facing, vel, maxY, force, run, anim] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
       const { sc, ...rd } = rideOf(state, from, facing, vel), ride = { ...rd,
@@ -7058,7 +7098,7 @@ const S3D = (() => {
     driver: [[0xD1D18, 0x0000, 0x11BF], [0xD2ED7, 0x1300, 0x7BD]], mailbox: 0x1C0A,
     musicFor: (d, level) => u16(d, 0x24F78 + 2 * level),
     sfx: { jump: [0x62], charge: [0xAB], dash: [0xB6], ring: [0x33], spring: [0x68], enemy: [0x3D, 0x38], monitor: [0x3D],
-      hurt: [0xB9], shot: [0x4D], boom: [0x9A], spark: [0x9A] /* a shot landing or touching, 0xD5EE, 0x1BAD4 */, goal: [0x6A], boostIn: [0xAB], boost: [0xB6], goldDash: [0xB6],
+      hurt: [0xB9], shot: [0x4D], boom: [0x9A], spark: [0x9A] /* a shot landing or touching, 0xD5EE, 0x1BAD4 */, goal: [0x6A], boostIn: [0x5A] /* the supercharger's catch, 0xCB2A */, boost: [0xB6], goldDash: [0xB6],
       shieldLost: [0x35], dying: [0x35] /* 0x1B6F0, 0x1B744 */, section: [0xAC] /* near the big ring routine */,
       cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, burst: [0x59] /* 058 */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */,
       bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */,

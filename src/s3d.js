@@ -715,7 +715,7 @@ const S3D = (() => {
       return { start: from ? [r3(from[0] / CELL - x0), r3(from[1] / CELL * vscale), r3(from[2] / CELL - z0)] : null, facing: facing === null ? null : compassOf(facing),
         vel: vel ? [r6(vel[0] * mps), r6(vel[1] * mps * vscale), r6(vel[2] * mps)] : [r3(last[0] * mps), 0, r3(last[2] * mps)],
         path: path.map(([dx, dy, dz]) => [r6(dx / CELL), r6(dy / CELL * vscale), r6(dz / CELL)]),
-        turns: sc.turns.map(([i, f]) => [i, compassOf(mir ? (0x200 - f) & 0x7FF : f)]), sc };
+        turns: sc.turns.map(([i, f]) => [i, compassOf(mir ? (0x200 - f) & 0x7FF : f)]), ...(vel ? {} : { keep: 1 }), sc };
     };
     for (const [cx, cz, after, state, from, facing, vel, maxY, force, run, anim] of gm.rides || []) if (floorCell(cx, cz) && (!from || floorCell(Math.floor(from[0] / CELL), Math.floor(from[2] / CELL)))) {
       const { sc, ...rd } = rideOf(state, from, facing, vel), ride = { ...rd,
@@ -1229,7 +1229,7 @@ const S3D = (() => {
     driver: [[0xD1D18, 0x0000, 0x11BF], [0xD2ED7, 0x1300, 0x7BD]], mailbox: 0x1C0A,
     musicFor: (d, level) => u16(d, 0x24F78 + 2 * level),
     sfx: { jump: [0x62], charge: [0xAB], dash: [0xB6], ring: [0x33], spring: [0x68], enemy: [0x3D, 0x38], monitor: [0x3D],
-      hurt: [0xB9], shot: [0x4D], boom: [0x9A], spark: [0x9A] /* a shot landing or touching, 0xD5EE, 0x1BAD4 */, goal: [0x6A], boostIn: [0xAB], boost: [0xB6], goldDash: [0xB6],
+      hurt: [0xB9], shot: [0x4D], boom: [0x9A], spark: [0x9A] /* a shot landing or touching, 0xD5EE, 0x1BAD4 */, goal: [0x6A], boostIn: [0x5A] /* the supercharger's catch, 0xCB2A */, boost: [0xB6], goldDash: [0xB6],
       shieldLost: [0x35], dying: [0x35] /* 0x1B6F0, 0x1B744 */, section: [0xAC] /* near the big ring routine */,
       cannon: [0x81], crack: [0x59] /* the Green Grove routines' own requests */, burst: [0x59] /* 058 */, whirl: [0xAB] /* Rusty Ruin's fans */, flame: [0x7F] /* flamethrowers */,
       bossHit: [0x59], bossBump: [0xB4], bossDrop: [0x51], bossHop: [0x96], bossGrab: [0x76] /* GG3's routine */,

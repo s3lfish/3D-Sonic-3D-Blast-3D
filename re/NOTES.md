@@ -438,8 +438,18 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - SS1 uses InitLevel_SSz1/RunLevel_SSz1 (labels not swapped). Sonic's word +0x8C is his cell's map offset
   (z << 8 | x << 1); routines compare it with fixed cells. Teleporting Sonic needs +0x8C set too.
 - Superchargers (0xCA6A): (word +0x26 != 0, bit 3 of +0x16): (0,0) north, (0,1) west, (1,0) south, (1,1) east;
-  grounded, no pad lock, object at a ready frame, Sonic within 12 units of the cell one step that way: held 70
-  frames (pad 0xEF: spin dash rev), then off at 7.4 units a frame; pad let go 30 frames. Measured in SS1.
+  target T = the middle of the cell one step that way (record + 32 that way), d4 the facing that way. Taken when
+  $24 = 0, Sonic grounded, $0A18 = 0, $8E = $62 = 0, the record's frame $1E 0x56 or 0xB2, T - 12 <= his x, z < T + 12:
+  $24 = 0x46, sound 0x5A, $34 = -d4 (0x800 for 0: he turns 0x40 a frame to it with the pad idle), $6C/$70/$6E = T and
+  the record's y. While $6C is set his move (0x3424 -> 0x4330) is a whole unit a frame on each axis toward it,
+  fractions and speeds cleared, no walls or floor. Each frame after: $24 - 1; at 0, $6C cleared and the pad nothing
+  for 30 ($0A18; the rev lets go: the dash, 7.5 units a frame); else $0A18 = 2 and $0A1A = 0xEF (the dash button) once
+  $24 <= 60 and his facing is d4, else 0xFF; the rev wait $5A cut to 6. Exact over SS1/SS2 traces (sim `p.boost`).
+- Scripts done (0x8000 then 0, 0x2FA2) leave his speed, roll and top as they were: the SS loops (state 4) carry the
+  supercharger's dash on (converted rides without a speed: `keep`). The routines take a ride's cell the frame after
+  he enters it, with no rest after the last ride.
+- Walls in the air (0x40D6) are met at his height after this frame's fall or rise (0x373A moves y first): rising by
+  a ledge he is over it once 8 under its top.
 - SS1 opener (emulator): supercharger -> loop at (37, 117) (state 4; pad F5 = run east held 140 frames from the
   loop's start) -> floor spring (46, 115) up onto 0x31 -> supercharger (1632, 384, 3680) -> loop (61, 115) -> loop
   (77, 113) -> downhill.
@@ -466,7 +476,8 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   floor (51-60 units) under SS2's first does not reach it; floor springs beside it do.
 - Triangle bumpers (SS1 0x9818, SS2 0x925C): 64-unit boxes; inside the triangle (side offset, from the far side when
   flipped, no more than the band offset) within 16 of the floor: near the tip (side < 2 band - 64) pushed 5 along the
-  band, else (+-4, +-4) off the long side; once until outside; pad 20 frames; sound 0xAE.
+  band, else (+-4, +-4) off the long side; pad 20 frames; sound 0xAE. The once-flag $C(a4) is cleared whenever he is
+  in none of them or more than 16 over his floor (0x93D0), so a fall into one bumps as he comes within 16.
 - SS2 spears (0x9146, cells 0x9494, object $D422): Sonic's cell in the list with x & 31 >= 24 raises a spear at the
   cell's east edge (sound 0x8C); it waits ~34 frames, then rises (counter 28 -> 0 by 4 every 2 frames); its tip is
   floor - 16 + 2 x (28 - counter); Sonic in that quarter under the tip is hurt. Spiked wall: x == 0xF40, y < 0x380 in

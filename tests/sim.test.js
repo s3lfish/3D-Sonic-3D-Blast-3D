@@ -905,6 +905,18 @@ test('the original\'s act start: count from 0, two frames run, 17 held, the pad 
   assert.deepStrictEqual(C.slice(1, 21), [1, 2].concat(Array(17).fill(2), [3]), `counts ${C}`);
   assert.ok(X.slice(1, 20).every(x => x === x0) && X[21] > x0, 'still till the pad acts');
 });
+test('the original\'s supercharger: a unit a frame to its middle, turned its way, revved, then off rolling', () => {
+  const w = ROMLV(0, 0, [{ type: 'booster', x: 3.5, z: 4.5, dir: [1, 0] }]); place(w, 3.2, 4.65); w.p.facing = Math.PI;
+  const X = [], Z = [], F = [], V = [];
+  run(w, 76, (f, x) => { X.push(Math.round((x.p.x) * 32 * 1000) / 1000); Z.push(Math.round(x.p.z * 32 * 1000) / 1000); F.push(Math.round(-x.p.facing / (2 * Math.PI) * 0x800 + 0x800) % 0x800); V.push(x.p.vx / (60 / 32)); return {}; });
+  // caught at once (within 12 units of the middle (112, 144)): whole units, one a frame on each axis
+  // ([k]: after frame k) caught at once, within 12 units of the middle (112, 144): whole units, one a frame on each axis
+  assert.deepStrictEqual([X[1], Z[1], X[2], Z[2]], [103, 147, 104, 146], `steps ${X.slice(0, 4)} ${Z.slice(0, 4)}`);
+  assert.ok(X.slice(10, 70).every(x => x === 112) && Z.slice(10, 70).every(z => z === 144), 'held at its middle');
+  assert.ok(F[1] === 0x440 && F[8] === 0x600, `turned 0x40 a frame to its way (${F.slice(0, 10)})`);
+  const go = V.findIndex(v => v > 1);
+  assert.ok(go === 70 && Math.abs(V[go] - 7.5) < 1e-6 && w.p.rolling, `off after frame ${go} at ${V[go]} units a frame`);
+});
 test('058 bursts into four shots when Sonic comes near, then is gone', () => {
   const w = ROMLV(0, 0, [{ type: 'enemy', x: 5.5, z: 4.5, radius: 1, burst: 1, flicky: 0 }]); place(w, 2.5, 4.5); w.p.facing = Math.PI / 2;
   let first = -1; run(w, 40, (f, x) => { if (first < 0 && x.shots.length) first = f; return { mx: 1 }; });
