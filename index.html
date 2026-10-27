@@ -2281,8 +2281,13 @@ const Sim = (() => {
       const a = b.arms[b.cur], o = b.arms[1 - b.cur];
       switch (b.act) {
         case 0: {   // reach out to at least the first limit, then on towards Sonic (16 units short) up to the second
-          const z = b.root[1] + a[0] * U;
-          if (z < b.reach[0] || (z < p.z - 16 * U && z < b.reach[1])) a[0]++; else b.t = 0;
+          if (w.L.rom) {   // (in whole units, as the routine's words: the wrist's z, Sonic's whole z)
+            const oz = w.L.rom.origin[1], wz = Math.round((b.root[1] + oz) * 32) + a[0], pz = Math.floor((p.z + oz) * 32 + 1e-6);
+            if (wz < Math.round((b.reach[0] + oz) * 32) || (wz < pz - 16 && wz < Math.round((b.reach[1] + oz) * 32))) a[0]++; else b.t = 0;
+          } else {
+            const z = b.root[1] + a[0] * U;
+            if (z < b.reach[0] || (z < p.z - 16 * U && z < b.reach[1])) a[0]++; else b.t = 0;
+          }
           break;
         }
         case 1: if (--a[0] < 32) { a[0] = 32; b.t = 0; } break;
@@ -2343,8 +2348,10 @@ const Sim = (() => {
   // outside the box's last x (or z) range: put at that edge (just inside the whole unit on the low side), that part of
   // the speed gone, or, rolling, back 0x4000 slower with the facing mirrored (the roll over once both are 0). Coming
   // from under it while rising: falling at 0x4000, put 48 under the top.
-  function boxSides(w, L, p, nx, nz, ox, oz) {
-    const o = L.rom.origin, vs = L.rom.vscale, S = 65536, Y = Math.floor(p.y * 32 / vs - 8 + 1e-6);
+  function boxSides(w, L, p, nx, nz, ox, oz, sdt) {
+    // (his height after this frame's move for the first tests, the one before for coming from under it, 0x37C6..0x37EA)
+    const o = L.rom.origin, vs = L.rom.vscale, S = 65536, yn = p.grounded ? p.y : p.y + p.vy * sdt;
+    const Y = Math.floor(yn * 32 / vs - 8 + 1e-6), OY = Math.floor(p.y * 32 / vs - 8 + 1e-6);
     const OX = Math.floor((ox + o[0]) * 32 + 1e-6), OZ = Math.floor((oz + o[1]) * 32 + 1e-6);
     const back = v => { const l = 0.25 * 60 / 32; return v < 0 ? Math.max(0, -v - l) : Math.min(0, -v + l); };
     const turn = a => Math.atan2(Math.sin(a), Math.cos(a));
@@ -2352,8 +2359,8 @@ const Sim = (() => {
       if (!q.orig || !inBox(L, nx, nz, q)) continue;
       const t = Math.round(q.top * 32 / vs - 8), ot = Math.round(q.otop * 32 / vs - 8);
       if (t < Y || t - 48 - Y >= 0) return;
-      if (ot - 48 - Y >= 0) {
-        if (!p.grounded && p.vy > 0) { p.vy = -0.25 * 60 / 32 * vs; p.y = (t - 48 + 8) / 32 * vs; }
+      if (ot - 48 - OY >= 0) {
+        if (!p.grounded && p.vy > 0) { p.vy = -0.25 * 60 / 32 * vs; p.y = (t - 48 + 8) / 32 * vs - p.vy * sdt; }   // (the move that follows puts him 48 under)
         return;
       }
       const W = Math.round((q.x1 - q.x0) * 32), D = Math.round((q.z1 - q.z0) * 32);
@@ -3847,7 +3854,7 @@ const Sim = (() => {
     for (let s = 0; s < n; s++) {
       const ox = p.x, oz = p.z;
       if (O && L.rom && w.monitors.length && !holdO && !p.sled) monSides(w, L, p, ox + p.vx * sdt, oz + p.vz * sdt, ox, oz);
-      if (O && L.rom && w.plats.length && !holdO && !p.sled) boxSides(w, L, p, ox + p.vx * sdt, oz + p.vz * sdt, ox, oz);
+      if (O && L.rom && w.plats.length && !holdO && !p.sled) boxSides(w, L, p, ox + p.vx * sdt, oz + p.vz * sdt, ox, oz, sdt);
       // (crouched, revving or launched this frame he does not move, but the original still meets its diagonal pieces and
       // walls where he stands, 0x3744 → 0x39DC: a dash from a piece's line is turned off it at once)
       const nrm = p.sled && p.grounded ? sledMove(L, p, sdt) : bouncedO ? null : holdO ? (O && L.rom ? (resolveWallsOrig(L, p, ox, oz), null) : null)
