@@ -409,7 +409,11 @@ serves index.html from main.
 ## Status
 - 2026-10-27 night: a fourth private pad script (ex4: spin dashes off corner pieces, dashes into enemies, deaths and
   reloads, long idles) in all 22 acts; fixed so far: reload freeze and counts, roll end clears the ball, dash-frame
-  corner pieces, half-turn rounding, VV2 ball angle reset. Still off in ex4: acts 5, 7, 8, 15, 16, 18, 21, 22.
+  corner pieces, half-turn rounding, VV2 ball angle reset; the original's frame count C (`w.gcC`, reset at load and
+  reload; global counts = (-C) mod n via `gZero`) and its random table (500 words at 0xFAB40, `rom.rand` from the
+  player's ROM, `oRand(w, k)`: the pointer at C, k words on; roamers, ring scatter type 2, PP3 shots); hover as 0x2E84;
+  particle type 8 (hops); RR maces as the original's shared angle and records (`maceRecs`, `w.maceSet`, touch in the
+  display order via `w.sKey`). Still off in ex4: acts 8 (RR3 fist's side box), 15, 16, 18, 22.
 - 2026-10-27: lives (game.js `lives`, HUD `#livesHud`: 3, a 1-up monitor or a special stage won with all seven adds
   one, 9 at most; none left: "Game over", the act again with 3); a death reloads the act (Sim `death`: rings, enemies,
   monitors, mines and capsules back, Flickies not in a ring gone; `reloadAct`, also after a special stage with the player

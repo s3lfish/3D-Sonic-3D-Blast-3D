@@ -1324,7 +1324,15 @@ const Sim = (() => {
         // a mace: a ball "r" metres out from a post at (x, y, z), going round at "w" rad/s; "balls" are angle offsets
         case 'mace': {
           if (!inBounds(e.x, e.z) || !Number.isFinite(e.y) || !(e.r > 0) || !Number.isFinite(e.w)) { errs.push(`A mace at (${e.x}, ${e.z}) needs a height "y", a reach "r" and a turn rate "w".`); break; }
-          L.entities.push({ type: 'mace', x: e.x, z: e.z, y: e.y, r: e.r, w: e.w, link: e.link > 0 ? e.link : e.r / 4, balls: Array.isArray(e.balls) && e.balls.length ? e.balls : [0] });
+          const m = { type: 'mace', x: e.x, z: e.z, y: e.y, r: e.r, w: e.w, link: e.link > 0 ? e.link : e.r / 4, balls: Array.isArray(e.balls) && e.balls.length ? e.balls : [0] };
+          if (Array.isArray(e.win) && e.win.length === 2 && e.win.every(Number.isInteger) && Number.isInteger(e.turn)) Object.assign(m, { win: e.win, turn: e.turn, second: e.second | 0 });   // (converted: the routine's own)
+          L.entities.push(m);
+          break;
+        }
+        // the original's mace records: the shared angle and eight object records [x, y, z, touch b4, b5] (converted levels)
+        case 'maceRecs': {
+          if (Number.isInteger(e.a) && Array.isArray(e.recs) && e.recs.length === 8 && e.recs.every(r => Array.isArray(r) && r.length === 5 && r.every(Number.isInteger)))
+            L.entities.push({ type: 'maceRecs', a: e.a, recs: e.recs.map(r => r.slice()) });
           break;
         }
         // a flamethrower at (x, y, z) firing along "dir"
@@ -1740,6 +1748,7 @@ const Sim = (() => {
     const rm = raw.rom;
     if (L && rm && Number.isInteger(rm.level) && Array.isArray(rm.origin) && rm.origin.length === 2 && rm.origin.every(Number.isInteger) && rm.vscale > 0 && rm.vscale <= 4)
       L.rom = { level: rm.level, origin: rm.origin.slice(), vscale: rm.vscale, blank: Array.isArray(rm.blank) && rm.blank.length === 2 && rm.blank.every(v => Number.isInteger(v) && v > 0 && v < 600) ? rm.blank.slice() : [52, 34] };
+    if (L && L.rom && rm && Array.isArray(rm.rand) && rm.rand.length && rm.rand.every(v => Number.isInteger(v) && v >= 0 && v < 65536)) L.rom.rand = rm.rand.slice();   // (the original's random words)
     if (L && L.rom) L.diag = L.split && L.split.some(s => s >> 2) ? piecesOf(L) : findDiagonals(L);
     if (L && !errs.length) addEntities(L, raw.entities ?? [], errs);
     if (errs.length) throw new LevelError(errs.slice(0, 20));
@@ -2149,7 +2158,7 @@ const Sim = (() => {
     for (const g of w.rings) g.got = false;
     w.loose.length = 0; w.ringCount = 0; w.ringOut = 0;
     w.flickies = w.flickies.filter(f => f.state === 'gone');
-    objectsBack(w); w.ballA = 0;   // (Volcano Valley 2's ball angle starts again from 0, watched)
+    objectsBack(w); w.ballA = 0; w.gcC = 0;   // (Volcano Valley 2's ball angle and the frame count start again from 0, watched)
     const keep = w.spawn;
     if (at) w.spawn = { x: at.x, z: at.z, facing: at.facing };
     respawn(w);
@@ -2196,6 +2205,7 @@ const Sim = (() => {
     w.sprinklers = L.entities.filter(e => e.type === 'sprinkler').map(e => ({ ...e, a: e.phase, on: false }));
     initBoss(w);
     w.maces = L.entities.filter(e => e.type === 'mace').map((e, i) => ({ ...e, phase: i * 1.3 }));
+    { const mr = L.entities.find(e => e.type === 'maceRecs'); w.maceSet = mr && L.rom && L.phys.orig && w.maces.every(m => m.win) ? { a: mr.a, recs: mr.recs.map(([x, y, z, b4, b5]) => ({ X: x * 65536, Z: z * 65536, Y: y, touch: [b4, b5] })) } : null; }
     w.flames = L.entities.filter(e => e.type === 'flame').map(e => ({ ...e, cool: 0 })); w.puffs = [];
     w.turrets = L.entities.filter(e => e.type === 'turret').map((e, i) => ({ x: e.x, z: e.z, y: e.y, cool: 1 + i * 0.4, firedAt: -9, skin: e.skin }));
     w.shots = [];
@@ -2620,12 +2630,18 @@ const Sim = (() => {
       });
       // the shoulders' cannons lob shots while both arms rest at home (on the original's 32-frame count)
       if (st.shots && b.arms.every(a => a.idle)) {
-        const ph = w.tick % 32, k = ph === 0 ? 1 : ph === 16 ? 0 : -1;
+        const ORIG = L.rom && L.phys.orig, ph = ORIG ? w.gcC % 32 : w.tick % 32, k = ph === 0 ? 1 : ph === 16 ? 0 : -1;   // ($0B04 0: B, 0x10: A)
         if (k >= 0 && b.arms[k].hits > 0) {
-          let vx = rnd() * 2 / 65536, vz = rnd() * 2 / 65536;
-          if (k === 1 ? vx < vz : vx > vz) [vx, vz] = [vz, vx];
           const [sx, sy, sz] = st.shots[k];
-          w.shots.push({ x: sx, y: sy, z: sz, vx: vx * 60 * U, vz: vz * 60 * U, vy: 2 * 60 * V, g: 3600 * V / 16, age: 0 });
+          if (ORIG) {   // (0x12828: template 0xDA24 (a shot, gravity 1/16, 112 frames), 2 up, x and z twice two random words, A's 50 on; B's x the larger)
+            const o = L.rom.origin; let vx = oRand(w, k ? 0 : 50) * 2, vz = oRand(w, k ? 1 : 51) * 2;
+            if (k === 1 ? vz >= vx : vz <= vx) [vx, vz] = [vz, vx];
+            shotPart(w, Math.round((sx + o[0]) * 32), Math.round(sy / V) - 8, Math.round((sz + o[1]) * 32), vx, -0x20000, vz, 0x1000, 112, true);
+          } else {
+            let vx = rnd() * 2 / 65536, vz = rnd() * 2 / 65536;
+            if (k === 1 ? vx < vz : vx > vz) [vx, vz] = [vz, vx];
+            w.shots.push({ x: sx, y: sy, z: sz, vx: vx * 60 * U, vz: vz * 60 * U, vy: 2 * 60 * V, g: 3600 * V / 16, age: 0 });
+          }
           w.events.push('sprinkle');
         }
       }
@@ -2649,8 +2665,13 @@ const Sim = (() => {
           w.events.push('serpent'); return;
         }
         if (b.si === 2) {   // a shot every frame, 2.5 to 3.5 units a frame south-east, falling (1/8)
-          const vx = 2.5 + rnd() / 65536, vz = 2.5 + rnd() / 65536;
-          w.shots.push({ x: a.x + 0xB * U, y: a.y, z: a.z + 0xA * U, vx: vx * 60 * U, vz: vz * 60 * U, vy: 0, g: 3600 * V / 8, age: 0 });
+          if (L.rom && L.phys.orig) {   // (0x12F08: template 0xDA5A, a hopping shot (2 up at each landing, off walls), 180 frames; x and z 2.5 + a random word)
+            const o = L.rom.origin;
+            shotPart(w, Math.round((a.x + o[0]) * 32) + 0xB, Math.round(a.y / V) - 8, Math.round((a.z + o[1]) * 32) + 0xA, oRand(w) + 0x28000, 0, oRand(w, 1) + 0x28000, 0x2000, 180, true, 8);
+          } else {
+            const vx = 2.5 + rnd() / 65536, vz = 2.5 + rnd() / 65536;
+            w.shots.push({ x: a.x + 0xB * U, y: a.y, z: a.z + 0xA * U, vx: vx * 60 * U, vz: vz * 60 * U, vy: 0, g: 3600 * V / 8, age: 0 });
+          }
           if (d % 8 === 0) w.events.push('beam');
         }
         if (onShoulder(a)) hitArm(a, o); else if ((d & 7) === 0) w.events.push('armOpen');
@@ -3225,6 +3246,7 @@ const Sim = (() => {
   // the Flickies taken to a ring 1, 2, 4, 8, 16 in turn ($0A8C doubling, 0xCD5E)
   function step(w, inp) {
     stepInner(w, inp);
+    if (w.L.rom) { const o = w.L.rom.origin, S = 65536; w.sKey = Math.floor((Math.round((w.p.x + o[0]) * 32 * S) + Math.round((w.p.z + o[1]) * 32 * S)) / 2 / S); }   // (Sonic's key for the next frame's touch order)
     for (const e of w.events) {
       if (e === 'enemy') w.score += 1;
       else if (e === 'bossDown') w.score += w.boss && w.boss.kind === 'ff' ? 50 : 10;
@@ -3233,10 +3255,12 @@ const Sim = (() => {
     }
     return w;
   }
-  // The original's global counts (decremented every frame from the act's start: $0AFC.. $0B06 with periods 6, 8, 10,
-  // 16, 32 and 60; $0AF4.. 2, 3, 4, 5); objects act when theirs is 0. `w.gcOff` shifts them (replays from a saved game set
-  // it; a reload sets it again).
-  const gZero = (w, n) => (w.tick + (w.gcOffN && w.gcOffN[n] !== undefined ? w.gcOffN[n] : w.gcOff || 0)) % n === n - 1;   // (gcOffN: per count, for replays)
+  // The original's frame count C (routine 0x4BC6, each frame the game runs; `w.gcC`): its global counts $0AF4.. (periods
+  // 2, 3, 4, 5, 6, 8, 10, 16, 32, 60) each stand at (-C) mod n, and its random pointer $0A26 walks the ROM's table of 500
+  // words at 0xFAB40 (`rom.rand`, read by the converters) one a frame; both start at the act's load and again at each
+  // reload. Objects act when their count is 0.
+  const gZero = (w, n) => (w.gcC || 0) % n === 0;
+  const oRand = (w, k = 0) => { const t = w.L.rom && w.L.rom.rand; return t && t.length ? t[((w.gcC || 0) + k) % t.length] : Math.floor(rand(w) * 65536); };   // (k: the k-th word on from the pointer)
   function stepInner(w, inp) {
     const L = w.L, p = w.p, dt = P.dt;
     w.events.length = 0; p.pre = null;
@@ -3244,13 +3268,13 @@ const Sim = (() => {
     // after a ring that puts the player in a pocket, the original walks them to the way out (input is the routine's)
     w.tick++;
     if (w.wait > 0) { w.wait--; return w; }
-    // (after a reload nothing runs (the level's routine, objects, counts) but two frames 19 and 18 before the pad acts again; the
-    // counts, cleared with the reload, stand at n - 3 on the first frame back whatever the period: watched in three acts)
+    // (after a reload nothing runs, the level's routine, objects and the frame count included, but the two frames 19 and
+    // 18 before the pad acts again: on its first frame back C is 3; watched in five acts)
     if (w.padWait > 0) {
-      const left = w.padWait--; inp = {}; if (w.padWait === 0) w.gcSync = true;
+      const left = w.padWait--; inp = {};
       if (L.rom && L.phys.orig && left !== 19 && left !== 18) return w;
     }
-    else if (w.gcSync) { w.gcSync = false; w.gcOff = ((2 - w.tick) % 480 + 480) % 480; w.gcOffN = null; }
+    w.gcC = (w.gcC || 0) + 1;
     // dying (converted levels; watched in Volcano Valley 1): thrown 8 up, the rise slows by gravity and stops, held
     // there, then the act again 57 frames after the hit (the world waits here)
     if (p.dying > 0) {
@@ -3644,6 +3668,18 @@ const Sim = (() => {
     }
     // slope pull and gravity
     if (p.grounded && !(O && L.rom && !p.whirl && !(p.flyT > 0))) { gradientAt(L, p.x, p.z, _g); const k = O ? P.slopeOrig / (L.rom ? L.rom.vscale : 1) : P.slope; p.vx -= _g[0] * k * dt; p.vz -= _g[1] * k * dt; }   // (converted levels: origVelocity)
+    else if (p.hover && O && L.rom) {
+      // (the original, 0x2E84, in its units, y up and speed down: 0.25 up against gravity; under the line (floor + 48)
+      // 0.125 more up, over it 0.125 down; then, by its own test of y + speed against the line, a fall of 1.5 or more
+      // nearing it from above or a climb of 1.5 or more just over it is halved; then gravity)
+      const vs = L.rom.vscale, S = 65536, U = 60 / 32 * vs, Y = Math.round((p.y * 32 / vs - 8) * S), yw = Math.floor(Y / S);
+      const fl = floorAt(L, p.x, p.z), d1 = (Number.isFinite(fl) ? Math.floor(fl * 32 / vs - 8 + 1e-6) : yw) + P.hoverLine;
+      let VY = Math.round(-p.vy / U * S) - 0x4000;
+      if (d1 < yw) { VY += 0x2000; if (d1 >= Math.floor((Y + VY) / S) && VY <= -0x18000) VY = Math.floor(VY / 2); }
+      else if (d1 > yw) { VY -= 0x2000; if (d1 <= Math.floor((Y + VY) / S) && VY >= 0x18000) VY = Math.floor(VY / 2); }
+      VY += Math.round(L.phys.gravity * dt / U * S);
+      p.vy = -VY / S * U;
+    }
     else if (p.hover) {   // pulled up under the line, down over it; rising through it halves the climb (measured)
       const vs = L.rom ? L.rom.vscale : 1, line = floorAt(L, p.x, p.z) + P.hoverLine / 32 * vs, a = P.hoverAcc * 3600 / 32 * vs;
       if (p.y < line) p.vy += a * dt;
@@ -4369,8 +4405,37 @@ const Sim = (() => {
       }
     }
     if (w.boss && bossStep(w, pcy)) return w;
-    // maces: spiked balls on chains circling their posts; they hurt and cannot be broken
-    for (const m of w.maces) {
+    // maces: spiked balls on chains circling their posts; they hurt and cannot be broken. Converted levels: the original's
+    // (helper 0x86B0 from the act's routine): the first mace in the table whose window [x, y] less the scroll is within
+    // 0x240 x 0x1A0 turns the one shared angle by its own turn and puts the shared records on it: four (three links and
+    // the ball) 16 units apart from its centre, the second chain's four at its angle + `second`; they touch by their bytes
+    if (w.maceSet) {
+      const ms = w.maceSet, o = L.rom.origin, S = 65536, sin = P.orig.sin, cam = w.cam;
+      if (cam) for (const m of w.maces) {
+        if (((m.win[0] - cam.X) & 0xFFFF) > 0x240 || ((m.win[1] - cam.Y) & 0xFFFF) > 0x1A0) continue;
+        ms.a = (ms.a + m.turn) & 0x7FE;
+        const cx = Math.round((m.x + o[0]) * 32) * S, cz = Math.round((m.z + o[1]) * 32) * S, cy = Math.round(m.y * 32 / L.rom.vscale);
+        [ms.a, m.second ? (m.second + ms.a) & 0x7FE : -1].forEach((a, c) => {
+          if (a < 0) return;
+          const s = sin[a >> 1] * 32, k0 = sin[(a >> 1) + 0x100] * 32;
+          for (let k = 0; k < 4; k++) Object.assign(ms.recs[c * 4 + k], { X: cx + s * (k + 1), Z: cz + k0 * (k + 1), Y: cy });
+        });
+        break;
+      }
+      for (const m of w.maces) m.oa = [ms.a, (m.second + ms.a) & 0x7FE];   // (drawn at the shared angle)
+      const sK = w.sKey;
+      for (const r of ms.recs) {
+        const kPrev = r.K; r.K = Math.floor((r.X + r.Z) / 2 / S);
+        if (!r.touch[0] && !r.touch[1]) continue;
+        const x = r.X / S / 32 - o[0], z = r.Z / S / 32 - o[1];
+        if (!onScreen(L, p, x, (r.Y + 8) / 32 * L.rom.vscale, z, null, w)) continue;
+        if (p.inv > 0 || p.invuln > 0 || p.knockT > 0) continue;
+        if (origTouch(L, p, { X: r.X, Z: r.Z, touch: r.touch, win: [0, 0, 0, 0, r.Y], y: 0, y0: 0 }, kPrev === undefined || sK === undefined ? undefined : Math.sign(kPrev - sK))) {
+          hurt(w, p.x - x, p.z - z); if (w.events.includes('respawn')) return w;
+        }
+      }
+    }
+    else for (const m of w.maces) {
       for (const off of m.balls) {
         const a = m.phase + off + m.w * w.time, bx = m.x + Math.sin(a) * m.r, bz = m.z + Math.cos(a) * m.r;
         const dx = p.x - bx, dz = p.z - bz;
@@ -4760,13 +4825,14 @@ const Sim = (() => {
       if (r.vy >= 0 && h >= Math.floor(r.Y / S)) {
         r.Y = h * S + (r.Y & 0xFFFF);
         if (r.type === 5) { w.events.push('spark'); return false; }   // (a shot: a spark where it lands, 0xD5BE)
+        if (r.type === 8) { r.vy = -2 * S; return true; }   // (a hopping shot, 0xD4CC: 2 up at each landing)
         if (r.type) {
           if (r.type === 1 || r.type === 4) {
             const p = w.p, oct = octantTo(Math.floor(p.x * 32) - Math.floor(r.X / S), Math.floor(p.z * 32) - Math.floor(r.Z / S)) >> 8;
             const want = (4 - 2 * oct) & 15, dd = (r.d - want) & 0xFF;   // ($36 is a byte this turn leaves unmasked)
             if (dd) r.d = (r.d + ((dd & 15) > 8 ? 1 : -1)) & 0xFF;
             r.vy = r.type === 1 ? -S : -S / 2;
-          } else if (r.type === 2) { r.vy = -S / 2; r.d = (r.d + (rand(w) < 0.5 ? 1 : -1)) & 15; }
+          } else if (r.type === 2) { r.vy = -S / 2; r.d = (r.d + (oRand(w) & 0x100 ? 1 : -1)) & 15; }   // (0xD562: bit 0 of the random word's high byte)
           else { r.vy = -4 * S; r.d = (r.d - 7) & 15; }
           const k = ((0x12 - r.d) & 15) << 6;
           r.vx = P.orig.sin[k] * 2; r.vz = P.orig.sin[k + 0x100] * 2;
@@ -4840,8 +4906,8 @@ const Sim = (() => {
     else if (i >= 0x110 && i < 0x150) en.Z += S; else if (i >= 0x180 && i < 0x1C0) en.X += S;
   }
   // a shot particle (type 5) at whole units x, y, z of the original's (x, z from the level's origin)
-  function shotPart(w, x, y, z, vx, vy, vz, g, life, fresh) {
-    const S = 65536, o = w.L.rom.origin, r = { o: 1, fresh: !!fresh, type: 5, d: 0, t: life || Infinity, X: (x - o[0] * 32) * S, Y: y * S, Z: (z - o[1] * 32) * S, vx, vy, vz, g, age: 0, x: 0, y: 0, z: 0 };
+  function shotPart(w, x, y, z, vx, vy, vz, g, life, fresh, type = 5) {
+    const S = 65536, o = w.L.rom.origin, r = { o: 1, fresh: !!fresh, type, d: 0, t: life || Infinity, X: (x - o[0] * 32) * S, Y: y * S, Z: (z - o[1] * 32) * S, vx, vy, vz, g, age: 0, x: 0, y: 0, z: 0 };
     ringPos(w.L, r); w.shots.push(r); return r;
   }
   // An enemy's touch as the original's (0x1B846 / 0x1B8FE, measured on a Green Grove enemy): picture x (x - z) within
@@ -4905,7 +4971,7 @@ const Sim = (() => {
     let xi = Math.floor(en.X / S), zi = Math.floor(en.Z / S);
     if (!R.chase && Math.abs(SX - xi) <= 0x40 && Math.abs(SZ - zi) <= 0x40) { R.chase = true; R.A &= 0x7E0; rate = 0x20; }
     if (R.chase) { if (gZero(w, 10)) R.T = octantTo(SX - xi, SZ - zi); }   // ($0B00)
-    else if (gZero(w, 60)) R.T = Math.floor(rand(w) * 8) * 0x100;   // ($0B06)
+    else if (gZero(w, 60)) R.T = oRand(w) & 0x700;   // ($0B06; the random word's bits 8-10)
     const [bx, bz] = R.box, fx = en.X - xi * S, fz = en.Z - zi * S;
     if (xi <= bx) { R.T = 0x200; en.X = bx * S + fx; } else if (xi >= bx + 0x7C) { R.T = 0x600; en.X = (bx + 0x7C) * S + fx; }
     if (zi <= bz) { R.T = 0; en.Z = bz * S + fz; } else if (zi >= bz + 0x7C) { R.T = 0x400; en.Z = (bz + 0x7C) * S + fz; }
@@ -5743,7 +5809,7 @@ const S3D = (() => {
     // RunLevel shows Tails once ring 1's hole opens (0xE5F4) and Knuckles while the cannon at (116, 12) fires (0xE766)
     1: { cannons: [[116, 12, 248, 9, 7.067]], cracks: [[[[108, 17]], 480, [0, -1]]], friends: { tails: { section: 1 }, knuckles: { cannon: [116, 12] } } },
     2: { cannons: [[21, 48, 576, 9, 6.1]], cracks: [[[[59, 47]], 784, [-1, 0]], [[[108, 41], [109, 41]], 688, [0, -1]]] },
-    7: { spikes: 0xFF, fans: 0x55, roofs: 0x7AA0 /* the routine's call at 0x74A2 */, doors: [0x7994, 4], pillars: [0x7ACC, 23], maces: [0x75C2, 5], flames: [0x7548, 5],
+    7: { spikes: 0xFF, fans: 0x55, roofs: 0x7AA0 /* the routine's call at 0x74A2 */, doors: [0x7994, 4], pillars: [0x7ACC, 23], maces: [0x75C2, 5, 13], flames: [0x7548, 5],
       links: [[1696, 1840, 90], [2576, 1216, 180]],
       rides: [[60, 48, 1, 0x36, [1888, 392, 768], 0x400, [0, 0, 5]], [80, 50, 2, 0x38, null, null, [0, 0, 0]]],
       pads: [[0, -1, 1], [1, -1, 2]],
@@ -5754,7 +5820,7 @@ const S3D = (() => {
     // after; rides at four cells, one of them only after the pillar at (85, 101) breaks: the routine then drops that
     // cell to 0x500 and lowers (99, 96) to its map value; it fires below 32 units (Sonic falls through the
   // 0x500 floor to there; ours stops at 40, so the ride here fires at 40). Dash wall (101, 60).
-    6: { friends: { tails: { cell: [85, 101], maxY: 32 } } /* 0x7FBE: the ride from (85, 101) at y 32 or under */, spikes: 0xFF, fans: 0x55, roofs: 0x8252 /* 0x7E0C */, pillars: [0x8266, 23], maces: [0x80B8, 6], flames: [0x7EC4, 9], padRise: 138, pads: [[0, 1, 1], [1, 0, 1], [2, 3, 2], [3, 2, 2]],
+    6: { friends: { tails: { cell: [85, 101], maxY: 32 } } /* 0x7FBE: the ride from (85, 101) at y 32 or under */, spikes: 0xFF, fans: 0x55, roofs: 0x8252 /* 0x7E0C */, pillars: [0x8266, 23], maces: [0x80B8, 6, 19], flames: [0x7EC4, 9], padRise: 138, pads: [[0, 1, 1], [1, 0, 1], [2, 3, 2], [3, 2, 2]],
       slides: [[0xC3, [1, 0]], [0xF0, [0, 1]]], pillarLinks: [[85, 101, 0x05, [[99, 96, 0x22]]]],
       rides: [[98, 96, 0, 0x30, null, null, [0, 0, 0]], [85, 101, 0, 0x2E, null, null, [0, 0, 0], 40],
         [100, 60, 0, 0x32, null, null, [0, 0, 0]], [91, 71, 0, 0x34, null, null, [0, 0, 0]]],
@@ -6174,6 +6240,8 @@ const S3D = (() => {
     // (steps: 8 units walked up (the sim's walls use the exact rule), a drop of more than 2 leaves the ground: 0x40D0, 0x414A)
     return { gravity: r4(g), jumpV: r4(jump), jumpCut: r4(jump * 0.4), maxFall: r4(420 / CELL), stepUp: r4(8 / CELL), snapDown: r4(2 / CELL), orig: 1 };
   }
+  // the original's random words: a pointer ($0A26) walks this table of 500 words one a frame from each act's load
+  const RAND_TABLE = 0xFAB40;
   // [frames the screen stays blank while an act reloads after a death (the level's unpacking time), frames after that
   // before the pad acts]: measured in the emulator; [52, 34] elsewhere as watched in Volcano Valley 1: `rom.blank`
   const BLANK = { 3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 32], 14: [44, 34], 17: [46, 30], 18: [44, 32], 20: [51, 34] };
@@ -6389,13 +6457,20 @@ const S3D = (() => {
     }
     // maces (helper 0x86B0): 14-byte records [screen window x, y, centre x, y, z, turn a frame (2048 a turn), second
     // chain's angle after the first (0: none)]; a chain of three links and a spiked ball, 16 units apart, so the ball
-    // circles 64 units out at the centre's height. Flamethrowers (helper 0x84F2): 8-byte records [x, z, y, flags];
-    // flags 0x800: they fire along z (else x); while Sonic is in the 128 x 64 unit box in front, a fireball every 6 frames
-    if (gm.maces) for (let k = 0, o = gm.maces[0]; k < gm.maces[1]; k++, o += 14) {
-      const x = s16(d, o + 4), y = s16(d, o + 6), z = s16(d, o + 8), turn = s16(d, o + 10), second = s16(d, o + 12);
-      if (!floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) continue;
-      ents.push({ type: 'mace', x: r3(x / CELL - x0), z: r3(z / CELL - z0), y: r3(y / CELL * vscale), r: r3(64 / CELL), link: r3(16 / CELL),
-        w: r6(turn * Math.PI * 2 / 2048 * 60), balls: second ? [0, r6(second * Math.PI * 2 / 2048)] : [0] });
+    // circles 64 units out at the centre's height. Each frame the routine moves only the first mace in the table whose
+    // window is on the screen; all share one angle and the same object records (slot 9's four, the second chain's four
+    // at slot `maces[2]`), whose starting places, touch bytes and angle (slot 9's +0x24) go out as `maceRecs`.
+    // Flamethrowers (helper 0x84F2): 8-byte records [x, z, y, flags]; flags 0x800: they fire along z (else x); while
+    // Sonic is in the 128 x 64 unit box in front, a fireball every 6 frames.
+    if (gm.maces) {
+      for (let k = 0, o = gm.maces[0]; k < gm.maces[1]; k++, o += 14) {
+        const x = s16(d, o + 4), y = s16(d, o + 6), z = s16(d, o + 8), turn = s16(d, o + 10), second = s16(d, o + 12);
+        ents.push({ type: 'mace', x: r3(x / CELL - x0), z: r3(z / CELL - z0), y: r3(y / CELL * vscale), r: r3(64 / CELL), link: r3(16 / CELL),
+          w: r6(turn * Math.PI * 2 / 2048 * 60), balls: second ? [0, r6(second * Math.PI * 2 / 2048)] : [0], win: [s16(d, o), s16(d, o + 2)], turn, second });
+      }
+      const recs = [];
+      for (const base of [9, gm.maces[2]]) for (let k = 0; k < 4; k++) { const o = (base + k) * 0x34; recs.push([s16(ob, o + 6), s16(ob, o + 0xA), s16(ob, o + 0xE), ob[o + 4], ob[o + 5]]); }
+      ents.push({ type: 'maceRecs', a: u16(ob, 9 * 0x34 + 0x24) & 0x7FE, recs });
     }
     if (gm.flames) for (let k = 0, o = gm.flames[0]; k < gm.flames[1]; k++, o += 8) {
       const x = s16(d, o), z = s16(d, o + 2), y = s16(d, o + 4), fl = u16(d, o + 6);
@@ -6758,7 +6833,8 @@ const S3D = (() => {
     return {
       version: 1, format: 'tiles', name: name + ' (from your ROM)', width: W, depth: D,
       killY: Math.round((minTop - 3) * 100) / 100, tiles, entities: ents, palettes: levelPalettes(d, id),
-      physics: physicsFor(vscale), rom: BLANK[id] ? { level: id, origin: [x0, z0], vscale, blank: BLANK[id] } : { level: id, origin: [x0, z0], vscale },
+      physics: physicsFor(vscale), rom: Object.assign({ level: id, origin: [x0, z0], vscale }, BLANK[id] ? { blank: BLANK[id] } : {},
+        { rand: Array.from({ length: 500 }, (_, k) => u16(d, RAND_TABLE + 2 * k)) }),
       flickies: tableRings ? 5 : 0,   // every big ring wants five Flickies, freed from enemies
     };
   }
@@ -11028,7 +11104,7 @@ const Art = (() => {
     for (let q = 0; q < maceObjs.length; q++) {
       const m = world.maces[q];
       m.balls.forEach((off, k) => {
-        const a = m.phase + off + m.w * world.time, sx = Math.sin(a), sz = Math.cos(a), o = maceObjs[q][k];
+        const a = m.oa ? m.oa[k] * Math.PI / 1024 : m.phase + off + m.w * world.time, sx = Math.sin(a), sz = Math.cos(a), o = maceObjs[q][k];   // (converted: the original's shared angle)
         o.links.forEach((l, i) => l.position.set(m.x + sx * m.link * (i + 1), m.y, m.z + sz * m.link * (i + 1)));
         o.ball.position.set(m.x + sx * m.r, m.y - (o.rom ? 0.35 : 0), m.z + sz * m.r);
       });

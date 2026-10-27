@@ -28,7 +28,7 @@ const S3D = (() => {
     // RunLevel shows Tails once ring 1's hole opens (0xE5F4) and Knuckles while the cannon at (116, 12) fires (0xE766)
     1: { cannons: [[116, 12, 248, 9, 7.067]], cracks: [[[[108, 17]], 480, [0, -1]]], friends: { tails: { section: 1 }, knuckles: { cannon: [116, 12] } } },
     2: { cannons: [[21, 48, 576, 9, 6.1]], cracks: [[[[59, 47]], 784, [-1, 0]], [[[108, 41], [109, 41]], 688, [0, -1]]] },
-    7: { spikes: 0xFF, fans: 0x55, roofs: 0x7AA0 /* the routine's call at 0x74A2 */, doors: [0x7994, 4], pillars: [0x7ACC, 23], maces: [0x75C2, 5], flames: [0x7548, 5],
+    7: { spikes: 0xFF, fans: 0x55, roofs: 0x7AA0 /* the routine's call at 0x74A2 */, doors: [0x7994, 4], pillars: [0x7ACC, 23], maces: [0x75C2, 5, 13], flames: [0x7548, 5],
       links: [[1696, 1840, 90], [2576, 1216, 180]],
       rides: [[60, 48, 1, 0x36, [1888, 392, 768], 0x400, [0, 0, 5]], [80, 50, 2, 0x38, null, null, [0, 0, 0]]],
       pads: [[0, -1, 1], [1, -1, 2]],
@@ -39,7 +39,7 @@ const S3D = (() => {
     // after; rides at four cells, one of them only after the pillar at (85, 101) breaks: the routine then drops that
     // cell to 0x500 and lowers (99, 96) to its map value; it fires below 32 units (Sonic falls through the
   // 0x500 floor to there; ours stops at 40, so the ride here fires at 40). Dash wall (101, 60).
-    6: { friends: { tails: { cell: [85, 101], maxY: 32 } } /* 0x7FBE: the ride from (85, 101) at y 32 or under */, spikes: 0xFF, fans: 0x55, roofs: 0x8252 /* 0x7E0C */, pillars: [0x8266, 23], maces: [0x80B8, 6], flames: [0x7EC4, 9], padRise: 138, pads: [[0, 1, 1], [1, 0, 1], [2, 3, 2], [3, 2, 2]],
+    6: { friends: { tails: { cell: [85, 101], maxY: 32 } } /* 0x7FBE: the ride from (85, 101) at y 32 or under */, spikes: 0xFF, fans: 0x55, roofs: 0x8252 /* 0x7E0C */, pillars: [0x8266, 23], maces: [0x80B8, 6, 19], flames: [0x7EC4, 9], padRise: 138, pads: [[0, 1, 1], [1, 0, 1], [2, 3, 2], [3, 2, 2]],
       slides: [[0xC3, [1, 0]], [0xF0, [0, 1]]], pillarLinks: [[85, 101, 0x05, [[99, 96, 0x22]]]],
       rides: [[98, 96, 0, 0x30, null, null, [0, 0, 0]], [85, 101, 0, 0x2E, null, null, [0, 0, 0], 40],
         [100, 60, 0, 0x32, null, null, [0, 0, 0]], [91, 71, 0, 0x34, null, null, [0, 0, 0]]],
@@ -459,6 +459,8 @@ const S3D = (() => {
     // (steps: 8 units walked up (the sim's walls use the exact rule), a drop of more than 2 leaves the ground: 0x40D0, 0x414A)
     return { gravity: r4(g), jumpV: r4(jump), jumpCut: r4(jump * 0.4), maxFall: r4(420 / CELL), stepUp: r4(8 / CELL), snapDown: r4(2 / CELL), orig: 1 };
   }
+  // the original's random words: a pointer ($0A26) walks this table of 500 words one a frame from each act's load
+  const RAND_TABLE = 0xFAB40;
   // [frames the screen stays blank while an act reloads after a death (the level's unpacking time), frames after that
   // before the pad acts]: measured in the emulator; [52, 34] elsewhere as watched in Volcano Valley 1: `rom.blank`
   const BLANK = { 3: [44, 30], 4: [51, 34], 8: [49, 33], 12: [55, 32], 14: [44, 34], 17: [46, 30], 18: [44, 32], 20: [51, 34] };
@@ -674,13 +676,20 @@ const S3D = (() => {
     }
     // maces (helper 0x86B0): 14-byte records [screen window x, y, centre x, y, z, turn a frame (2048 a turn), second
     // chain's angle after the first (0: none)]; a chain of three links and a spiked ball, 16 units apart, so the ball
-    // circles 64 units out at the centre's height. Flamethrowers (helper 0x84F2): 8-byte records [x, z, y, flags];
-    // flags 0x800: they fire along z (else x); while Sonic is in the 128 x 64 unit box in front, a fireball every 6 frames
-    if (gm.maces) for (let k = 0, o = gm.maces[0]; k < gm.maces[1]; k++, o += 14) {
-      const x = s16(d, o + 4), y = s16(d, o + 6), z = s16(d, o + 8), turn = s16(d, o + 10), second = s16(d, o + 12);
-      if (!floorCell(Math.floor(x / CELL), Math.floor(z / CELL))) continue;
-      ents.push({ type: 'mace', x: r3(x / CELL - x0), z: r3(z / CELL - z0), y: r3(y / CELL * vscale), r: r3(64 / CELL), link: r3(16 / CELL),
-        w: r6(turn * Math.PI * 2 / 2048 * 60), balls: second ? [0, r6(second * Math.PI * 2 / 2048)] : [0] });
+    // circles 64 units out at the centre's height. Each frame the routine moves only the first mace in the table whose
+    // window is on the screen; all share one angle and the same object records (slot 9's four, the second chain's four
+    // at slot `maces[2]`), whose starting places, touch bytes and angle (slot 9's +0x24) go out as `maceRecs`.
+    // Flamethrowers (helper 0x84F2): 8-byte records [x, z, y, flags]; flags 0x800: they fire along z (else x); while
+    // Sonic is in the 128 x 64 unit box in front, a fireball every 6 frames.
+    if (gm.maces) {
+      for (let k = 0, o = gm.maces[0]; k < gm.maces[1]; k++, o += 14) {
+        const x = s16(d, o + 4), y = s16(d, o + 6), z = s16(d, o + 8), turn = s16(d, o + 10), second = s16(d, o + 12);
+        ents.push({ type: 'mace', x: r3(x / CELL - x0), z: r3(z / CELL - z0), y: r3(y / CELL * vscale), r: r3(64 / CELL), link: r3(16 / CELL),
+          w: r6(turn * Math.PI * 2 / 2048 * 60), balls: second ? [0, r6(second * Math.PI * 2 / 2048)] : [0], win: [s16(d, o), s16(d, o + 2)], turn, second });
+      }
+      const recs = [];
+      for (const base of [9, gm.maces[2]]) for (let k = 0; k < 4; k++) { const o = (base + k) * 0x34; recs.push([s16(ob, o + 6), s16(ob, o + 0xA), s16(ob, o + 0xE), ob[o + 4], ob[o + 5]]); }
+      ents.push({ type: 'maceRecs', a: u16(ob, 9 * 0x34 + 0x24) & 0x7FE, recs });
     }
     if (gm.flames) for (let k = 0, o = gm.flames[0]; k < gm.flames[1]; k++, o += 8) {
       const x = s16(d, o), z = s16(d, o + 2), y = s16(d, o + 4), fl = u16(d, o + 6);
@@ -1043,7 +1052,8 @@ const S3D = (() => {
     return {
       version: 1, format: 'tiles', name: name + ' (from your ROM)', width: W, depth: D,
       killY: Math.round((minTop - 3) * 100) / 100, tiles, entities: ents, palettes: levelPalettes(d, id),
-      physics: physicsFor(vscale), rom: BLANK[id] ? { level: id, origin: [x0, z0], vscale, blank: BLANK[id] } : { level: id, origin: [x0, z0], vscale },
+      physics: physicsFor(vscale), rom: Object.assign({ level: id, origin: [x0, z0], vscale }, BLANK[id] ? { blank: BLANK[id] } : {},
+        { rand: Array.from({ length: 500 }, (_, k) => u16(d, RAND_TABLE + 2 * k)) }),
       flickies: tableRings ? 5 : 0,   // every big ring wants five Flickies, freed from enemies
     };
   }

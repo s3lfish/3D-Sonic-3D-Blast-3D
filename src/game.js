@@ -3076,7 +3076,7 @@
     for (let q = 0; q < maceObjs.length; q++) {
       const m = world.maces[q];
       m.balls.forEach((off, k) => {
-        const a = m.phase + off + m.w * world.time, sx = Math.sin(a), sz = Math.cos(a), o = maceObjs[q][k];
+        const a = m.oa ? m.oa[k] * Math.PI / 1024 : m.phase + off + m.w * world.time, sx = Math.sin(a), sz = Math.cos(a), o = maceObjs[q][k];   // (converted: the original's shared angle)
         o.links.forEach((l, i) => l.position.set(m.x + sx * m.link * (i + 1), m.y, m.z + sz * m.link * (i + 1)));
         o.ball.position.set(m.x + sx * m.r, m.y - (o.rom ? 0.35 : 0), m.z + sz * m.r);
       });

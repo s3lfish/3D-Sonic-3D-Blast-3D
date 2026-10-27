@@ -165,8 +165,12 @@ original art. The browser code carries reading rules only.
   at the edge and turns that part back; then z the same; vy += $22 (0x2000), y -= vy; the floor (triangles, NW-SE
   split always) under it while falling: y = floor, vy = -(vy - vy/4), each horizontal part 0x1000 toward 0, and a
   landing with both already 0 ends it; $32 counts the life down (0xF0).
-- Global counts (0x6D14): $0AF4 .. $0B06 count down every frame with periods 2, 3, 4, 5, 6, 8, 10, 16, 32, 60, from
-  1, 2, 3, 4, 5, 7, 9, 15, 31, 59 when an act starts (held during the title card). Objects off screen do not run.
+- Frame count C (0x4BC6) and global counts (0x6D14): $0AF4 .. $0B06 count down every frame with periods 2, 3, 4, 5,
+  6, 8, 10, 16, 32, 60; each equals (-C) mod n. The random pointer $0A26 = table 0xFAB40 + 2 (C mod 500) (500 words;
+  users read consecutive words from it). C and both reset at an act's load and at every reload. After a reload only
+  the frames with 19 and 18 left of the pad wait run (C = 1, 2); C = 3 on the first frame the pad acts. The sim
+  keeps C as `w.gcC`; `gZero(w, n)` is the counter test and `oRand(w, k)` the k-th word on (converted levels carry
+  the table as `rom.rand`, read from the player's ROM). Objects off screen do not run.
 - Enemy handlers: 0x17CB6 (060, 14C, 104; 0C4 enters at 0x17CE6): angle $24 moves it (sin, cos) words a frame (16.16:
   half a unit), turning $26 by 0x10 a frame (0x20 chasing) the short way; not chasing, a random eighth when $0B06 is 0;
   Sonic within 0x40 on both axes: chasing (bit 15 of $2A), speed doubled, angle & 0xFFE0, aim at his octant when $0B00
@@ -335,8 +339,12 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - Pillars: table 0x7ACC (helper 0x85AC), 14-byte records [screen x, screen y, x, y, z, cell, raised word]; InitLevel
   raises each cell by 0x2000; while whirling, cells touched are let in and a pillar whose cell Sonic enters drops by
   0x2000 (sound 0x59). Dash walls (88, 62) and (100, 41) (the latter also lowers (100, 15)) as in Green Grove.
-- Helpers not yet used: 0x84F2 (flamethrowers: fire objects when Sonic is in front, sound 0x7F), 0x86B0 (maces: a
-  ball circling a centre, angle step per frame from the table at 0x75C2).
+- Maces (helper 0x86B0; RR1 table 0x75C2, 5 records, driver 0x7570; RR2 0x80B8, 6, driver 0x806C): 14-byte records
+  [window x, y, centre x, y, z, turn, second]. Each frame the first record whose window minus the scroll is within
+  0x240 x 0x1A0 turns one shared angle (slot 9's +0x24) by its turn and places the shared records: four at centre +
+  k (sin, cos) x 32 / 2 (k = 1..4, table 0x276E8), the second chain's four (slot 13 in RR1, 19 in RR2) at angle
+  (second + A) & 0x7FE. Touch bytes come from those records; touch goes through the sorted display list as any
+  object. Helper not yet used: 0x84F2 (flamethrowers: fire objects when Sonic is in front, sound 0x7F).
 - Scripted moves (player states 2..0x5E): RunSonic's interpreter at 0x2EFC plays a script from 0x25DF2 + the word at
   0x25DF2 + state - 2: segments [motion offset, word (high byte 0x80 + facing / 256, low byte frames)], ended by
   0x8000 then 0 (done), a positive step back (repeat), or a negative word then [x, y, z, facing, vx, vy, vz]. Motion
@@ -641,8 +649,10 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
     $56 = 2, the state played (tubes). State 6 at script offset 0x10 (4th segment): with $0A8E (Flickies following)
     = 5, state 0x1A (to the last ring) instead; else sound 0xB2. Sound 0x3C each segment.
   - Roofs table 0x12254 [cell, cell, top] as Diamond Dust's.
-  - 0x55 cells: $0ACC; grounded: $84 = 0x30 (hover), pose 0x0C, sound 0xC1. Watched: 0.125 a frame per frame up under
-    floor + 48, down above, the climb halved crossing the line; Flickies on 0x55 cells lifted too (0x6000 a frame).
+  - 0x55 cells: $0ACC; grounded: $84 = 0x30 (hover), pose 0x0C, sound 0xC1. Hover (0x2E84, vy up negative, 16.16):
+    vy -= 0x4000; line = floor + 0x30; under the line vy -= 0x2000, and if y + vy crosses it with vy >= 0x18000 (down),
+    vy = vy / 2; over it vy += 0x2000, halved the same way when crossing upward with vy <= -0x18000; then gravity.
+    Flickies on 0x55 cells lifted too (0x6000 a frame).
   - 0xAA cells (helper 0x122C6): entering one grounded puts one of four 068 records (cycling) there with $1E = 6;
     068 (0x17B40) steps its animation every 2 frames; from index 0x1C (22 frames) Sonic grounded on that cell is hurt
     ($24 cleared), unless $0AC2 & 0x7FFF = 0x46C0 (the blue shield; monitor kinds by (kind + 1) * 0x80 at 0xC12E).
@@ -832,7 +842,9 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   aligned (integer parts): timer 0xBB (sound 0x5A) or the flag. Watched: rise 544 -> 569, slam to 481 (floor 488),
   rests, 481 -> 545; the claw hurts at rest; a jump at (42, 43) during rest took a hit.
 - Shoulder shots while both flags: $0B04 = 0 (B, from (0x590, 0x222, 0x530)) and 0x10 (A, (0x550, 0x222, 0x570)),
-  template 0xDA24 (gravity 1/16 = word +0x24), vy -2, vx and vz random 0..2 (B: vx >= vz; A: vx <= vz), sound 0x4D.
+  template 0xDA24 (type 5, gravity 0x1000, life 112), vy -2, vx and vz two random words x 2 (0..2 units; B: the
+  larger as vx; A: as vz), sound 0x4D. B reads words 0 and 1 from the pointer, A words 50 and 51 (matched in the
+  traces; why 50 on is not known).
 - Both arms broken: $34 = 0x64 each frame (Sonic safe); pod target 0x180 (arena 1) / 0xF0 (2); once the pod has moved,
   0x12FF4 / 0x13144: grounded on cell (47, 41) / (50, 54): held at (0x5F0, 0x1E0, 0x530) / (0x650, 0x180, 0x6D0),
   pad 80 frames, sound 0x3C, $30 = 0x37: at 0x27 put at (0x6F0, 0x2E0, 0x630) / (0x750, 0x280, 0x7D0) (in a ball,
@@ -843,7 +855,9 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   y = rest + sin(+10) x 16 (table 0x276E8, 1024 words of +-32767), +E + 8, +10 + 0x12. Arena 2 at 0x78: the serpent
   (a4+0x3C; from the claw + (0xB, 0, 0xA), first toward + (0x100, 0x100), chasing Sonic once under 0xC8 of its 0xD2
   frames; routine 0xA3F2 as VV3's; five links $D07A..; sound 0x4E). Arena 3, timer <= 0x78: a shot a frame (template
-  0xDA5A, gravity 1/8) at 2.5..3.5 units a frame in x and z, sound 0x78. Hit window 0x77..1 (y >= 0x190 / 0x130;
+  0xDA5A: type 8, gravity 0x2000, life 180) from the claw + (0xB, 0, 0xA), vx and vz = random word + 0x28000 (2.5..3.5
+  units a frame), sound 0x78. Type 8 hops: vy = -2 at each landing, bouncing off walls; type 2 takes a direction from
+  bit 8 of a random word (template 0xDA7E: type 8, life 160). Hit window 0x77..1 (y >= 0x190 / 0x130;
   cells A (50, 51) / (58, 59), B (52, 49) / (60, 57)): the arm hit waits 0x294 and the other 0x168 (alone 0x168);
   timer 0: 0x258 (0x12C alone). Arena 3 beaten: pod target 0xC0, $3E = 0x168: explosions (random, sound 0x59), then
   $0A1C = 1 (act over), score + 10.
