@@ -712,7 +712,8 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   (0x10); 0x370 target 0x20; 0x3D4 and 0x46A record 5 (164) dropped at (x - 7, 0, z + 6), 0x3E8 and 0x47E record 6 at
   (x - 0x12, 0, z + 6) (sound 0xA0): z + 4 a frame for 80 frames, then blown up (0x114EA, sound 0x59); 0x406 lanes on;
   0x500 back to 0x1E0. Records 8..13 (16C): z + 1 a frame; at 0x378 blown up and put at x = (random & 3) * 32 + lanes,
-  z 0x1C8 (watched: they hurt). Pod y toward the target a unit a frame; from 0x1E0 x = 0xE04 + sin * 32, + 0xA a frame.
+  z 0x1C8 (watched: they hurt). The end row's hurt sees $3E before Sonic's count this frame (his last safe frame
+  still holds). Pod y toward the target a unit a frame; from 0x1E0 x = 0xE04 + sin * 32, + 0xA a frame.
   Record 7 (168) at (x - 2, y - 16, z - 2). Roofs 0x11482 (the row under the pod, top 32). Belt tiles: 0x40 bytes from
   0xDE8FE + 0x40k to VRAM 0x20 a frame while on.
 
@@ -932,6 +933,9 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
   on the cannon's own frame clock, directions by frame from table 0x15C2E ([dx, dz, vx, vz] x 16 / 65536: (2, 2),
   (2.5, 1.75), (3, 0.5), (3, -0.5), (2.5, -1.75)), 0..4 one way and 4..0 back, from the cannon + (dx, -9, dz); vy 1
   up, gravity 1/8 (template 0xDA7E), bounce 2 up off the floor, off walls, 160 frames.
+- Templates (bytes +0 touch b4 b5, +2 gravity, +0xB type, +0xC life): 0xDA24 shot 0x1000 112; 0xDA5A type 8 0x2000 180;
+  0xDA6C (lasers) shot, no gravity, 112; 0xDA7E type 8 0x2000 160; 0xD9CA shot, no gravity, no end; all touch 24 / 0.
+  The sim fires them as the original's particles (shotPart), touched by the particle box (partTouch).
 - Objects: 1AC floor pads (lit where Sonic steps: 6 while walking, 2 in a fight), 1B0 the machine's two parts, 1B4
   cannons (frame 0) and fists (1..4), 1B8 the hatch, 1BC bombs, 1C0 the pod's cannon, 138 serpent links, 02C debris.
   The machine's tiles are RNC packed (0xEFAFE to VRAM 0x520, 0x15D2BA to 0xF20) and streamed each frame (0x15A4BA,

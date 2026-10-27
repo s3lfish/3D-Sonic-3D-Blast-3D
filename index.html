@@ -2806,7 +2806,8 @@ const Sim = (() => {
         else if (p.vz <= 1.5 * 60 * U) p.vz += 0.25 * 60 * U;
       }
     }
-    if (p.grounded && (L.rom ? Math.floor((p.z + L.rom.origin[1]) * 32 + 1e-9) >= Math.round((b.end + L.rom.origin[1]) * 32) : p.z >= b.end) && !safe) { w.events.push('beltEnd'); hurt(w, 0, -1); return w.events.includes('respawn'); }
+    // (the routine runs before his $3E counts down this frame: the last safe frame still holds)
+    if (p.grounded && (L.rom ? Math.floor((p.z + L.rom.origin[1]) * 32 + 1e-9) >= Math.round((b.end + L.rom.origin[1]) * 32) : p.z >= b.end) && !safe && !(L.rom && L.phys.orig && p.invulnWas > 0)) { w.events.push('beltEnd'); hurt(w, 0, -1); return w.events.includes('respawn'); }
     b.t++;
     const t = b.t;
     if (t === 0x190) w.events.push('bossHorn');
@@ -2947,7 +2948,8 @@ const Sim = (() => {
           if (d0 === 0x10 || d0 === 0x30) ev('laser');
           if ((d0 & 3) === 0) {
             const dz = b.c >= 0x80 ? 0xF : b.c >= 0x40 ? 3 : -9;
-            w.shots.push({ x: X(b.ux + b.oX + 0x19), y: Y(b.uy + 2), z: Z(b.uz + o + dz), vx: 3.5 * 60 / 32, vz: 0, age: 0, life: 0x70 / 60, r: 20 / 32, laser: true });
+            if (L.phys.orig) shotPart(w, b.ux + b.oX + 0x19, b.uy + 2, b.uz + o + dz, 0x38000, 0, 0, 0, 0x70, true).laser = true;   // (template 0xDA6C: a shot particle, touched as one)
+            else w.shots.push({ x: X(b.ux + b.oX + 0x19), y: Y(b.uy + 2), z: Z(b.uz + o + dz), vx: 3.5 * 60 / 32, vz: 0, age: 0, life: 0x70 / 60, r: 20 / 32, laser: true });
           }
         }
         return --b.c < 0;
@@ -3081,7 +3083,8 @@ const Sim = (() => {
       if (++b.tk % 11 === 5 && b.cannon && b.cannonK < 5 && !b.cannonT) b.cannonT = 4;
       if (b.cannonT && --b.cannonT === 0) {
         const [dx, dz, vx, vz] = FF_CANNON[b.cannon > 0 ? b.cannonK : 4 - b.cannonK];
-        w.shots.push({ x: X(b.ux + 1 + dx), y: Y(b.uy + 0x10 - 9), z: Z(b.uz + 1 + dz), vx: vx * 60 / 32, vz: vz * 60 / 32, vy: 60 / 32 * vs, g: 3600 / 8 / 32 * vs,
+        if (L.phys.orig) shotPart(w, b.ux + 1 + dx, b.uy + 0x10 - 9, b.uz + 1 + dz, Math.round(vx * 65536), -0x10000, Math.round(vz * 65536), 0x2000, 0xA0, true, 8).ball = true;   // (template 0xDA7E: a hopping particle, touched as one)
+        else w.shots.push({ x: X(b.ux + 1 + dx), y: Y(b.uy + 0x10 - 9), z: Z(b.uz + 1 + dz), vx: vx * 60 / 32, vz: vz * 60 / 32, vy: 60 / 32 * vs, g: 3600 / 8 / 32 * vs,
           hop: 2 * 60 / 32 * vs, age: 0, life: 0xA0 / 60, r: 20 / 32, ball: true });
         ev('sprinkle'); b.cannonK++;
       }
@@ -4282,6 +4285,7 @@ const Sim = (() => {
     }
 
     // enemies stand still (radius 0), patrol a small circle, or chase a player who comes close; all follow the floor
+    p.invulnWas = p.invuln;   // (as the level's routine sees it: before this frame's count)
     if (p.invuln > 0) { p.invuln -= dt; if (p.invuln < 1e-9) p.invuln = 0; }   // (whole frames: 2 s is 120 of them, not 121)
     const pcy0 = p.y + 0.45;
     for (const mi of w.mines) {
