@@ -603,16 +603,25 @@
     if (!a || !a.tex || !a.baker.animSlots.length) return;
     const changed = a.baker.animStep(Math.floor(t * 60));
     const fall = jamOn() && jamProps.waterfall;
-    for (const s of fall ? a.baker.animSlots : changed) {
-      let px = a.baker.slotPixels(s.i);
-      if (fall && s.wall) {
+    if (!fall) { for (const s of changed) putSlot(a, s.i, a.baker.slotPixels(s.i)); return; }
+    // (with Jam's waterfall every animated wall slot is redrawn as the streaks move: keep each slot's own pixels, which
+    // only change when its tiles' frame does, and redraw only when the streaks have moved a texel)
+    const cache = a.slotCache || (a.slotCache = new Map()), off = Math.floor(t * 48);
+    for (const s of changed) if (!s.wall) cache.delete(s.i);   // (a wall slot's animated texels are all under the streaks)
+    const moved = a.fallOff !== off; a.fallOff = off;
+    const now = new Set(changed.map(s => s.i));
+    for (const s of a.baker.animSlots) {
+      if (!moved && !now.has(s.i)) continue;
+      let px = cache.get(s.i);
+      if (!px) { px = a.baker.slotPixels(s.i).slice(); cache.set(s.i, px); }
+      if (s.wall) {
         // the streaks move down 48 texels a second; bands stack, so a band's texels continue the one above
-        const W = fall.w, H = fall.h, off = Math.floor(t * 48), base = s.band * 32;
+        const W = fall.w, H = fall.h, base = s.band * 32;
         jamFall.set(px);
         for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
           if (!s.mask[y * 32 + x]) continue;
-          const v = ((y + base - off) % H + H) % H, o = (v * W + x % W) * 4;
-          jamFall.set(fall.px.subarray(o, o + 3), (y * 32 + x) * 4);
+          const v = ((y + base - off) % H + H) % H, o = (v * W + x % W) * 4, d = (y * 32 + x) * 4, fp = fall.px;
+          jamFall[d] = fp[o]; jamFall[d + 1] = fp[o + 1]; jamFall[d + 2] = fp[o + 2];
         }
         px = jamFall;
       }
@@ -652,7 +661,7 @@
     mesh.frustumCulled = false;
     return { mesh, quads, tex };
   }
-  const _right = new THREE.Vector3();
+  const _right = new THREE.Vector3(), _flkCam = new THREE.Vector3();
   function updateFoliage() {
     const cx0 = cam.position.x, cz0 = cam.position.z, px0 = lastRp.x - cx0, pz0 = lastRp.z - cz0, l0 = px0 * px0 + pz0 * pz0 || 1;
     for (const pm of jamPalms) {
@@ -3023,6 +3032,12 @@
         jf.g.rotation.y = jf.yaw + FLICKY_YAW;
         const c = jf.kinds[k], fly = jamProps.fly;
         poseJam(c.nodes, c.anim, fly[Math.floor(t * 30 + q * 5) % fly.length]);
+        // the body is one flat card (Sonic World draws it facing the screen): turn it about its own up axis to face the
+        // camera, keeping whichever side is already toward it, so it is never seen edge-on
+        const body = c.nodes[0], card = body.children[0];
+        jf.g.updateMatrixWorld(true);
+        const v = body.worldToLocal(_flkCam.copy(cam.position));
+        card.rotation.y = v.x < 0 ? Math.atan2(v.z, -v.x) : Math.atan2(-v.z, v.x);
         continue;
       }
       if (rom) { s.material = romFlickyMat(Math.floor(t * 12 + q * 3) % 16, !s.userData.left, f.kind); s.scale.set(64 * PX, 64 * PX, 1); s.center.set(0.5, 1 - 52 / 64); }

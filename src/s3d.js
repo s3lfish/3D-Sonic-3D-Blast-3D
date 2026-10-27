@@ -1754,6 +1754,7 @@ const S3D = (() => {
     // the animation at a video frame (60 a second): each run shows the frame its durations give; when any run changes,
     // the animated slots are drawn again. Returns the slots that changed ([] when nothing did)
     const animShown = animRuns.map(() => -1);
+    const animCache = new Map();
     function animStep(vf) {
       let changed = false;
       animRuns.forEach(([tile, n, addrs, dur], r) => {
@@ -1763,7 +1764,12 @@ const S3D = (() => {
         if (k !== animShown[r]) { animShown[r] = k; vr.set(d.subarray(addrs[k], addrs[k] + n * 32), tile * 32); changed = true; }
       });
       if (!changed) return [];
-      return animSlots.map(a => { drawSlot(a.fn, slots[a.i], null); return a; });
+      // (the frames cycle: keep each combination's redrawn slots, up to 48 MB, and copy them back when it comes round)
+      const key = animShown.join(','), hit = animCache.get(key);
+      if (hit) { animSlots.forEach((a, k) => slots[a.i].set(hit[k])); return animSlots; }
+      animSlots.forEach(a => drawSlot(a.fn, slots[a.i], null));
+      if ((animCache.size + 1) * animSlots.length * 4096 <= 48 << 20) animCache.set(key, animSlots.map(a => slots[a.i].slice()));
+      return animSlots;
     }
     const topVisible = (cx, cz) => {
       const key = cz * 128 + cx;

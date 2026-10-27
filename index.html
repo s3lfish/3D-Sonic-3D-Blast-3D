@@ -7661,6 +7661,7 @@ const S3D = (() => {
     // the animation at a video frame (60 a second): each run shows the frame its durations give; when any run changes,
     // the animated slots are drawn again. Returns the slots that changed ([] when nothing did)
     const animShown = animRuns.map(() => -1);
+    const animCache = new Map();
     function animStep(vf) {
       let changed = false;
       animRuns.forEach(([tile, n, addrs, dur], r) => {
@@ -7670,7 +7671,12 @@ const S3D = (() => {
         if (k !== animShown[r]) { animShown[r] = k; vr.set(d.subarray(addrs[k], addrs[k] + n * 32), tile * 32); changed = true; }
       });
       if (!changed) return [];
-      return animSlots.map(a => { drawSlot(a.fn, slots[a.i], null); return a; });
+      // (the frames cycle: keep each combination's redrawn slots, up to 48 MB, and copy them back when it comes round)
+      const key = animShown.join(','), hit = animCache.get(key);
+      if (hit) { animSlots.forEach((a, k) => slots[a.i].set(hit[k])); return animSlots; }
+      animSlots.forEach(a => drawSlot(a.fn, slots[a.i], null));
+      if ((animCache.size + 1) * animSlots.length * 4096 <= 48 << 20) animCache.set(key, animSlots.map(a => slots[a.i].slice()));
+      return animSlots;
     }
     const topVisible = (cx, cz) => {
       const key = cz * 128 + cx;
@@ -8764,16 +8770,25 @@ const Art = (() => {
     if (!a || !a.tex || !a.baker.animSlots.length) return;
     const changed = a.baker.animStep(Math.floor(t * 60));
     const fall = jamOn() && jamProps.waterfall;
-    for (const s of fall ? a.baker.animSlots : changed) {
-      let px = a.baker.slotPixels(s.i);
-      if (fall && s.wall) {
+    if (!fall) { for (const s of changed) putSlot(a, s.i, a.baker.slotPixels(s.i)); return; }
+    // (with Jam's waterfall every animated wall slot is redrawn as the streaks move: keep each slot's own pixels, which
+    // only change when its tiles' frame does, and redraw only when the streaks have moved a texel)
+    const cache = a.slotCache || (a.slotCache = new Map()), off = Math.floor(t * 48);
+    for (const s of changed) if (!s.wall) cache.delete(s.i);   // (a wall slot's animated texels are all under the streaks)
+    const moved = a.fallOff !== off; a.fallOff = off;
+    const now = new Set(changed.map(s => s.i));
+    for (const s of a.baker.animSlots) {
+      if (!moved && !now.has(s.i)) continue;
+      let px = cache.get(s.i);
+      if (!px) { px = a.baker.slotPixels(s.i).slice(); cache.set(s.i, px); }
+      if (s.wall) {
         // the streaks move down 48 texels a second; bands stack, so a band's texels continue the one above
-        const W = fall.w, H = fall.h, off = Math.floor(t * 48), base = s.band * 32;
+        const W = fall.w, H = fall.h, base = s.band * 32;
         jamFall.set(px);
         for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) {
           if (!s.mask[y * 32 + x]) continue;
-          const v = ((y + base - off) % H + H) % H, o = (v * W + x % W) * 4;
-          jamFall.set(fall.px.subarray(o, o + 3), (y * 32 + x) * 4);
+          const v = ((y + base - off) % H + H) % H, o = (v * W + x % W) * 4, d = (y * 32 + x) * 4, fp = fall.px;
+          jamFall[d] = fp[o]; jamFall[d + 1] = fp[o + 1]; jamFall[d + 2] = fp[o + 2];
         }
         px = jamFall;
       }
@@ -8813,7 +8828,7 @@ const Art = (() => {
     mesh.frustumCulled = false;
     return { mesh, quads, tex };
   }
-  const _right = new THREE.Vector3();
+  const _right = new THREE.Vector3(), _flkCam = new THREE.Vector3();
   function updateFoliage() {
     const cx0 = cam.position.x, cz0 = cam.position.z, px0 = lastRp.x - cx0, pz0 = lastRp.z - cz0, l0 = px0 * px0 + pz0 * pz0 || 1;
     for (const pm of jamPalms) {
@@ -11184,6 +11199,12 @@ const Art = (() => {
         jf.g.rotation.y = jf.yaw + FLICKY_YAW;
         const c = jf.kinds[k], fly = jamProps.fly;
         poseJam(c.nodes, c.anim, fly[Math.floor(t * 30 + q * 5) % fly.length]);
+        // the body is one flat card (Sonic World draws it facing the screen): turn it about its own up axis to face the
+        // camera, keeping whichever side is already toward it, so it is never seen edge-on
+        const body = c.nodes[0], card = body.children[0];
+        jf.g.updateMatrixWorld(true);
+        const v = body.worldToLocal(_flkCam.copy(cam.position));
+        card.rotation.y = v.x < 0 ? Math.atan2(v.z, -v.x) : Math.atan2(-v.z, v.x);
         continue;
       }
       if (rom) { s.material = romFlickyMat(Math.floor(t * 12 + q * 3) % 16, !s.userData.left, f.kind); s.scale.set(64 * PX, 64 * PX, 1); s.center.set(0.5, 1 - 52 / 64); }
