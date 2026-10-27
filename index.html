@@ -2211,6 +2211,9 @@ const Sim = (() => {
     w.shots = [];
     w.goals = L.entities.filter(e => e.type === 'goal').map(e => ({ x: e.x, z: e.z, y: e.y, put: e.put, spawn: e.spawn }));
     respawn(w);
+    // (an act's start in the original is a reload's end: frame count from 0, two frames run (C = 1, 2; a boss's
+    // script starts), 17 held, the pad acts from C = 3; measured in GG1, RR3 and VV3)
+    w.gcC = 0; w.ballA = 0; if (L.rom && L.phys.orig) w.padWait = 19;
   }
   // Green Grove's boss, after its routine (see s3d.js BOSSES): the original's moves in its units (1/32 m) a frame.
   // Phases: 0 come down to the cruise height; then a loop of 1 follow the player, 2 let the ball go, 3 wait for the
@@ -2296,12 +2299,17 @@ const Sim = (() => {
     w.plats.length = 0;
     for (let k = 0; k < 2; k++) {
       const A = rrArm(b, k), f = A.fist, top = f[1] - V;
-      const box = { x0: f[0] - 4 * U, x1: f[0] + 20 * U, z0: f[2] - 2 * U, z1: f[2] + 36 * U, top }, old = b.boxes[k];
+      // (on the original's levels its solid box as the handler at 0x16E42 puts it in the list at $CC02: x from 8 under the
+      // fist, 32 wide, z from 1 under, 40 deep, top 1 under; sides met by boxSides as routine 0x3788 does)
+      const OB = w.L.rom && w.L.phys.orig, old = b.boxes[k];
+      const box = OB ? { x0: f[0] - 8 * U, x1: f[0] + 24 * U, z0: f[2] - U, z1: f[2] + 39 * U, top, orig: true }
+        : { x0: f[0] - 4 * U, x1: f[0] + 20 * U, z0: f[2] - 2 * U, z1: f[2] + 36 * U, top };
+      if (OB) { box.ox0 = old ? old.x0 : box.x0; box.oz0 = old ? old.z0 : box.z0; box.otop = old ? old.top : top; }
       if (old && p.grounded && inside(old) && Math.abs(p.y - old.top) < 0.05) { p.x += box.x0 - old.x0; p.z += box.z0 - old.z0; p.y = top; }
       b.boxes[k] = box; w.plats.push(box);
       if (inside(box) && p.y < top - 0.05 && p.y + 0.9 > top - 28 * V) {
         if (b.dead < 0 && b.act === 3 && k === b.cur) { if (p.inv <= 0 && p.invuln <= 0) { hurt(w, 0, 1); if (w.events.includes('respawn')) return true; } }
-        else {   // its sides are a wall
+        else if (!OB) {   // its sides are a wall
           const e = [[p.x - box.x0, -1, 0], [box.x1 - p.x, 1, 0], [p.z - box.z0, 0, -1], [box.z1 - p.z, 0, 1]].sort((u, v) => u[0] - v[0])[0];
           p.x += e[1] * (e[0] + 0.01); p.z += e[2] * (e[0] + 0.01);
           if (e[1] && p.vx * e[1] < 0) p.vx = 0; if (e[2] && p.vz * e[2] < 0) p.vz = 0;
@@ -2318,10 +2326,49 @@ const Sim = (() => {
     }
     return false;
   }
+  // a solid box of the original's list ($CC02): inside when strictly within its x and z in whole units
+  const inBox = (L, x, z, q) => { const o = L.rom.origin, X = Math.floor((x + o[0]) * 32 + 1e-6), Z = Math.floor((z + o[1]) * 32 + 1e-6),
+    x0 = Math.round((q.x0 + o[0]) * 32), z0 = Math.round((q.z0 + o[1]) * 32);
+    return X > x0 && X < x0 + Math.round((q.x1 - q.x0) * 32) && Z > z0 && Z < z0 + Math.round((q.z1 - q.z0) * 32); };
+  // Routine 0x3788 for the boss's boxes (monitors have monSides): the first box he is inside (after his move) decides.
+  // Above its top it is a floor (platFloor); 48 or more under it, nothing (the scan ends). Otherwise, where he was
+  // outside the box's last x (or z) range: put at that edge (just inside the whole unit on the low side), that part of
+  // the speed gone, or, rolling, back 0x4000 slower with the facing mirrored (the roll over once both are 0). Coming
+  // from under it while rising: falling at 0x4000, put 48 under the top.
+  function boxSides(w, L, p, nx, nz, ox, oz) {
+    const o = L.rom.origin, vs = L.rom.vscale, S = 65536, Y = Math.floor(p.y * 32 / vs - 8 + 1e-6);
+    const OX = Math.floor((ox + o[0]) * 32 + 1e-6), OZ = Math.floor((oz + o[1]) * 32 + 1e-6);
+    const back = v => { const l = 0.25 * 60 / 32; return v < 0 ? Math.max(0, -v - l) : Math.min(0, -v + l); };
+    const turn = a => Math.atan2(Math.sin(a), Math.cos(a));
+    for (const q of w.plats) {
+      if (!q.orig || !inBox(L, nx, nz, q)) continue;
+      const t = Math.round(q.top * 32 / vs - 8), ot = Math.round(q.otop * 32 / vs - 8);
+      if (t < Y || t - 48 - Y >= 0) return;
+      if (ot - 48 - Y >= 0) {
+        if (!p.grounded && p.vy > 0) { p.vy = -0.25 * 60 / 32 * vs; p.y = (t - 48 + 8) / 32 * vs; }
+        return;
+      }
+      const W = Math.round((q.x1 - q.x0) * 32), D = Math.round((q.z1 - q.z0) * 32);
+      const x0 = Math.round((q.x0 + o[0]) * 32), z0 = Math.round((q.z0 + o[1]) * 32), ox0 = Math.round((q.ox0 + o[0]) * 32), oz0 = Math.round((q.oz0 + o[1]) * 32);
+      let met = false;
+      if (OX <= ox0 || OX >= ox0 + W) {
+        met = true;
+        if (p.rolling) { p.vx = back(p.vx); if (p.vx) p.facing = turn(-p.facing); } else p.vx = 0;
+        p.x = (OX <= ox0 ? x0 + 65535 / S : x0 + W) / 32 - o[0] - p.vx * P.dt;   // (the move that follows puts him at the edge)
+      }
+      if (OZ <= oz0 || OZ >= oz0 + D) {
+        met = true;
+        if (p.rolling) { p.vz = back(p.vz); if (p.vz) p.facing = turn(-Math.PI - p.facing); } else p.vz = 0;
+        p.z = (OZ <= oz0 ? z0 + 65535 / S : z0 + D) / 32 - o[1] - p.vz * P.dt;
+      }
+      if (met && p.rolling && !p.vx && !p.vz) p.rolling = false;
+      return;
+    }
+  }
   // the floor under the player, with the boss's moving tops (a fist) taken into account; a top counts once the player
   // is on it or above it (no stepping up onto one)
   function platFloor(w, p, f, up) {
-    for (const q of w.plats) if (p.x >= q.x0 && p.x <= q.x1 && p.z >= q.z0 && p.z <= q.z1 && q.top <= p.y + up && !(q.top <= f)) f = q.top;
+    for (const q of w.plats) if ((q.orig ? inBox(w.L, p.x, p.z, q) : p.x >= q.x0 && p.x <= q.x1 && p.z >= q.z0 && p.z <= q.z1) && q.top <= p.y + up && !(q.top <= f)) f = q.top;
     for (const q of w.jets) if (p.x >= q.x0 && p.x <= q.x1 && p.z >= q.z0 && p.z <= q.z1 && q.top <= p.y + up && !(q.top <= f)) f = q.top;
     for (const q of w.movers) { const dx = q.axis === 'x' ? q.off : 0, dz = q.axis === 'z' ? q.off : 0;
       if (p.x >= q.x0 + dx && p.x <= q.x1 + dx && p.z >= q.z0 + dz && p.z <= q.z1 + dz && q.top <= p.y + up && !(q.top <= f)) f = q.top; }
@@ -3739,6 +3786,7 @@ const Sim = (() => {
     for (let s = 0; s < n; s++) {
       const ox = p.x, oz = p.z;
       if (O && L.rom && w.monitors.length && !holdO && !p.sled) monSides(w, L, p, ox + p.vx * sdt, oz + p.vz * sdt, ox, oz);
+      if (O && L.rom && w.plats.length && !holdO && !p.sled) boxSides(w, L, p, ox + p.vx * sdt, oz + p.vz * sdt, ox, oz);
       // (crouched, revving or launched this frame he does not move, but the original still meets its diagonal pieces and
       // walls where he stands, 0x3744 → 0x39DC: a dash from a piece's line is turned off it at once)
       const nrm = p.sled && p.grounded ? sledMove(L, p, sdt) : bouncedO ? null : holdO ? (O && L.rom ? (resolveWallsOrig(L, p, ox, oz), null) : null)

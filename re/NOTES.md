@@ -392,9 +392,21 @@ them and `re/jam/render.py` draws poses for checking. Put the disc's MUSEUM.MUS 
 - Arm joints (0x727C, checked against the records in RAM): root (y 128, z 2080); r = [reach, lift]; with L = 2|r| and
   h = sqrt(65536 - L^2), the elbow is root + (r + perp(r) h / L) / 2 (links 64 long, the elbow up and back); records
   0BC: four from the root to the elbow, three from the wrist (root + r) back to it; record 0C0 the fist, 20 over the wrist.
-- Touch (armgrid.py, armstand.py): links hurt within about 16 units across and 12 along; the fist's top (one unit under
-  its record) holds Sonic over x -4..+20, z -2..+36 of the record and carries him as it lifts and pulls back; a slam
-  coming down on him hurts. From a raised fist a jump reaches the pod.
+- Touch (armgrid.py, armstand.py): links hurt within about 16 units across and 12 along; a slam coming down on him
+  hurts. From a raised fist a jump reaches the pod. The fist (0C0, handler 0x16E42) puts a solid box in the list at
+  $CC02 each frame: x from 8 under the record, 32 wide; z from 1 under, 40 deep; top 1 under; no flag.
+- Solid boxes (list $CC02: 8 records of 0x12 bytes [x0, top, z0, last frame's x0, top, z0, width, depth, flag
+  address]; routine 0x3788 in Sonic's move, after the position step, skipped while $42): the first box whose x and z
+  he is strictly inside decides, the scan then ends. Over its top: his floor ($4c) is the top. 48 or more under it:
+  nothing. Rising from under it (last frame's top - 48 >= his old y): falling at 0x4000, put 48 under the top
+  (grounded with the box coming down: a hit). Else, per axis where his old position was outside the box's last range:
+  at the edge (x0 + 0xFFFF/0x10000 on the low side, x0 + width on the high), that part 0 or, rolling ($56 = 2) with
+  no flag, negated and 0x4000 toward 0, facing 0x800 - f (x) / 0x400 - f (z), the roll over once both are 0; with a
+  flag, rolling sets it (a monitor breaks). Inside on both axes: ball or roll with a flag sets it; else, coming from
+  above its last top, he rides it ($8a; carried by its moves). The sim: monSides for monitors, boxSides for boxes.
+- An act's start is a reload's end: C = 1, 2 run (a boss's script starts: RR3's timer 140, 139), 17 frames held, the
+  pad acts from C = 3 (GG1, RR3, VV3 measured with cardt2.py). The private emulator states are saved later (about 110
+  frames on in RR3), so the boss traces run the world on first (PRE).
 - Roll bounces: 0x41A0/0x41C0/0x41DE/0x4202 put him at the old cell's edge on the axis met and stop (or bounce) that
   part whichever way it points (after a diagonal piece's turn it may already point away: DD3 trace); rolling, 0x42A0 (x) /
   0x42E8 (z): the part negated and 0x4000 toward 0 (cleared, no turn, if it crosses 0; both 0 ends the roll), facing

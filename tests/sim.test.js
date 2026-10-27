@@ -20,7 +20,8 @@ const clone = o => JSON.parse(JSON.stringify(o));
 function grid(heights, extra = {}) {
   return Object.assign({ version: 1, format: 'grid', heights, entities: [{ type: 'start', x: 1.5, z: 1.5 }] }, extra);
 }
-function world(raw) { return Sim.createWorld(Sim.importLevel(raw)); }
+// (a converted act starts as the original does, the pad held a few frames; tests start where it acts, unless they say)
+function world(raw, start = false) { const w = Sim.createWorld(Sim.importLevel(raw)); if (!start) w.padWait = 0; return w; }
 function run(w, frames, input) {
   for (let f = 0; f < frames; f++) Sim.step(w, typeof input === 'function' ? input(f, w) : input);
   return w;
@@ -897,6 +898,12 @@ test('the original\'s death: thrown 8 up, held at the top, the act again 57 fram
   run(w, 90, (f, x) => { if (hit < 0 && x.events.includes('dying')) hit = f; if (back < 0 && x.events.includes('respawn')) back = f; if (hit >= 0 && back < 0) top = Math.max(top, x.p.y); return hit < 0 ? { mx: 1 } : {}; });
   assert.ok(hit >= 0 && back - hit === 57, `back ${back - hit} frames after the hit`);
   near((top - 1) * 32, 124, 1, 'rose 124 units');
+});
+test('the original\'s act start: count from 0, two frames run, 17 held, the pad acts from C = 3', () => {
+  const w = ROMLV(0); Sim.resetLevel(w); const x0 = w.p.x, C = [], X = [];
+  run(w, 22, (f, x) => { C.push(x.gcC); X.push(x.p.x); return { mx: 1 }; });   // (seen before each frame: [k] after frame k)
+  assert.deepStrictEqual(C.slice(1, 21), [1, 2].concat(Array(17).fill(2), [3]), `counts ${C}`);
+  assert.ok(X.slice(1, 20).every(x => x === x0) && X[21] > x0, 'still till the pad acts');
 });
 test('058 bursts into four shots when Sonic comes near, then is gone', () => {
   const w = ROMLV(0, 0, [{ type: 'enemy', x: 5.5, z: 4.5, radius: 1, burst: 1, flicky: 0 }]); place(w, 2.5, 4.5); w.p.facing = Math.PI / 2;
