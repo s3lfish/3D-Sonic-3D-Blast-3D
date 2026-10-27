@@ -917,6 +917,12 @@ test('the original\'s supercharger: a unit a frame to its middle, turned its way
   const go = V.findIndex(v => v > 1);
   assert.ok(go === 70 && Math.abs(V[go] - 7.5) < 1e-6 && w.p.rolling, `off after frame ${go} at ${V[go]} units a frame`);
 });
+test('a kinder stomp: coming down in the ball within 0.8 m across defeats an enemy', () => {
+  const w = ROMLV(0, 0, [{ type: 'enemy', x: 4.5, z: 4.5, radius: 0, flicky: 0 }]);
+  Object.assign(w.p, { x: 5.15, z: 4.5, y: w.enemies[0].y + 1, grounded: false, ball: true, jumping: false, vy: 0, vx: 0, vz: 0 });
+  run(w, 30, () => ({}));
+  assert.ok(!w.enemies[0].alive, 'defeated from above 0.65 m off its middle');
+});
 test('058 bursts into four shots when Sonic comes near, then is gone', () => {
   const w = ROMLV(0, 0, [{ type: 'enemy', x: 5.5, z: 4.5, radius: 1, burst: 1, flicky: 0 }]); place(w, 2.5, 4.5); w.p.facing = Math.PI / 2;
   let first = -1; run(w, 40, (f, x) => { if (first < 0 && x.shots.length) first = f; return { mx: 1 }; });

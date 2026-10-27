@@ -1887,8 +1887,17 @@ const S3D = (() => {
         // a deep body band (2) for deep bands so the grass under the top edge does not repeat down the cliff
         const own = [];
         for (let j = 1; j < k; j++) if (wallVisible(cx, cz, edge, j)) own.push(j);
-        if (own.length) v = wall(cx, cz, edge, own[(k - 1) % own.length]);
-        else {
+        if (own.length) {
+          v = wall(cx, cz, edge, own[(k - 1) % own.length]);
+          // a waterfall: repeating its band would stack the band's rock edge down the falls; draw the hidden band from the
+          // band's water rows alone (rows mostly animated), so the water runs on unbroken
+          const an = animSlots.find(a => a.i === v);
+          if (an) {
+            const rows = [];
+            for (let t = 0; t < S; t++) { let n = 0; for (let s2 = 0; s2 < S; s2++) n += an.mask[t * S + s2]; if (n * 2 >= S) rows.push(t); }
+            if (rows.length * 2 >= S && rows.length < S) v = newSlot((s2, t) => an.fn(s2, rows[t % rows.length]), k);
+          }
+        } else {
           const found = (k >= 2 && donor(cx, cz, edge, 2)) || donor(cx, cz, edge, Math.min(k, 1));
           v = found ? wall(...found) : plain();
         }

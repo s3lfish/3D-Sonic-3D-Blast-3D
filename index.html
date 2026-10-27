@@ -1036,6 +1036,7 @@ const Sim = (() => {
     cannonFly: 100 / 60, // after a cannon fires, the player flies without steering until landing (at most 100 frames)
     // the whirl (Rusty Ruin fans), measured in the emulator: held on the fan 32 frames, then 0.094 units a frame per frame
     // towards the stick, up to 5 units a frame, 0.03 a frame per frame of drag with the stick let go, 0.94 kept off a wall
+    stompR: 0.8, stompH: 1.3,   // the kinder stomp: across and over an enemy's base, metres (0: the original's box alone)
     whirlHold: 32 / 60, whirlAccel: 10.5, whirlTop: 9.375, whirlDrag: 3.4, whirlBounce: 0.94,
     liftWait: 1, liftSink: 40 / 60, bossBallR: 0.6,
     crawlSpeed: 60 / 32, crawlR: 0.5,   // Rusty Ruin's crawler: 1 unit a frame; touch box (estimated from its sprite)
@@ -3588,9 +3589,14 @@ const Sim = (() => {
     if (p.flyT > 0) { p.flyT -= dt; if (p.grounded) p.flyT = 0; else { mx = mz = 0; m = 0; p.ball = true; } }
     // dropping (or jumping) into a cannon's mouth: the cell's north quarter (the original's player is a point; ours is a
     // circle that walls keep P.r away), between the mouth and h above it (12 units)
+    // (the original takes only its cell's north quarter, 12 units over the mouth: a jump right at the hole's edge. Made
+    // kinder here: any jump or fall in the cell or over the hole in front of it, from a quarter metre under the mouth to
+    // 1.5 m over it)
     if (!p.grounded && !p.flyT) for (const c of w.cannons) {
-      if (w.time - c.firedAt < 1 || Math.floor(p.x) !== c.x || Math.floor(p.z) !== c.z || p.z - c.z >= 0.25 + P.r) continue;
-      if (p.y > c.y && p.y < c.y + c.h) { p.cannon = c; w.events.push('cannonIn'); return w; }
+      const cz = Math.floor(p.z);
+      if (w.time - c.firedAt < 1 || Math.floor(p.x) !== c.x || (cz !== c.z && cz !== c.z - 1)) continue;
+      const vs = L.rom ? L.rom.vscale : 1;
+      if (p.y > c.y - 0.25 * vs && p.y < c.y + 1.5 * vs) { p.cannon = c; w.events.push('cannonIn'); return w; }
     }
 
     // a supercharger holds the player on it, revving in a ball, then fires them along its direction
@@ -4459,7 +4465,11 @@ const Sim = (() => {
         }
       }
       const dx = p.x - en.x, dz = p.z - en.z;
-      if (en.touch && en.win && L.rom && L.phys.orig ? origTouch(L, p, en) : dx * dx + dz * dz < er2 && Math.abs(pcy - (en.y + 0.4)) < 0.8) {
+      // (kinder than the original: coming down on one in the ball within `stompR` across and `stompH` over its base defeats it;
+      // a jump is hard to aim in 3D)
+      const vsK = L.rom ? L.rom.vscale : 1, stomp = P.stompR > 0 && p.ball && !p.grounded && p.vy <= 0 && dx * dx + dz * dz < P.stompR * P.stompR
+        && p.y >= en.y - 0.1 * vsK && p.y <= en.y + P.stompH * vsK;
+      if (stomp || (en.touch && en.win && L.rom && L.phys.orig ? origTouch(L, p, en) : dx * dx + dz * dz < er2 && Math.abs(pcy - (en.y + 0.4)) < 0.8)) {
         if (attacking || p.inv > 0) {
           en.alive = false; en.diedAt = w.time; w.events.push('enemy');
           if (en.flicky !== 0) freeFlicky(w, en.x, en.y + (L.rom && L.phys.orig ? 0 : 0.3), en.z, en.flicky);
@@ -7794,8 +7804,17 @@ const S3D = (() => {
         // a deep body band (2) for deep bands so the grass under the top edge does not repeat down the cliff
         const own = [];
         for (let j = 1; j < k; j++) if (wallVisible(cx, cz, edge, j)) own.push(j);
-        if (own.length) v = wall(cx, cz, edge, own[(k - 1) % own.length]);
-        else {
+        if (own.length) {
+          v = wall(cx, cz, edge, own[(k - 1) % own.length]);
+          // a waterfall: repeating its band would stack the band's rock edge down the falls; draw the hidden band from the
+          // band's water rows alone (rows mostly animated), so the water runs on unbroken
+          const an = animSlots.find(a => a.i === v);
+          if (an) {
+            const rows = [];
+            for (let t = 0; t < S; t++) { let n = 0; for (let s2 = 0; s2 < S; s2++) n += an.mask[t * S + s2]; if (n * 2 >= S) rows.push(t); }
+            if (rows.length * 2 >= S && rows.length < S) v = newSlot((s2, t) => an.fn(s2, rows[t % rows.length]), k);
+          }
+        } else {
           const found = (k >= 2 && donor(cx, cz, edge, 2)) || donor(cx, cz, edge, Math.min(k, 1));
           v = found ? wall(...found) : plain();
         }
