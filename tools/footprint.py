@@ -14,7 +14,10 @@ README = os.path.join(HERE, '..', 'README.md')
 FOOT = os.path.join(HERE, '..', 'footprint')
 
 def usage(paths, after):
-    seen, tot, last = {}, dict(calls=0, inp=0, cw=0, cr=0, out=0), after
+    """Calls after `after`: tokens by kind, plus `think`, the output tokens not seen in the transcript's visible text
+    and tool calls (the reasoning written before them; its text is not kept, so this is estimated at 3.5 characters a
+    token)."""
+    seen, vis, tot, last = {}, {}, dict(calls=0, inp=0, cw=0, cr=0, out=0, think=0), after
     for fn in paths:
         for ln in open(fn, errors='replace'):
             try: r = json.loads(ln)
@@ -24,9 +27,13 @@ def usage(paths, after):
             u, k = m['usage'], (fn, m.get('id') or ln[:80])
             v = [u.get('input_tokens') or 0, u.get('cache_creation_input_tokens') or 0, u.get('cache_read_input_tokens') or 0, u.get('output_tokens') or 0]
             seen[k] = [max(a, b) for a, b in zip(seen.get(k, v), v)]
+            for b in m.get('content') or []:
+                if isinstance(b, dict) and b.get('type') == 'text': vis[k] = vis.get(k, 0) + len(b.get('text') or '')
+                elif isinstance(b, dict) and b.get('type') == 'tool_use': vis[k] = vis.get(k, 0) + len(json.dumps(b.get('input')))
             last = max(last, r['timestamp'])
-    for v in seen.values():
+    for k, v in seen.items():
         tot['calls'] += 1; tot['inp'] += v[0]; tot['cw'] += v[1]; tot['cr'] += v[2]; tot['out'] += v[3]
+        tot['think'] += max(0, v[3] - round(vis.get(k, 0) / 3.5))
     return tot, last
 
 def main():
@@ -42,13 +49,13 @@ def main():
     text = f"""<!-- footprint -->
 [![Chili dog meter: making this game has cost about {m['energyDogs']:.1f} chili dogs of energy and {m['waterDogs']:.1f} of water](footprint/chilidogs.svg)](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/)
 
-Making this with Claude, counted in chili dogs. [Pick which parts to count](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/), or read [how it works](#how-the-chili-dog-meter-works).
+Making this with Claude, counted in chili dogs; Claude's thinking accounts for about {out['think']['dogs']:.1f} of the chili dogs of energy and {out['think']['water']:.1f} of water. [Pick which parts to count](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/), or read [how it works](#how-the-chili-dog-meter-works).
 <!-- /footprint -->"""
     s = open(README).read()
     a, z = s.find('<!-- footprint -->'), s.find('<!-- /footprint -->')
     if a < 0: raise SystemExit('README has no <!-- footprint --> block')
     open(README, 'w').write(s[:a] + text + s[z + len('<!-- /footprint -->'):])
-    print(f"{m['energyDogs']:.2f} chili dogs of energy, {m['waterDogs']:.2f} of water ({out['day']})")
+    print(f"{m['energyDogs']:.2f} chili dogs of energy, {m['waterDogs']:.2f} of water; thinking {out['think']['dogs']:.3f} ({out['day']})")
 
 if __name__ == '__main__':
     main()

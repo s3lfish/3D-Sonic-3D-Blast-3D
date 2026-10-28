@@ -7,9 +7,9 @@ art and sprites from **your own copy** of the Mega Drive *Sonic 3D Blast* ROM, a
 scribbled art and a built-in level when you have no ROM. Shamlessly vibe coded with Claude because I have absolutely no skills to do any of this.  
 
 <!-- footprint -->
-[![Chili dog meter: making this game has cost about 9.8 chili dogs of energy and 3.9 of water](footprint/chilidogs.svg)](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/)
+[![Chili dog meter: making this game has cost about 9.9 chili dogs of energy and 3.9 of water](footprint/chilidogs.svg)](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/)
 
-Making this with Claude, counted in chili dogs. [Pick which parts to count](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/), or read [how it works](#how-the-chili-dog-meter-works).
+Making this with Claude, counted in chili dogs; Claude's thinking accounts for about 1.8 of the chili dogs of energy and 0.7 of water. [Pick which parts to count](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/), or read [how it works](#how-the-chili-dog-meter-works).
 <!-- /footprint -->
 
 ## ▶ [Play it in your browser](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/)
@@ -161,7 +161,7 @@ used to make chili dogs. Every figure is a rough estimate: the true numbers coul
 [The meter's page](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/) lets you choose which parts of each life
 cycle to count. `tools/footprint.py` updates it as the work goes on.
 
-**A fair comparison** counts the same kinds of thing on both sides:
+**The defaults** count the same kinds of thing on both sides:
 
 - Energy is counted as fuel at the source. The food figures already count the diesel, gas, and electricity used from
   farm to plate. The game's electricity is multiplied by 1.9, the EU's default for how much primary energy each
@@ -173,7 +173,11 @@ cycle to count. `tools/footprint.py` updates it as the work goes on.
   making its chips and servers. The chili dog includes raising the cattle, growing the wheat, and processing,
   shipping, and cooking.
 - Claude's thinking is counted: each call's output tokens include the reasoning written before the answer, and every
-  token re-read from earlier in the conversation counts as well.
+  token re-read from earlier in the conversation counts as well. Its text is not kept, so its size is estimated as the
+  output tokens left over once the visible answers and tool calls are counted (3.5 characters a token); the first
+  days' calls are given the same share. The line under the meter says how many chili dogs it accounts for.
+- Turning on rain and run-off adds water to the chili dog's side only, so each chili dog takes more water and the game
+  comes to fewer chili dogs of it.
 
 **Making the game with Claude**
 
