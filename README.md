@@ -7,12 +7,9 @@ art and sprites from **your own copy** of the Mega Drive *Sonic 3D Blast* ROM, a
 scribbled art and a built-in level when you have no ROM. Shamlessly vibe coded with Claude because I have absolutely no skills to do any of this.  
 
 <!-- footprint -->
-### Chili dog meter
+[![Chili dog meter: making this game has cost about 9.8 chili dogs of energy and 3.9 of water](footprint/chilidogs.svg)](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/)
 
-Building this with Claude has used about **12 kWh** of electricity and **13 L** of cooling water so
-far (3 to 57 kWh, 3 to 62 L). A chili dog takes about 4.8 kWh of energy and
-54 L of irrigation water to make, so this game has cost **2.6 chili dogs** of energy and
-**0.25 of a chili dog** of water. Rough estimates, last updated 28 October 2026; [how they are worked out](tools/FOOTPRINT.md).
+Making this with Claude, counted in chili dogs. [Pick which parts to count](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/), or read [how it works](#how-the-chili-dog-meter-works).
 <!-- /footprint -->
 
 ## ▶ [Play it in your browser](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/)
@@ -156,3 +153,53 @@ GPL-3.0 (see `LICENSE`). Copyright 2026 Bill Page and contributors. The sound em
 
 This is an unofficial fan project, not affiliated with or endorsed by Sega or Sonic Team. Sonic the Hedgehog and
 Sonic 3D Blast are trademarks of Sega. You need your own legally obtained copy of the game to use the ROM features.
+
+## How the chili dog meter works
+
+The meter at the top compares the energy and water used to make this game with Claude against the energy and water
+used to make chili dogs. Every figure is a rough estimate: the true numbers could be about four times lower or higher.
+[The meter's page](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/) lets you choose which parts of each life
+cycle to count. `tools/footprint.py` updates it as the work goes on.
+
+**A fair comparison** counts the same kinds of thing on both sides:
+
+- Energy is counted as fuel at the source. The food figures already count the diesel, gas, and electricity used from
+  farm to plate. The game's electricity is multiplied by 1.9, the EU's default for how much primary energy each
+  delivered kWh takes.
+- Water is counted as water drawn from rivers and aquifers and not returned: cooling water at the data centre and the
+  power station, and irrigation water for the food. Rain falling on the fields, and the water needed to dilute farm
+  run-off, are left out by default, because the data centre has nothing like them.
+- Both sides count making the thing, not just the last step. The game includes a share of training the model and of
+  making its chips and servers. The chili dog includes raising the cattle, growing the wheat, and processing,
+  shipping, and cooking.
+
+**Making the game with Claude**
+
+| Part | How it is estimated |
+| --- | --- |
+| Running the model | Every call Claude made, token by token from its session logs: 0.1 to 0.25 mWh for each new input token (Epoch AI's 2.5 Wh for a 10,000-token prompt), 0.5 to 5 mWh for each output token written over a long context (long-prompt and reasoning estimates, 1.8 to 39 Wh a query), and 0.001 to 0.01 mWh for each token read back from the prompt cache (my estimate). The first three days left no log: 2,000 to 8,000 calls at 1.2 to 7 Wh each. |
+| Training the model | Google's machine learning energy splits two fifths training, three fifths use, so training adds two thirds of the running energy. Claude's own split is not published. |
+| Chips and servers | Mistral's life cycle study of its own model: making the hardware caused 11% of the emissions and 5% of the water, against 85.5% and 91% for training and use. This is the roughest part. |
+| The test machine | The cloud machine that ran the emulator and tests for about 40 hours: 1 to 2 kWh (my estimate). |
+| Cooling water | 0.26 mL for every 0.24 Wh, Google's figure for a median Gemini prompt. |
+| Power station water | 7.6 L for every kWh generated (US average, 2003 generation mix; likely high today). |
+
+**Making one chili dog**: a 50 g beef frank, 60 g of chili holding 25 g of beef, and a 50 g bun. The beans and tomato
+in the chili are left out.
+
+| Part | Energy | Water drawn | Rain and run-off |
+| --- | --- | --- | --- |
+| 75 g of beef | 210 MJ/kg of non-renewable energy, farm to plate (US beef study) | 4% of 15,415 L/kg | the other 96% |
+| 50 g bun | 20 MJ/kg, the middle of 9 to 33 MJ/kg for 21 EU breads | 10% of 1,608 L/kg (assumed) | the other 90% |
+| Cooking | 0.1 kWh: a 1 kW grill for 6 minutes (assumed) | its power station water | none |
+
+**Sources**
+
+- Google: [Measuring the environmental impact of delivering AI at Google scale](https://arxiv.org/abs/2508.15734), and [the carbon footprint of machine learning training](https://research.google/blog/good-news-about-the-carbon-footprint-of-machine-learning-training/) (training and use split)
+- [IntuitionLabs: AI inference energy per task](https://intuitionlabs.ai/pdfs/ai-inference-energy-joules-per-task.pdf) (collects Epoch AI, Jegham et al., Microsoft, and OpenAI)
+- Mistral's life cycle study, as reported by [Simon Willison](https://simonwillison.net/2025/Jul/22/mistral-environmental-standard/)
+- Shehabi et al. (2016), US data centre energy, via [David Mytton](https://davidmytton.blog/how-much-water-do-data-centers-use/) (power station water)
+- European Parliament: [revising the primary energy factor for electricity](https://oeil.europarl.europa.eu/oeil/en/document-summary?id=1727943)
+- Asem-Hiablie et al. (2019): [a life cycle assessment of the US beef value chain](https://link.springer.com/article/10.1007%2Fs11367-018-1464-6)
+- [Energy flows of EU national breads](https://agris.fao.org/search/en/records/68879c487fd4d06c32a97929)
+- Heinrich Böll Foundation, Meat Atlas: [beef 15,415 L/kg](https://eu.boell.org/en/2021/09/07/water-thirsty-animals-thirsty-crops); [NFU](https://www.nfuonline.com/updates-and-information/water-use-and-beef-what-we-know): about 4% of it is irrigation water; [Enel](https://www.enel.com/learning-hub/environment/water-footprint): bread 1,608 L/kg

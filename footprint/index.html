@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chili Dog Meter</title>
+<style>
+  :root { --bg: #11152b; --card: #1b2142; --ink: #ffffff; --soft: #b9c3e6; --gold: #ffd34d; --line: #2c3563; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { color: var(--gold); font-size: 28px; margin: 0 0 4px; }
+  h2 { font-size: 18px; margin: 28px 0 8px; }
+  p { color: var(--soft); margin: 6px 0; }
+  a { color: var(--gold); }
+  #chart svg { width: 100%; height: auto; display: block; margin: 16px 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+  fieldset { border: 1px solid var(--line); border-radius: 12px; background: var(--card); margin: 0; padding: 12px 14px; }
+  legend { font-weight: 700; padding: 0 6px; }
+  label { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; padding: 8px 0; border-top: 1px solid var(--line); cursor: pointer; }
+  label:first-of-type { border-top: 0; }
+  input { grid-row: span 2; margin-top: 4px; width: 18px; height: 18px; accent-color: var(--gold); }
+  .n { font-weight: 600; }
+  .v { color: var(--soft); font-size: 13px; }
+  button { background: var(--gold); color: #1b2142; border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 700; cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Chili Dog Meter</h1>
+  <p>How much energy and water has it taken to make <a href="../">3D Sonic 3D Blast 3D</a> with Claude, counted in chili dogs?
+    Pick the parts of each life cycle you want to count. The starting choice compares like with like. Every figure is rough,
+    and could be about four times lower or higher.</p>
+  <div id="chart"></div>
+  <p><button id="fair">Back to the fair comparison</button></p>
+  <div class="grid">
+    <fieldset id="ai"><legend>Making the game with Claude</legend></fieldset>
+    <fieldset id="dog"><legend>Making one chili dog</legend></fieldset>
+  </div>
+  <h2>Both sides</h2>
+  <fieldset id="options"><legend>How to count</legend></fieldset>
+  <p>Method and sources: <a href="https://github.com/s3lfish/3D-Sonic-3D-Blast-3D#how-the-chili-dog-meter-works">the bottom of the README</a>.
+    <span id="updated"></span></p>
+</main>
+<script src="data.js"></script>
+<script src="model.js"></script>
+<script>
+  const M = FootprintModel, ledger = window.FOOTPRINT_LEDGER, fmt = M.fmt;
+  let P = M.parts(ledger);
+  const defaults = () => Object.fromEntries([...P.ai, ...P.dog, ...P.options].map(p => [p.id, p.on]));
+  const fair = defaults();
+  const val = (v) => Array.isArray(v) ? v[1] : (v || 0);
+  function describe(p) {
+    const bits = [];
+    if (p.elec !== undefined) bits.push(fmt(val(p.elec)) + ' kWh of electricity');
+    if (p.other !== undefined) bits.push(fmt(val(p.other)) + ' kWh of fuel');
+    if (p.water !== undefined) bits.push(fmt(val(p.water)) + ' L of water drawn');
+    if (p.green !== undefined) bits.push(fmt(val(p.green)) + ' L of rain and run-off');
+    return bits.join(', ') + (p.note ? '. ' + p.note[0].toUpperCase() + p.note.slice(1) + '.' : '.');
+  }
+  function list(id, items) {
+    const fs = document.getElementById(id);
+    for (const p of items) {
+      const l = document.createElement('label');
+      l.innerHTML = `<input type="checkbox" data-id="${p.id}"><span class="n"></span><span class="v"></span>`;
+      l.querySelector('.n').textContent = p.name;
+      l.querySelector('.v').textContent = p.elec !== undefined || p.other !== undefined || p.water !== undefined ? describe(p) : p.note[0].toUpperCase() + p.note.slice(1) + '.';
+      const box = l.querySelector('input'); box.checked = p.on;
+      box.addEventListener('change', () => { p.on = box.checked; draw(); });
+      fs.appendChild(l);
+    }
+  }
+  function draw() {
+    const c = document.getElementById('chart');
+    c.innerHTML = M.chartSvg(M.compute(P), { width: Math.max(300, Math.min(728, c.clientWidth)), idSuffix: 'p', noTitle: true });
+  }
+  list('ai', P.ai); list('dog', P.dog); list('options', P.options);
+  document.getElementById('fair').addEventListener('click', () => {
+    for (const p of [...P.ai, ...P.dog, ...P.options]) p.on = fair[p.id];
+    document.querySelectorAll('input[data-id]').forEach(b => { b.checked = fair[b.dataset.id]; });
+    draw();
+  });
+  document.getElementById('updated').textContent = 'Last updated ' + new Date(ledger.measured.until).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }) + '.';
+  draw();
+  addEventListener('resize', draw);
+</script>
+</body>
+</html>

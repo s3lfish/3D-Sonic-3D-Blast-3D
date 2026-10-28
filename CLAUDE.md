@@ -18,9 +18,12 @@ serves index.html from main.
 - `tests/render.test.js` — `npm run test:render`; Playwright Chromium with `--use-angle=swiftshader`. Serves three r128
   from node_modules. Screenshots phone + desktop. Fixture levels in `tests/levels/`.
 - `re/leakcheck.py` — run before every push: the page must carry no ROM bytes.
-- `tools/footprint.py` — the README's chili dog meter (estimated kWh and litres of making this with Claude, in chili
-  dogs): run before every push; it adds model calls from the session transcripts after `tools/footprint.json`'s
-  `measured.until` and rewrites the README block between `<!-- footprint -->` markers. Method: `tools/FOOTPRINT.md`.
+- Chili dog meter (README top, `footprint/`): `tools/footprint.py` (run before every push) adds model calls from the
+  session transcripts after `tools/footprint.json`'s `measured.until`, writes `footprint/data.js`, draws
+  `footprint/chilidogs.svg` with `footprint/model.js` (the shared model: parts of each life cycle, factors, chart) and
+  rewrites the README block between `<!-- footprint -->` markers. `footprint/index.html` (Pages: /footprint/) lets
+  readers pick the parts to count; the fair default counts fuel at the source (electricity x1.9) and water drawn on
+  both sides, rain and run-off off. Method and sources: README's last section; keep it in step with model.js.
 
 ## Conventions
 - Units: 1 tile = 1 m; grid heights base-36 chars × heightUnit (0.25 m). x east, z south, y up.
