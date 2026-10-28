@@ -228,6 +228,9 @@ original art. The browser code carries reading rules only.
   for good), aimed every 10 frames ($0B00, 0xDBAE), else a random eighth every 60 ($0B06); turns 0x10 a frame (0x20
   chasing). Frame $1C from the angle ((A - 0x100) & 0x7C0) >> 4, mirrored past 0x40 (bit 3 of +0x16). Two particles
   (template 0xD970) ride 16 units either side of it, bobbing with $0ABA.
+- Freed Flicky colour (0x192C2): byte +0x19 picks the particle's attribute word $2E: 1 0xE7EC (line 3, count $069A),
+  2 0xA7EC (line 1, $069B), 3 and 4 0xC7EC (line 2, $069C / $069D) plus $0A90. GG1's CRAM mirror at $06BE holds
+  palettes 1, 2, 3, 6 (the header's): the bird is purple in line 3, green in line 1, blue in line 2.
 - Spring 018 (0x18968): thrown when Sonic's cell is the record's word +0x24 and he is grounded ($44); vy -8.5, $086A
   = 50, sound 0xB1, animation 0xD.
 

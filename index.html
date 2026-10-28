@@ -8364,11 +8364,36 @@ const Art = (() => {
     }
     return px;
   }
-  function romFlickyMat(frame, flip, kind = 0) {
-    const key = 'f' + frame + (flip ? 'L' : 'R') + kind;
+  // the original draws a freed Flicky in a palette line chosen by its colour byte (routine 0x192C2: 1 line 3, 2 line 1,
+  // 3 and 4 line 2; GG1's CRAM watched: lines 1..3 are the header's palettes), so its colour is the level's own (GG1:
+  // Hunters' byte 4 blue, 004's byte 1 purple). `look.line` is that line on ROM levels; `look.jam` the nearest of our
+  // four colours (blue, pink, green, red: the Jam models and the scribbled birds), from the bird's body in that line
+  const FLICKY_LINE = [3, 3, 1, 2, 2], flickyLooks = new Map();
+  function flickyLook(f) {
+    const pals = L.rom && L.palettes, ok = pals && romArt && romArt.d && f.type >= 1 && f.type <= 4;
+    if (!ok) return { line: null, jam: f.kind % 4 };
+    const line = FLICKY_LINE[f.type], key = pals.join(',') + '/' + line;
+    if (!flickyLooks.has(key)) {
+      const px = S3D.objImage(romArt.d, S3D.FLICKY_ART, 0, S3D.paletteRGB(romArt.d, pals[line]), 64, 32, 48), n = new Map();
+      for (let i = 0; i < px.length; i += 4) {
+        if (!px[i + 3]) continue;
+        const r = px[i] / 255, g = px[i + 1] / 255, b = px[i + 2] / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2;
+        if (mx - mn < 0.25 || l < 0.12 || l > 0.88) continue;   // body colours only, not black, white or grey
+        let h = mx === r ? ((g - b) / (mx - mn)) % 6 : mx === g ? (b - r) / (mx - mn) + 2 : (r - g) / (mx - mn) + 4;
+        h = (h * 60 + 360) % 360;
+        const k = h >= 190 && h < 265 ? 0 : h >= 265 && h < 345 ? 1 : h >= 70 && h < 190 ? 2 : 3;
+        if (!(h >= 25 && h < 70)) n.set(k, (n.get(k) || 0) + 1);   // (yellow and orange are the beak and belly)
+      }
+      let jam = 0, best = -1; n.forEach((c, k) => { if (c > best) { best = c; jam = k; } });
+      flickyLooks.set(key, { line, jam });
+    }
+    return flickyLooks.get(key);
+  }
+  function romFlickyMat(frame, flip, kind = 0, line = null) {
+    const key = 'f' + frame + (flip ? 'L' : 'R') + (line === null ? kind : 'p' + line + L.palettes.join(','));
     if (!romArt.objs.has(key)) {
-      let px = S3D.objImage(romArt.d, S3D.FLICKY_ART, frame, romArt.pal, 64, 32, 48, flip);
-      if (FLICKY_HUES[kind % 4] !== null) px = tintBlue(px, FLICKY_HUES[kind % 4]);
+      let px = S3D.objImage(romArt.d, S3D.FLICKY_ART, frame, line === null ? romArt.pal : S3D.paletteRGB(romArt.d, L.palettes[line]), 64, 32, 48, flip);
+      if (line === null && FLICKY_HUES[kind % 4] !== null) px = tintBlue(px, FLICKY_HUES[kind % 4]);
       romArt.objs.set(key, new THREE.SpriteMaterial({ map: pixTex(pixCanvas(px, 64)), alphaTest: 0.5 }));
     }
     return romArt.objs.get(key);
@@ -9458,7 +9483,7 @@ const Art = (() => {
       // an enemy with no recipe: its own frames from the art table, mirrored by scale when it faces left
       const tf = !rm && rom && kind === 'enemy' && o.skin && S3D.typeArt(romArt.d, parseInt(o.skin, 16)) ? romTypeFrames(parseInt(o.skin, 16), o.line ?? 3) : null;
       if (tf && tf.length) {
-        const s = bottomSprite(tf[0], o.x, o.y, o.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); s.userData.size = ROM_SIZE; s.userData.frames = tf; return s;
+        const s = bottomSprite(tf[0], o.x, o.y, o.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT); s.userData.size = ROM_SIZE; s.userData.frames = tf; s.userData.type = [parseInt(o.skin, 16), o.line ?? 3]; return s;
       }
       const s = rm ? bottomSprite(rm, o.x, o.y, o.z, ROM_SIZE, ROM_SIZE, OBJ_FOOT) : bottomSprite(crudeMat, o.x, o.y, o.z, crudeSize, crudeSize, crudeFoot);
       s.userData.size = rm ? ROM_SIZE : crudeSize;
@@ -11061,7 +11086,15 @@ const Art = (() => {
       const dx = still ? world.p.x - en.x : en.x - s.position.x, dz = still ? world.p.z - en.z : en.z - s.position.z, sx = dx * rx + dz * rz;
       s.position.set(en.x, en.y, en.z);
       if (Math.abs(sx) > 1e-4) s.userData.left = sx < 0;
-      if (s.userData.frames) { const fr = s.userData.frames; s.material = fr[(Math.floor(t * 8) + q) % fr.length]; if (!s.userData.left) s.scale.x = -s.userData.size; }
+      if (s.userData.frames && en.roam && s.userData.type) {
+        // roamers' art is 17 views by their angle (handlers 0x17CB6, 0x18F9A: ((A - 0x100) & 0x7C0) >> 4, mirrored past
+        // half a turn), here taken against the camera's turn from the original's view, as the sprinklers
+        const T = Math.PI / 1024, off = Math.round((Math.atan2(cam.position.x - en.x, cam.position.z - en.z) - Math.PI / 4) / T);
+        let d0 = ((en.roam.A - off - 0x100) & 0x7C0) >> 4, flip = true;
+        if (d0 > 0x40) { d0 = 0x80 - d0; flip = false; }
+        s.material = romBossMat(s.userData.type[0], d0 >> 2, ROM_CANVAS, 80, s.userData.type[1]); s.scale.x = (flip ? -1 : 1) * s.userData.size;
+      }
+      else if (s.userData.frames) { const fr = s.userData.frames; s.material = fr[(Math.floor(t * 8) + q) % fr.length]; if (!s.userData.left) s.scale.x = -s.userData.size; }
       else s.material = s.userData.rom ? s.userData.rom[s.userData.left ? 0 : 1] : enemyMat(Math.floor(t * 6) % 2, (Math.floor(t * 8) + q) % 3, !!s.userData.left);
     }
     for (let q = 0; q < crackMeshes.length; q++) {
@@ -11216,10 +11249,10 @@ const Art = (() => {
       const dx = f.x - s.position.x, dz = f.z - s.position.z, sx = dx * rx + dz * rz;
       if (Math.abs(sx) > 1e-3) s.userData.left = sx < 0;
       s.position.set(f.x, f.y, f.z);
-      const jf = jamFlickies[q];
+      const jf = jamFlickies[q], look = flickyLook(f);
       if (jf) {
         s.visible = false;
-        const k = f.kind % 4;
+        const k = look.jam;
         if (!jf.kinds[k]) { jf.kinds[k] = jamCopy(jamProps.flickies[k]); jf.g.add(jf.kinds[k].g); }
         jf.kinds.forEach((c, i) => { if (c) c.g.visible = i === k; });
         jf.g.visible = true; jf.g.position.set(f.x, f.y, f.z);
@@ -11235,8 +11268,8 @@ const Art = (() => {
         card.rotation.y = v.x < 0 ? Math.atan2(v.z, -v.x) : Math.atan2(-v.z, v.x);
         continue;
       }
-      if (rom) { s.material = romFlickyMat(Math.floor(t * 12 + q * 3) % 16, !s.userData.left, f.kind); s.scale.set(64 * PX, 64 * PX, 1); s.center.set(0.5, 1 - 52 / 64); }
-      else { s.material = flickyMat(f.kind, Math.floor(t * 8 + q) % 2, !!s.userData.left); s.scale.set(0.55, 0.55, 1); s.center.set(0.5, 0.08); }
+      if (rom) { s.material = romFlickyMat(Math.floor(t * 12 + q * 3) % 16, !s.userData.left, f.kind, look.line); s.scale.set(64 * PX, 64 * PX, 1); s.center.set(0.5, 1 - 52 / 64); }
+      else { s.material = flickyMat(look.jam, Math.floor(t * 8 + q) % 2, !!s.userData.left); s.scale.set(0.55, 0.55, 1); s.center.set(0.5, 0.08); }
     }
     if (L.flickies) {
       const following = world.flickies.filter(f => f.state === 'follow').length, key = world.delivered * 100 + following;

@@ -411,10 +411,12 @@ serves index.html from main.
   `P.stompR` 0.8 m and `P.stompH` 1.3 m over an enemy beats it. Cannons take any airborne player in the cell or the one
   north of it, from 0.25 under the mouth to 1.5 over. Springs 018 on ROM levels throw any grounded player in their cell
   (0x18968), so a jump onto the cell launches and one beside it does not. Knuckles in GG1 shows as the cannon fires
-  (the friends' check is not reached while the cannon holds him). Flicky colours by byte +0x19: 1 blue, 2 green, 3 red,
-  4 pink (our `kind` 0 blue, 1 pink, 2 green, 3 red; Jam models in that order, purple for pink). GG1's 004 (handler
+  (the friends' check is not reached while the cannon holds him). Flicky colour byte +0x19 sets behaviour and a palette
+  line (0x192C2: 1 line 3, 2 line 1, 3 and 4 line 2), so the colour is the level's own (GG1: Hunters blue, 004 purple);
+  game.js `flickyLook` draws the ROM bird in that line and picks the Jam model or scribbled bird nearest its body hue. GG1's 004 (handler
   0x18F9A) is a roamer in a 0xA0 square, not held in it (`roam.size`, `roam.free`), holding a blue Flicky: GG1 now has
-  ten holders, five a ring. Animated tiles: frames cached per animation state (`animCache`, 48 MB); hidden waterfall
+  ten holders, five a ring. Roamers with 17 angle views (060, 14C, 104, 0C4, 004) are drawn by `roam.A` against the
+  camera, as the sprinklers (they spun through their views before). Animated tiles: frames cached per animation state (`animCache`, 48 MB); hidden waterfall
   bands repeat only their water rows. Heads (044) over springs play 0x68, the original's head sound.
 - 2026-10-27 night: a fourth private pad script (ex4: spin dashes off corner pieces, dashes into enemies, deaths and
   reloads, long idles) in all 22 acts; fixed so far: reload freeze and counts, roll end clears the ball, dash-frame
