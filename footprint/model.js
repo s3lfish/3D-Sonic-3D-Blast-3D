@@ -138,23 +138,18 @@
       body + '</svg>';
   }
 
-  // Claude's thinking: the share of the meter from the reasoning written before each answer. The measured calls' thinking
-  // tokens (ledger `think`, estimated) are taken out, and the first days' calls lose the same share of their energy;
-  // the difference, with the parts and options as given, is thinking's part. Returns [low, mid, high] results.
-  function thinkingEffect(ledger, P0) {
-    const m = ledger.measured, b = ledger.baseline;
-    const mWh = i => ['inp', 'cw', 'cr', 'out'].reduce((s, k) => s + (m[k] || 0) * TOKEN_MWH[k][i], 0);
-    const share = [0, 1, 2].map(i => mWh(i) > 0 ? (m.think || 0) * TOKEN_MWH.out[i] / mWh(i) : 0);
-    const less = JSON.parse(JSON.stringify(ledger));
-    less.measured.out = (m.out || 0) - (m.think || 0);
-    less.baseline.whPerCall = b.whPerCall.map((w, i) => w * (1 - share[i]));
+  // The meter's own cost: the calls spent making it (ledger `meter`) taken out, the difference with the parts and
+  // options as given. Returns [low, mid, high].
+  function meterEffect(ledger, P0) {
+    const less = JSON.parse(JSON.stringify(ledger)), mt = ledger.meter || {};
+    for (const k of ['inp', 'cw', 'cr', 'out']) less.measured[k] = (less.measured[k] || 0) - (mt[k] || 0);
     const keep = P => { const Q = parts(less); for (const k of ['ai', 'dog', 'options']) Q[k].forEach((p, j) => { p.on = P[k][j].on; }); return Q; };
     const full = compute(P0 || parts(ledger)), cut = compute(keep(P0 || parts(ledger)));
-    return full.map((f, i) => ({ share: share[i], kwh: f.aiKwh - cut[i].aiKwh, litres: f.aiL - cut[i].aiL,
+    return full.map((f, i) => ({ calls: mt.calls || 0, kwh: f.aiKwh - cut[i].aiKwh, litres: f.aiL - cut[i].aiL,
       energyDogs: f.energyDogs - cut[i].energyDogs, waterDogs: f.waterDogs - cut[i].waterDogs }));
   }
 
-  const api = { parts, compute, food, chartSvg, inferenceKwh, thinkingEffect, fmt, PEF, GEN_WATER, SITE_WATER };
+  const api = { parts, compute, food, chartSvg, inferenceKwh, meterEffect, fmt, PEF, GEN_WATER, SITE_WATER };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.FootprintModel = api;
 
   // node footprint/model.js tools/footprint.json footprint/chilidogs.svg -> prints the default figures as JSON
@@ -163,7 +158,7 @@
     const ledger = JSON.parse(fs.readFileSync(ledgerPath, 'utf8')), r = compute(parts(ledger));
     const day = new Date(ledger.measured.until).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Australia/Adelaide' });
     fs.writeFileSync(svgPath, chartSvg(r, { updated: day }));
-    const th = thinkingEffect(ledger);
-    console.log(JSON.stringify({ r, day, think: { dogs: th[1].energyDogs, water: th[1].waterDogs, share: th[1].share, kwh: th[1].kwh, litres: th[1].litres } }));
+    const pe = meterEffect(ledger)[1];
+    console.log(JSON.stringify({ r, day, page: { dogs: pe.energyDogs, water: pe.waterDogs, kwh: pe.kwh, litres: pe.litres, calls: pe.calls } }));
   }
 })(typeof window !== 'undefined' ? window : globalThis);

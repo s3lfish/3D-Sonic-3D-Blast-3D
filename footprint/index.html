@@ -32,7 +32,7 @@
 </head>
 <body>
 <main>
-  <h1>Chili Dog Meter</h1>
+  <h1>Chili Dog Meter<sup>*</sup></h1>
   <p>How much energy and water has it taken to make <a href="../">3D Sonic 3D Blast 3D</a> with Claude, counted in chili dogs?
     Pick the parts of each life cycle you want to count. The defaults compare like with like. Every figure is rough,
     and could be about four times lower or higher.</p>
@@ -56,14 +56,14 @@
     <li><b>Both sides count making the thing, not just the last step.</b> The game includes a share of training the
       model and of making its chips and servers. The chili dog includes raising the cattle, growing the wheat, and
       processing, shipping, and cooking.</li>
-    <li><b>Claude's thinking is counted.</b><sup>*</sup> Every call's output includes the reasoning written before the
+    <li><b>Claude's thinking is counted.</b> Every call's output includes the reasoning written before the
       answer, and the meter counts all of it, along with everything re-read from earlier in the conversation.</li>
   </ul>
   <p>Training the model adds the most energy: two thirds on top of running it, from Google's split of its own machine
     learning energy. The power station adds the most water: 7.6 L a kWh is a US average from 2003, so it is probably
     high for today's grid. The roughest part is making the chips and servers, scaled from Mistral's study of its own
     model, because nobody has published this for Claude.</p>
-  <p class="foot" id="thinkNote"></p>
+  <p class="foot" id="meterNote"></p>
   <p>Full method and sources: <a href="https://github.com/s3lfish/3D-Sonic-3D-Blast-3D#how-the-chili-dog-meter-works">the end of the README</a>.
     <span id="updated"></span></p>
 </main>
@@ -108,10 +108,10 @@
     label();
     const c = document.getElementById('chart');
     c.innerHTML = M.chartSvg(M.compute(P), { width: Math.max(300, Math.min(728, c.clientWidth)), idSuffix: 'p', noTitle: true });
-    const t = M.thinkingEffect(ledger, P)[1];
-    document.getElementById('thinkNote').textContent = `* Thinking is about ${Math.round(t.share * 100)}% of the energy of running the model `
-      + `(estimated: its text is not kept, so it is the output tokens left over once the visible answers and tool calls are counted). `
-      + `With your choices it adds ${fmt(t.energyDogs)} chili dogs of energy and ${fmt(t.waterDogs)} of water to the totals above.`;
+    const t = M.meterEffect(ledger, P)[1];
+    document.getElementById('meterNote').textContent = `* Making this page has cost ${fmt(t.energyDogs)} chili dogs of energy `
+      + `and ${fmt(t.waterDogs)} of water so far (${fmt(t.kwh)} kWh, ${fmt(t.litres)} L, with your choices): the ${t.calls} calls Claude `
+      + `made from the first question about it, and counted in the totals above.`;
   }
   list('ai', P.ai);
   list('dog', [P.options.find(o => o.id === 'vegan'), ...P.dog]);

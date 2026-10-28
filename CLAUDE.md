@@ -25,7 +25,8 @@ serves index.html from main.
   readers pick the parts to count; the fair default counts fuel at the source (electricity x1.9) and water drawn on
   both sides, rain and run-off off. The chili dog is built from ingredients (`dog`: grams, MJ/kg as eaten from
   Carlsson-Kanyama 2003, water drawn from Poore and Nemecek, rain from Mekonnen and Hoekstra; `veg` swaps; option
-  `vegan`); thinking's share by `thinkingEffect` (ledger `think`). Method and sources: README's last section; keep it
+  `vegan`); the meter's own cost by `meterEffect` (ledger `meter`: calls while `open`; set `open` false when work moves
+  off the meter, true again when it comes back). Method and sources: README's last section; keep it
   in step with model.js.
 
 ## Conventions
