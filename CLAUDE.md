@@ -18,6 +18,9 @@ serves index.html from main.
 - `tests/render.test.js` — `npm run test:render`; Playwright Chromium with `--use-angle=swiftshader`. Serves three r128
   from node_modules. Screenshots phone + desktop. Fixture levels in `tests/levels/`.
 - `re/leakcheck.py` — run before every push: the page must carry no ROM bytes.
+- `tools/footprint.py` — the README's chili dog meter (estimated kWh and litres of making this with Claude, in chili
+  dogs): run before every push; it adds model calls from the session transcripts after `tools/footprint.json`'s
+  `measured.until` and rewrites the README block between `<!-- footprint -->` markers. Method: `tools/FOOTPRINT.md`.
 
 ## Conventions
 - Units: 1 tile = 1 m; grid heights base-36 chars × heightUnit (0.25 m). x east, z south, y up.

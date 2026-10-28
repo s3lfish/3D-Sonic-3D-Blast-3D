@@ -6,6 +6,15 @@ A true 3D take on an isometric Mega Drive platformer, playable in your browser. 
 art and sprites from **your own copy** of the Mega Drive *Sonic 3D Blast* ROM, and falls back to crude original
 scribbled art and a built-in level when you have no ROM. Shamlessly vibe coded with Claude because I have absolutely no skills to do any of this.  
 
+<!-- footprint -->
+### Chili dog meter
+
+Building this with Claude has used about **12 kWh** of electricity and **13 L** of cooling water so
+far (3 to 57 kWh, 3 to 62 L). A chili dog takes about 4.8 kWh of energy and
+54 L of irrigation water to make, so this game has cost **2.6 chili dogs** of energy and
+**0.25 of a chili dog** of water. Rough estimates, last updated 28 October 2026; [how they are worked out](tools/FOOTPRINT.md).
+<!-- /footprint -->
+
 ## ▶ [Play it in your browser](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/)
 
 No install. Works with keyboard, mouse, touch or a controller.

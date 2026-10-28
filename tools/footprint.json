@@ -1,0 +1,24 @@
+{
+  "baseline": {
+    "note": "Work before the first measured call (25 to 28 Oct 2026, overnight runs included): no per-call record survives. Calls estimated from 97 commits at 25 to 80 calls each; Wh per call from the measured stretch.",
+    "until": "2026-10-28T00:54:00Z",
+    "calls": [
+      2000,
+      4000,
+      8000
+    ],
+    "whPerCall": [
+      1.2,
+      3.0,
+      7.0
+    ]
+  },
+  "measured": {
+    "until": "2026-10-28T03:31:45.924Z",
+    "calls": 122,
+    "inp": 244,
+    "cw": 1005172,
+    "cr": 32276780,
+    "out": 70532
+  }
+}
