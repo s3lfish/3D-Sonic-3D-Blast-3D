@@ -23,7 +23,10 @@ serves index.html from main.
   `footprint/chilidogs.svg` with `footprint/model.js` (the shared model: parts of each life cycle, factors, chart) and
   rewrites the README block between `<!-- footprint -->` markers. `footprint/index.html` (Pages: /footprint/) lets
   readers pick the parts to count; the fair default counts fuel at the source (electricity x1.9) and water drawn on
-  both sides, rain and run-off off. Method and sources: README's last section; keep it in step with model.js.
+  both sides, rain and run-off off. The chili dog is built from ingredients (`dog`: grams, MJ/kg as eaten from
+  Carlsson-Kanyama 2003, water drawn from Poore and Nemecek, rain from Mekonnen and Hoekstra; `veg` swaps; option
+  `vegan`); thinking's share by `thinkingEffect` (ledger `think`). Method and sources: README's last section; keep it
+  in step with model.js.
 
 ## Conventions
 - Units: 1 tile = 1 m; grid heights base-36 chars × heightUnit (0.25 m). x east, z south, y up.

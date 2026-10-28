@@ -32,15 +32,32 @@
         { id: 'tests', name: 'The cloud machine running the emulator and tests', note: 'about 40 hours',
           elec: [1, 1.5, 2], water: [1, 1.5, 2].map(x => x * SITE_WATER), on: true },
       ],
+      // one chili dog, ingredient by ingredient (grams; per kg of the food as eaten: energy MJ [low, mid, high], water
+      // drawn L, rain and run-off L). `veg` is the vegan swap.
       dog: [
-        { id: 'beef', name: 'Beef: 50 g frank and 25 g in the chili', note: 'farm to plate, non-renewable energy (US beef study)',
-          other: 0.075 * 210 * KWH_MJ, water: 0.075 * 15415 * 0.04, green: 0.075 * 15415 * 0.96, on: true },
-        { id: 'bun', name: 'The bun: 50 g of bread', note: 'baked bread, 9 to 33 MJ/kg; 10% of its water from irrigation (assumed)',
-          other: 0.05 * 20 * KWH_MJ, water: 0.05 * 1608 * 0.1, green: 0.05 * 1608 * 0.9, on: true },
-        { id: 'cook', name: 'Cooking it', note: 'a 1 kW grill for 6 minutes (assumed)', elec: 0.1, on: true },
+        { id: 'bun', name: 'Bun', g: 50, e: [8.9, 10, 13], drawn: 647.5, rain: 1447, on: true,
+          note: 'wheat bread; usually vegan already' },
+        { id: 'sausage', name: 'Beef frank', g: 50, e: [70, 72, 75], drawn: 1451.2, rain: 14798, on: true,
+          note: 'beef, cooked', veg: { name: 'Plant-based sausage', e: [38, 39, 41], drawn: 396.6, rain: 4548,
+            note: 'pea protein: 46% less energy than beef (Beyond Burger study); water as peas (rough)' } },
+        { id: 'meat', name: 'Beef in the chili', g: 25, e: [70, 72, 75], drawn: 1451.2, rain: 14798, on: true,
+          note: 'minced beef, cooked', veg: { name: 'Plant mince in the chili', e: [38, 39, 41], drawn: 396.6, rain: 4548,
+            note: 'as the plant-based sausage' } },
+        { id: 'beans', name: 'Beans in the chili', g: 20, e: [16, 18, 20], drawn: 174.3, rain: 1819, on: true,
+          note: 'canned kidney beans (2.5 times the weight of dry)' },
+        { id: 'tomato', name: 'Tomato in the chili', g: 15, e: [14, 14, 14], drawn: 369.8, rain: 193, on: true,
+          note: 'canned tomato' },
+        { id: 'chiliOnion', name: 'Onion in the chili', g: 5, e: [3, 5.4, 8], drawn: 14.3, rain: 308, on: true,
+          note: 'energy assumed as fresh field vegetables' },
+        { id: 'cheese', name: 'Grated cheese on top', g: 15, e: [60, 62, 65], drawn: 5605.2, rain: 2860, on: false,
+          note: 'cheddar', veg: { name: 'Vegan cheese on top', e: [20, 21, 22], drawn: 3363, rain: 1716,
+            note: 'coconut oil and starch: 40% less water than dairy (Violife study); energy a third of dairy, as its emissions (rough)' } },
+        { id: 'onion', name: 'Chopped onion on top', g: 10, e: [3, 5.4, 8], drawn: 14.3, rain: 308, on: false,
+          note: 'raw onion' },
       ],
       options: [
-        { id: 'pef', name: 'Count electricity at the power station', note: `x${PEF}: fuel burned for each kWh delivered, as the food figures are`, on: true },
+        { id: 'vegan', name: 'Make it vegan', note: 'plant-based sausage and mince, and vegan cheese if it has cheese', on: false },
+        { id: 'pef', name: 'Count electricity at the power station', note: `times ${PEF}: the fuel burned for each kWh delivered, as the food figures count it`, on: true },
         { id: 'genwater', name: 'Water used at the power station', note: `${GEN_WATER} L a kWh, both sides`, on: true },
         { id: 'green', name: 'Rain on the fields and water to dilute run-off', note: 'only the food has these, so they make each chili dog thirstier and the game worth fewer chili dogs of water', on: false },
       ],
@@ -48,12 +65,17 @@
   }
 
   const at = (v, i) => Array.isArray(v) ? v[i] : (v || 0);
+  // an ingredient as eaten, vegan or not: the energy (kWh at the source), water drawn and rain and run-off (L)
+  function food(p, vegan) {
+    const q = vegan && p.veg ? p.veg : p, kg = p.g / 1000;
+    return { name: q.name, note: q.note, other: q.e.map(x => kg * x * KWH_MJ), water: kg * q.drawn, green: kg * q.rain };
+  }
   // totals for one side, i = 0 low, 1 mid, 2 high
   function side(list, opt, i) {
     let e = 0, w = 0;
-    for (const p of list) {
-      if (!p.on) continue;
-      const el = at(p.elec, i);
+    for (const p0 of list) {
+      if (!p0.on) continue;
+      const p = p0.g ? food(p0, opt.vegan) : p0, el = at(p.elec, i);
       e += el * (opt.pef ? PEF : 1) + at(p.other, i);
       w += at(p.water, i) + (opt.genwater ? el * GEN_WATER : 0) + (opt.green ? at(p.green, i) : 0);
     }
@@ -132,7 +154,7 @@
       energyDogs: f.energyDogs - cut[i].energyDogs, waterDogs: f.waterDogs - cut[i].waterDogs }));
   }
 
-  const api = { parts, compute, chartSvg, inferenceKwh, thinkingEffect, fmt, PEF, GEN_WATER, SITE_WATER };
+  const api = { parts, compute, food, chartSvg, inferenceKwh, thinkingEffect, fmt, PEF, GEN_WATER, SITE_WATER };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.FootprintModel = api;
 
   // node footprint/model.js tools/footprint.json footprint/chilidogs.svg -> prints the default figures as JSON

@@ -7,9 +7,9 @@ art and sprites from **your own copy** of the Mega Drive *Sonic 3D Blast* ROM, a
 scribbled art and a built-in level when you have no ROM. Shamlessly vibe coded with Claude because I have absolutely no skills to do any of this.  
 
 <!-- footprint -->
-[![Chili dog meter: making this game has cost about 9.9 chili dogs of energy and 3.9 of water](footprint/chilidogs.svg)](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/)
+[![Chili dog meter: making this game has cost about 26.5 chili dogs of energy and 1.4 of water](footprint/chilidogs.svg)](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/)
 
-Making this with Claude, counted in chili dogs; Claude's thinking accounts for about 1.8 of the chili dogs of energy and 0.7 of water. [Pick which parts to count](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/), or read [how it works](#how-the-chili-dog-meter-works).
+Making this with Claude, counted in chili dogs; Claude's thinking accounts for about 5.3 of the chili dogs of energy and 0.3 of water. [Pick which parts to count](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/), or read [how it works](#how-the-chili-dog-meter-works).
 <!-- /footprint -->
 
 ## ▶ [Play it in your browser](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/)
@@ -164,10 +164,10 @@ cycle to count. `tools/footprint.py` updates it as the work goes on.
 **The defaults** count the same kinds of thing on both sides:
 
 - Energy is counted as fuel at the source. The food figures already count the diesel, gas, and electricity used from
-  farm to plate. The game's electricity is multiplied by 1.9, the EU's default for how much primary energy each
+  farm to plate, cooking included. The game's electricity is multiplied by 1.9, the EU's default for how much primary energy each
   delivered kWh takes.
-- Water is counted as water drawn from rivers and aquifers and not returned: cooling water at the data centre and the
-  power station, and irrigation water for the food. Rain falling on the fields, and the water needed to dilute farm
+- Water is counted as water drawn from rivers and aquifers: cooling water at the data centre and the power station,
+  and the water drawn for the food, mostly to irrigate it. Rain falling on the fields, and the water needed to dilute farm
   run-off, are left out by default, because the data centre has nothing like them.
 - Both sides count making the thing, not just the last step. The game includes a share of training the model and of
   making its chips and servers. The chili dog includes raising the cattle, growing the wheat, and processing,
@@ -190,14 +190,23 @@ cycle to count. `tools/footprint.py` updates it as the work goes on.
 | Cooling water | 0.26 mL for every 0.24 Wh, Google's figure for a median Gemini prompt. |
 | Power station water | 7.6 L for every kWh generated (US average, 2003 generation mix; likely high today). |
 
-**Making one chili dog**: a 50 g beef frank, 60 g of chili holding 25 g of beef, and a 50 g bun. The beans and tomato
-in the chili are left out.
+**Making one chili dog**: pick the ingredients on [the meter's page](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/),
+add cheese or onion, or make it vegan. Energy is per kg of the food as eaten, cooking included (Carlsson-Kanyama et
+al. 2003); water drawn is Poore and Nemecek's global average withdrawal (2018); rain and run-off is the rest of the
+food's water footprint (Mekonnen and Hoekstra; 90% of a crop's, 96% of beef's, assumed).
 
-| Part | Energy | Water drawn | Rain and run-off |
-| --- | --- | --- | --- |
-| 75 g of beef | 210 MJ/kg of non-renewable energy, farm to plate (US beef study) | 4% of 15,415 L/kg | the other 96% |
-| 50 g bun | 20 MJ/kg, the middle of 9 to 33 MJ/kg for 21 EU breads | 10% of 1,608 L/kg (assumed) | the other 90% |
-| Cooking | 0.1 kWh: a 1 kW grill for 6 minutes (assumed) | its power station water | none |
+| Ingredient | Default | Energy (MJ/kg) | Water drawn (L/kg) | Rain and run-off (L/kg) |
+| --- | --- | --- | --- | --- |
+| Bun, 50 g | on | 8.9 to 13 | 648 (wheat and rye bread) | 1,447 |
+| Beef frank, 50 g | on | 70 to 75 (beef, cooked) | 1,451 (beef herd) | 14,798 |
+| Beef in the chili, 25 g | on | as the frank | as the frank | as the frank |
+| Beans in the chili, 20 g | on | 16 to 20 (canned) | 174 (pulses, 2.5 times the weight of dry) | 1,819 |
+| Tomato in the chili, 15 g | on | 14 (canned) | 370 | 193 |
+| Onion in the chili, 5 g | on | 5.4 (assumed: fresh field vegetables) | 14 | 308 |
+| Grated cheese, 15 g | off | 60 to 65 | 5,605 | 2,860 |
+| Chopped onion on top, 10 g | off | as the onion in the chili | | |
+| Vegan: plant-based sausage and mince | off | 46% less than beef (Beyond Burger study) | 397 (as peas; rough) | 4,548 (as pulses; rough) |
+| Vegan: cheese | off | a third of dairy's, as its emissions (rough) | 40% less than dairy (Violife study) | the same 40% less |
 
 **Sources**
 
@@ -206,6 +215,8 @@ in the chili are left out.
 - Mistral's life cycle study, as reported by [Simon Willison](https://simonwillison.net/2025/Jul/22/mistral-environmental-standard/)
 - Shehabi et al. (2016), US data centre energy, via [David Mytton](https://davidmytton.blog/how-much-water-do-data-centers-use/) (power station water)
 - European Parliament: [revising the primary energy factor for electricity](https://oeil.europarl.europa.eu/oeil/en/document-summary?id=1727943)
-- Asem-Hiablie et al. (2019): [a life cycle assessment of the US beef value chain](https://link.springer.com/article/10.1007%2Fs11367-018-1464-6)
-- [Energy flows of EU national breads](https://agris.fao.org/search/en/records/68879c487fd4d06c32a97929)
+- Carlsson-Kanyama, Pipping Ekström and Shanahan (2003): [Food and life cycle energy inputs](https://p2infohouse.org/ref/37/36497.pdf), Table 1
+- Poore and Nemecek (2018), via [Our World in Data: freshwater withdrawals per kg of food](https://ourworldindata.org/grapher/water-withdrawals-per-kg-poore)
+- Mekonnen and Hoekstra's water footprints, via [the Vegetarian Resource Group](https://vrg.org/journal/vj2017issue2/2017_issue2_burrito_plate.php) (beans, onions) and [Science in School](https://www.scienceinschool.org/wp-content/uploads/2020/06/water-footprint-calcs.pdf) (cheese, tomato)
+- University of Michigan: [the Beyond Burger life cycle assessment](https://css.umich.edu/publications/research-publications/beyond-meats-beyond-burger-life-cycle-assessment-detailed); [Violife's study of its plant-based cheese](https://www.vegancheese.co/discover/article/study-shows-violife-have-50-percent-lower-climate-impact-and-uses-less-30-percent-of-land-than-dairy-cheese)
 - Heinrich Böll Foundation, Meat Atlas: [beef 15,415 L/kg](https://eu.boell.org/en/2021/09/07/water-thirsty-animals-thirsty-crops); [NFU](https://www.nfuonline.com/updates-and-information/water-use-and-beef-what-we-know): about 4% of it is irrigation water; [Enel](https://www.enel.com/learning-hub/environment/water-footprint): bread 1,608 L/kg

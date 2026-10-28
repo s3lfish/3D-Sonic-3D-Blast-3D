@@ -34,24 +34,24 @@
 <main>
   <h1>Chili Dog Meter</h1>
   <p>How much energy and water has it taken to make <a href="../">3D Sonic 3D Blast 3D</a> with Claude, counted in chili dogs?
-    Pick the parts of each life cycle you want to count. The starting choice compares like with like. Every figure is rough,
+    Pick the parts of each life cycle you want to count. The defaults compare like with like. Every figure is rough,
     and could be about four times lower or higher.</p>
   <div id="chart"></div>
-  <p><button id="fair">Back to the fair comparison</button></p>
+  <p><button id="fair">Back to the defaults</button></p>
   <div class="grid">
     <fieldset id="ai"><legend>Making the game with Claude</legend></fieldset>
-    <fieldset id="dog"><legend>Making one chili dog</legend></fieldset>
+    <fieldset id="dog"><legend>Making one chili dog: pick what goes on it</legend></fieldset>
   </div>
   <h2>Both sides</h2>
   <fieldset id="options"><legend>How to count</legend></fieldset>
   <h2>Why the defaults are the defaults</h2>
-  <p>It counts the same kinds of thing on both sides.</p>
+  <p>They count the same kinds of thing on both sides.</p>
   <ul class="why">
     <li><b>Energy is counted as fuel at the source.</b> The food figures already count the diesel, gas, and electricity
-      used from farm to plate. The game's electricity is multiplied by 1.9, the EU's default for the primary energy each
+      used from farm to plate (cooking included). The game's electricity is multiplied by 1.9, the EU's default for the primary energy each
       delivered kWh takes.</li>
     <li><b>Water is water drawn from rivers and aquifers and not returned:</b> cooling water at the data centre and the
-      power station, and irrigation water for the food. Rain on the fields and water to dilute farm run-off are left out,
+      power station, and the water drawn for the food, mostly to irrigate it. Rain on the fields and water to dilute farm run-off are left out,
       because the data centre has nothing like them.</li>
     <li><b>Both sides count making the thing, not just the last step.</b> The game includes a share of training the
       model and of making its chips and servers. The chili dog includes raising the cattle, growing the wheat, and
@@ -75,27 +75,37 @@
   const defaults = () => Object.fromEntries([...P.ai, ...P.dog, ...P.options].map(p => [p.id, p.on]));
   const fair = defaults();
   const val = (v) => Array.isArray(v) ? v[1] : (v || 0);
+  const vegan = () => P.options.find(o => o.id === 'vegan').on;
+  const cap = t => t ? t[0].toUpperCase() + t.slice(1) + '.' : '';
   function describe(p) {
     const bits = [];
     if (p.elec !== undefined) bits.push(fmt(val(p.elec)) + ' kWh of electricity');
     if (p.other !== undefined) bits.push(fmt(val(p.other)) + ' kWh of fuel');
     if (p.water !== undefined) bits.push(fmt(val(p.water)) + ' L of water drawn');
     if (p.green !== undefined) bits.push(fmt(val(p.green)) + ' L of rain and run-off');
-    return bits.join(', ') + (p.note ? '. ' + p.note[0].toUpperCase() + p.note.slice(1) + '.' : '.');
+    return bits.join(', ') + '. ' + cap(p.note);
   }
+  const rows = [];
   function list(id, items) {
     const fs = document.getElementById(id);
     for (const p of items) {
       const l = document.createElement('label');
       l.innerHTML = `<input type="checkbox" data-id="${p.id}"><span class="n"></span><span class="v"></span>`;
-      l.querySelector('.n').textContent = p.name;
-      l.querySelector('.v').textContent = p.elec !== undefined || p.other !== undefined || p.water !== undefined ? describe(p) : p.note[0].toUpperCase() + p.note.slice(1) + '.';
       const box = l.querySelector('input'); box.checked = p.on;
       box.addEventListener('change', () => { p.on = box.checked; draw(); });
-      fs.appendChild(l);
+      fs.appendChild(l); rows.push([p, l]);
+    }
+  }
+  // names and figures follow the choices (the vegan swap changes the ingredients)
+  function label() {
+    for (const [p, l] of rows) {
+      const f = p.g ? M.food(p, vegan()) : p;
+      l.querySelector('.n').textContent = p.g ? `${f.name} (${p.g} g)` : p.name;
+      l.querySelector('.v').textContent = f.elec !== undefined || f.other !== undefined || f.water !== undefined ? describe(f) : cap(p.note);
     }
   }
   function draw() {
+    label();
     const c = document.getElementById('chart');
     c.innerHTML = M.chartSvg(M.compute(P), { width: Math.max(300, Math.min(728, c.clientWidth)), idSuffix: 'p', noTitle: true });
     const t = M.thinkingEffect(ledger, P)[1];
@@ -103,7 +113,9 @@
       + `(estimated: its text is not kept, so it is the output tokens left over once the visible answers and tool calls are counted). `
       + `With your choices it adds ${fmt(t.energyDogs)} chili dogs of energy and ${fmt(t.waterDogs)} of water to the totals above.`;
   }
-  list('ai', P.ai); list('dog', P.dog); list('options', P.options);
+  list('ai', P.ai);
+  list('dog', [P.options.find(o => o.id === 'vegan'), ...P.dog]);
+  list('options', P.options.filter(o => o.id !== 'vegan'));
   document.getElementById('fair').addEventListener('click', () => {
     for (const p of [...P.ai, ...P.dog, ...P.options]) p.on = fair[p.id];
     document.querySelectorAll('input[data-id]').forEach(b => { b.checked = fair[b.dataset.id]; });
