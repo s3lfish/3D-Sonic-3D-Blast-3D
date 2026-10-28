@@ -1275,7 +1275,7 @@ const Sim = (() => {
             // "wander" [x0, z0, size]: walks a random way at "speed", a new way every so often, kept in that square
             wander: Array.isArray(e.wander) && e.wander.length === 3 && e.wander.every(Number.isFinite) ? e.wander : null,
             // converted levels: "roam" {box [x, z] in the original's units, a} and "aim" {a} (see origRoam, origAim)
-            roam: e.roam && Array.isArray(e.roam.box) && e.roam.box.length === 2 && e.roam.box.every(Number.isFinite) && Number.isFinite(e.roam.a) ? { box: e.roam.box, a: e.roam.a & 0x7FE } : null,
+            roam: e.roam && Array.isArray(e.roam.box) && e.roam.box.length === 2 && e.roam.box.every(Number.isFinite) && Number.isFinite(e.roam.a) ? { box: e.roam.box, a: e.roam.a & 0x7FE, size: e.roam.size > 0 ? e.roam.size : 0x7C, free: !!e.roam.free } : null,
             aim: e.aim && Number.isFinite(e.aim.a) ? { a: e.aim.a & 0x7FE } : null, burst: e.burst ? 1 : 0, win: winOf(e),
             touch: Array.isArray(e.touch) && e.touch.length === 2 && e.touch.every(v => Number.isInteger(v) && v > 0 && v < 0x20) ? e.touch.slice() : null,
             // converted levels: "c8" {i, t}: the original's 0C8 table walk (see origC8)
@@ -2150,7 +2150,7 @@ const Sim = (() => {
     w.enemies = L.entities.filter(e => e.type === 'enemy').map((e, i) => ({ x0: e.x, z0: e.z, x: e.x, z: e.z, y: e.y, radius: e.radius, speed: e.speed, chase: e.chase, ang: i * 1.7, alive: true, diedAt: -9, skin: e.skin, patrol: e.patrol, pdir: 1,
       orbit: e.orbit || 0, orbitY: e.orbitY || 0, phase: i * 1.7, ball: e.orbit ? { x: e.x, y: e.y, z: e.z } : null, flicky: e.flicky ?? -1, shoot: e.shoot ?? -1, line: e.line ?? 3,
       wander: e.wander || null, wt: 0, wd: [0, 0],
-      roam: e.roam ? { box: e.roam.box, A: e.roam.a, T: e.roam.a, chase: false } : null, aim: e.aim ? { A: e.aim.a, cnt: 30 } : null,
+      roam: e.roam ? { box: e.roam.box, size: e.roam.size || 0x7C, free: e.roam.free, A: e.roam.a, T: e.roam.a, chase: false } : null, aim: e.aim ? { A: e.aim.a, cnt: 30 } : null,
       burst: e.burst ? 0 : -1, win: e.win || null, touch: e.touch || null, y0: e.y, fr: e.fr || null, c8: e.c8 ? { i: e.c8.i, rate: e.c8.r[0], n: e.c8.r[1], t: e.c8.t } : null }));
     w.capsules = L.entities.filter(e => e.type === 'capsule').map(e => ({ ...e, alive: true, diedAt: -9 }));
     w.monitors = L.entities.filter(e => e.type === 'monitor').map(e => ({ x: e.x, z: e.z, y: e.y, broken: false, skin: e.skin, kind: e.kind || 'rings' }));
@@ -3302,10 +3302,12 @@ const Sim = (() => {
   const holders = w => w.enemies.filter(e => e.alive && e.flicky !== 0).length + w.capsules.filter(c => c.alive).length;
   const freeFlicky = (w, x, y, z, colour) => {
     if (!w.L.flickies) return;
-    const kind = colour > 0 ? (colour - 1) & 3 : w.flickies.length % 4;
+    // (the holder's byte +0x19 is the Flicky's type, 1..4, and its hops say which colour: 1 comes to Sonic (blue), 2
+    // wanders (green), 3 jumps high (red), 4 comes slowly (pink); `kind` is our colour index: blue, pink, green, red)
+    const kind = colour > 0 ? [0, 0, 2, 3, 1][colour & 7] || 0 : w.flickies.length % 4;
     if (w.L.rom && w.L.phys.orig) {   // (0x192C2: a particle of the enemy's colour, 4 up; no catching for 30 frames)
       const S = 65536, vs = w.L.rom.vscale;
-      const f = { o: 1, type: kind + 1, d: 0, t: Infinity, X: Math.floor(x * 32) * S, Y: Math.floor(y * 32 / vs - 8 + 1e-6) * S, Z: Math.floor(z * 32) * S,
+      const f = { o: 1, type: colour > 0 ? colour : kind + 1, d: 0, t: Infinity, X: Math.floor(x * 32) * S, Y: Math.floor(y * 32 / vs - 8 + 1e-6) * S, Z: Math.floor(z * 32) * S,
         vx: 0, vy: -4 * S, vz: 0, x, y, z, state: 'free', age: 0, kind };
       ringPos(w.L, f); w.flickies.push(f); w.flickyWait = 30;
       return;
@@ -3451,6 +3453,8 @@ const Sim = (() => {
       if (jumpPress) {
         p.vy = c.vy; p.vz = c.vz; p.vx = 0; p.grounded = false; p.jumping = false; p.cannon = null; p.flyT = P.cannonFly;
         p.facing = 0; c.firedAt = w.time; w.events.push('cannon');
+        // (Green Grove 1's routine shows Knuckles as its cannon fires, 0xE766; the friends' check is not reached while held)
+        for (const f of w.friends || []) if (!f.shown && f.show && f.show.cannon && f.show.cannon[0] === Math.floor(c.x) && f.show.cannon[1] === Math.floor(c.z)) { f.shown = true; w.events.push('friendShown'); }
       }
       return w;
     }
@@ -4309,7 +4313,10 @@ const Sim = (() => {
     for (const sp of w.springs) {
       if (sp.cool > 0) { sp.cool -= dt; continue; }
       const dx = sp.x - p.x, dz = sp.z - p.z;
-      if (dx * dx + dz * dz < 0.25 && p.y >= sp.y - 0.2 && p.y <= sp.y + 0.45 && p.vy <= 0.5) {
+      // (the original's 018, 0x18968: any grounded player in its cell is thrown; our round pad elsewhere)
+      const cellSpring = L.rom && L.phys.orig && sp.skin === '018';
+      if (cellSpring ? p.grounded && Math.floor(p.x) === Math.floor(sp.x) && Math.floor(p.z) === Math.floor(sp.z)
+        : dx * dx + dz * dz < 0.25 && p.y >= sp.y - 0.2 && p.y <= sp.y + 0.45 && p.vy <= 0.5) {
         // gravity takes its first bite in the same step, as for a jump, so the rise matches the measured height
         p.vy = sp.power - L.phys.gravity * dt; p.grounded = false; p.jumping = false; p.coyote = 0; launchW(p, L, sp.power); p.anim = 0xD;
         p.ball = false; p.rolling = false; p.sprung = true; p.charge = 0;
@@ -5108,9 +5115,10 @@ const Sim = (() => {
     if (!R.chase && Math.abs(SX - xi) <= 0x40 && Math.abs(SZ - zi) <= 0x40) { R.chase = true; R.A &= 0x7E0; rate = 0x20; }
     if (R.chase) { if (gZero(w, 10)) R.T = octantTo(SX - xi, SZ - zi); }   // ($0B00)
     else if (gZero(w, 60)) R.T = oRand(w) & 0x700;   // ($0B06; the random word's bits 8-10)
-    const [bx, bz] = R.box, fx = en.X - xi * S, fz = en.Z - zi * S;
-    if (xi <= bx) { R.T = 0x200; en.X = bx * S + fx; } else if (xi >= bx + 0x7C) { R.T = 0x600; en.X = (bx + 0x7C) * S + fx; }
-    if (zi <= bz) { R.T = 0; en.Z = bz * S + fz; } else if (zi >= bz + 0x7C) { R.T = 0x400; en.Z = (bz + 0x7C) * S + fz; }
+    // (0x17CB6 holds it in its 0x7C square; Green Grove's 004, 0x18F9A, only turns it back from a 0xA0 one)
+    const [bx, bz] = R.box, n = R.size, fx = en.X - xi * S, fz = en.Z - zi * S;
+    if (xi <= bx) { R.T = 0x200; if (!R.free) en.X = bx * S + fx; } else if (xi >= bx + n) { R.T = 0x600; if (!R.free) en.X = (bx + n) * S + fx; }
+    if (zi <= bz) { R.T = 0; if (!R.free) en.Z = bz * S + fz; } else if (zi >= bz + n) { R.T = 0x400; if (!R.free) en.Z = (bz + n) * S + fz; }
     const d = (R.A - R.T) & 0x7FE;
     if (d) R.A = (R.A + (d > 0x400 ? rate : -rate)) & 0x7FE;
   }
@@ -6216,7 +6224,7 @@ const S3D = (() => {
   const compassOf = f => (180 + f * 360 / 2048) % 360;   // the original's facing: 0 south, 0x200 west, 0x400 north
   // object types, identified by watching the game run: player start, springs, monitors, the act-end ring, main enemies
   const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
-    0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
+    0x04: 'enemy', 0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
     0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
     0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',   // 0DC: Diamond Dust's snowdrift springs
     0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall',
@@ -6238,7 +6246,7 @@ const S3D = (() => {
   // of byte +0x16) rising a unit a frame from +0x24 to +0x26 while stood on; fire (120): burns unless the fire shield
   const PATROL = new Set([0x100, 0x108, 0x148, 0x9C, 0x5C, 0x178]);   // (0x108 and Spring Stadium's 0x148 share handler 0x16528; Rusty Ruin's 09C, 0x17294, is the same)
   // handler 0x17346 (094, 144, 10C, 17C): wanders; 0x17CB6 (060, 14C, 104; 0C4 joins it): roams and chases
-  const WANDER = new Set([0x94, 0x144, 0x10C, 0x17C]), ROAM = new Set([0x60, 0x14C, 0x104, 0xC4]);   // (Gene Gadget's 05C: handler 0x17E80; Panic Puppet's 178: 0x15E20)
+  const WANDER = new Set([0x94, 0x144, 0x10C, 0x17C]), ROAM = new Set([0x60, 0x14C, 0x104, 0xC4, 0x04]);   // (Gene Gadget's 05C: handler 0x17E80; Panic Puppet's 178: 0x15E20)
   // Spring Stadium's balloons (150, handler 0x164B0): bob 8 units about word +0x26 (phase +0x24, 16 a frame of 2048);
   // touched, they pop and throw Sonic about 43 units up (measured), and are back about 70 frames later
   // Rusty Ruin's spiked crawler (0AC), watched in the emulator: it rolls 1 unit a frame along the foot of a wall between
@@ -6472,7 +6480,8 @@ const S3D = (() => {
       if (WANDER.has(t)) { e.wander = [r3(s16(ob, o + 0x28) / CELL - x0), r3(s16(ob, o + 0x2A) / CELL - z0), 2]; e.speed = r3(30 / CELL); }
       // roamers (handler 0x17CB6, Sim enemy `roam`): the 0x7C square from words +0x28 and +0x2A (its top bit is the chase
       // flag) in the original's units, angle +0x24; 064 (0x17BC8) turns toward Sonic and shoots (`aim`)
-      if (ROAM.has(t)) e.roam = { box: [s16(ob, o + 0x28), u16(ob, o + 0x2A) & 0x7FFF], a: u16(ob, o + 0x24) & 0x7FE };
+      // (004, handler 0x18F9A, Green Grove's: the same moves in a 0xA0 square, not held inside it, angle cut to 0x7F0)
+      if (ROAM.has(t)) e.roam = Object.assign({ box: [s16(ob, o + 0x28), u16(ob, o + 0x2A) & 0x7FFF], a: u16(ob, o + 0x24) & (t === 4 ? 0x7F0 : 0x7FE) }, t === 4 ? { size: 0xA0, free: 1 } : {});
       if (t === 0x64) e.aim = { a: u16(ob, o + 0x24) & 0x7FE };
       // Panic Puppet 2's beam posts (180, handler 0x15F60): animation index from word +0x1E / 2 (24 steps of 9 frames; shown
       // frame 0 in steps 13..20), shooting 2 units a frame along z (x with bit 3 of byte +0x16) from 16 out, 16 under

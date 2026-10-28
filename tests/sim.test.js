@@ -1245,7 +1245,7 @@ test('a Flicky capsule: its sides are walls; landing on it breaks it, throws the
   place(w, 4.5, 2.5); run(w, 60, { mx: 1 }); assert.ok(w.p.x < 6.03 && w.capsules[0].alive, `stopped by its side at ${w.p.x.toFixed(2)}`);
   place(w, 6.5, 2.5); Object.assign(w.p, { y: 2.9, grounded: false, vy: 0 });
   let vy = null; run(w, 30, (f, ww) => { if (vy === null && ww.events.includes('capsule')) vy = ww.p.vy; return {}; });
-  near(vy, UF(5), 0.25, 'thrown up'); assert.ok(!w.capsules[0].alive && w.flickies.length === 1 && w.flickies[0].kind === 2, 'broken, its Flicky free');
+  near(vy, UF(5), 0.25, 'thrown up'); assert.ok(!w.capsules[0].alive && w.flickies.length === 1 && w.flickies[0].kind === 3, 'broken, its Flicky free (colour 3, red)');
   place(w, 10.5, 2.5); w.p.ball = true; Object.assign(w.p, { y: 1.5, grounded: false, vy: -1 }); run(w, 20, {});
   assert.ok(!w.enemies[0].alive && w.flickies.length === 1, 'an enemy holding none frees none');
 });

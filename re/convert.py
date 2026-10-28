@@ -19,7 +19,7 @@ PIECES = [0xD5, 0x75, 0x5D, 0x57]   # diagonal corner pieces: NW, NE, SE, SW cor
 RING_TABLE, RING_HOVER = 0x1936, 18
 # object types identified from in-game photos (springs, monitors, the act-end ring, player start, main enemies)
 KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
-         0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
+         0x04: 'enemy', 0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
          0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
          0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',
          0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall',
@@ -28,7 +28,7 @@ KINDS = {0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 
          0x15C: 'friend', 0x160: 'friend', 0x44: 'head'}
 PROP_FRAME = {0x70: 6, 0x74: 0, 0x184: 7}
 PATROL = {0x100, 0x108, 0x148, 0x9C, 0x5C, 0x178}   # half a unit a frame (measured; see s3d.js)
-WANDER, ROAM = {0x94, 0x144, 0x10C, 0x17C}, {0x60, 0x14C, 0x104, 0xC4}   # handlers 0x17346 and 0x17CB6 (see s3d.js)
+WANDER, ROAM = {0x94, 0x144, 0x10C, 0x17C}, {0x60, 0x14C, 0x104, 0xC4, 0x04}   # handlers 0x17346 and 0x17CB6 (see s3d.js)
 MONITOR_KINDS = ['oneup', 'rings', 'shield', 'gold', 'invincible', 'speed', 'fire']
 
 
@@ -280,7 +280,8 @@ def convert(rom, level_id, vscale=1.0):
         if t in WANDER:   # wanders in the 64-unit square from +0x28, +0x2A (see s3d.js)
             wx, wz = struct.unpack('>hh', r[0x28:0x2C]); e["wander"] = [jround(wx / CELL - x0, 3), jround(wz / CELL - z0, 3), 2]; e["speed"] = jround(30 / CELL, 3)
         if t in ROAM:   # roams its 0x7C square from +0x28, +0x2A & 0x7FFF, chasing once near (see s3d.js)
-            rx, rz = struct.unpack('>hH', r[0x28:0x2C]); e["roam"] = {"box": [rx, rz & 0x7FFF], "a": struct.unpack('>H', r[0x24:0x26])[0] & 0x7FE}
+            rx, rz = struct.unpack('>hH', r[0x28:0x2C]); e["roam"] = {"box": [rx, rz & 0x7FFF], "a": struct.unpack('>H', r[0x24:0x26])[0] & (0x7F0 if t == 4 else 0x7FE)}
+            if t == 4: e["roam"].update({"size": 0xA0, "free": 1})   # 004 (0x18F9A): a 0xA0 square, not held in it
         if t == 0x64: e["aim"] = {"a": struct.unpack('>H', r[0x24:0x26])[0] & 0x7FE}
         if kind == 'beamPost':
             e["y"] = jround((struct.unpack('>h', r[0xA:0xC])[0] - 8) / CELL * vscale, 3); e["dir"] = [1, 0] if (r[0x16] >> 3) & 1 else [0, 1]

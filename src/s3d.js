@@ -299,7 +299,7 @@ const S3D = (() => {
   const compassOf = f => (180 + f * 360 / 2048) % 360;   // the original's facing: 0 south, 0x200 west, 0x400 north
   // object types, identified by watching the game run: player start, springs, monitors, the act-end ring, main enemies
   const KINDS = { 0x30: 'start', 0x18: 'spring', 0x158: 'spring', 0x3C: 'monitor', 0x40: 'goal', 0x08: 'mine', 0x54: 'turret', 0x24: 'booster',
-    0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
+    0x04: 'enemy', 0x0C: 'enemy', 0x94: 'enemy', 0x144: 'enemy', 0x148: 'enemy', 0x60: 'enemy', 0x64: 'enemy', 0x100: 'enemy', 0x10C: 'enemy',
     0xC4: 'enemy', 0xC8: 'enemy', 0x58: 'enemy', 0x9C: 'enemy', 0x8C: 'spring', 0x98: 'lift', 0xAC: 'crawler',
     0x5C: 'enemy', 0x14C: 'enemy', 0x150: 'balloon', 0xDC: 'spring',   // 0DC: Diamond Dust's snowdrift springs
     0x104: 'enemy', 0x108: 'enemy', 0x12C: 'jetLift', 0x120: 'fireSpot', 0x128: 'movePlat', 0x118: 'spikeBall',
@@ -321,7 +321,7 @@ const S3D = (() => {
   // of byte +0x16) rising a unit a frame from +0x24 to +0x26 while stood on; fire (120): burns unless the fire shield
   const PATROL = new Set([0x100, 0x108, 0x148, 0x9C, 0x5C, 0x178]);   // (0x108 and Spring Stadium's 0x148 share handler 0x16528; Rusty Ruin's 09C, 0x17294, is the same)
   // handler 0x17346 (094, 144, 10C, 17C): wanders; 0x17CB6 (060, 14C, 104; 0C4 joins it): roams and chases
-  const WANDER = new Set([0x94, 0x144, 0x10C, 0x17C]), ROAM = new Set([0x60, 0x14C, 0x104, 0xC4]);   // (Gene Gadget's 05C: handler 0x17E80; Panic Puppet's 178: 0x15E20)
+  const WANDER = new Set([0x94, 0x144, 0x10C, 0x17C]), ROAM = new Set([0x60, 0x14C, 0x104, 0xC4, 0x04]);   // (Gene Gadget's 05C: handler 0x17E80; Panic Puppet's 178: 0x15E20)
   // Spring Stadium's balloons (150, handler 0x164B0): bob 8 units about word +0x26 (phase +0x24, 16 a frame of 2048);
   // touched, they pop and throw Sonic about 43 units up (measured), and are back about 70 frames later
   // Rusty Ruin's spiked crawler (0AC), watched in the emulator: it rolls 1 unit a frame along the foot of a wall between
@@ -555,7 +555,8 @@ const S3D = (() => {
       if (WANDER.has(t)) { e.wander = [r3(s16(ob, o + 0x28) / CELL - x0), r3(s16(ob, o + 0x2A) / CELL - z0), 2]; e.speed = r3(30 / CELL); }
       // roamers (handler 0x17CB6, Sim enemy `roam`): the 0x7C square from words +0x28 and +0x2A (its top bit is the chase
       // flag) in the original's units, angle +0x24; 064 (0x17BC8) turns toward Sonic and shoots (`aim`)
-      if (ROAM.has(t)) e.roam = { box: [s16(ob, o + 0x28), u16(ob, o + 0x2A) & 0x7FFF], a: u16(ob, o + 0x24) & 0x7FE };
+      // (004, handler 0x18F9A, Green Grove's: the same moves in a 0xA0 square, not held inside it, angle cut to 0x7F0)
+      if (ROAM.has(t)) e.roam = Object.assign({ box: [s16(ob, o + 0x28), u16(ob, o + 0x2A) & 0x7FFF], a: u16(ob, o + 0x24) & (t === 4 ? 0x7F0 : 0x7FE) }, t === 4 ? { size: 0xA0, free: 1 } : {});
       if (t === 0x64) e.aim = { a: u16(ob, o + 0x24) & 0x7FE };
       // Panic Puppet 2's beam posts (180, handler 0x15F60): animation index from word +0x1E / 2 (24 steps of 9 frames; shown
       // frame 0 in steps 13..20), shooting 2 units a frame along z (x with bit 3 of byte +0x16) from 16 out, 16 under

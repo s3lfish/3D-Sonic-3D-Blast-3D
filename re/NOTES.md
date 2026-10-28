@@ -222,6 +222,15 @@ original art. The browser code carries reading rules only.
 
 ## Green Grove objects (emulator + the StrategyWiki Green Grove guide)
 
+- 004 (handler 0x18F9A): Green Grove's roamer, byte +0x19 = 1 (blue Flicky) in GG1's two. As 0x17CB6 but its square
+  is 0xA0 from words +0x28, +0x2A & 0x7FFF and it is only turned back at the edges, never put inside; angle +0x24 cut
+  to 0x7F0 on its first frame; half a unit a frame (sine >> 16), a unit while chasing (Sonic within 0x40 in x and z,
+  for good), aimed every 10 frames ($0B00, 0xDBAE), else a random eighth every 60 ($0B06); turns 0x10 a frame (0x20
+  chasing). Frame $1C from the angle ((A - 0x100) & 0x7C0) >> 4, mirrored past 0x40 (bit 3 of +0x16). Two particles
+  (template 0xD970) ride 16 units either side of it, bobbing with $0ABA.
+- Spring 018 (0x18968): thrown when Sonic's cell is the record's word +0x24 and he is grounded ($44); vy -8.5, $086A
+  = 50, sound 0xB1, animation 0xD.
+
 - 08 Mine (explodes on touch), 0C Hunter (stands still), 58 Scouter (chases), 54 Turret (fires at Sonic; killed a
   test Sonic with no rings), 44 continue (a head above a spring), 28 cracked wall (raises its cell to 480 units until
   broken), 38 supercharger posts (raise two cells by 32), 24 supercharger pad.
