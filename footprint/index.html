@@ -23,6 +23,9 @@
   input { grid-row: span 2; margin-top: 4px; width: 18px; height: 18px; accent-color: var(--gold); }
   .n { font-weight: 600; }
   .v { color: var(--soft); font-size: 13px; }
+  .why { color: var(--soft); padding-left: 20px; margin: 6px 0; }
+  .why li { margin: 6px 0; }
+  .why b { color: var(--ink); }
   button { background: var(--gold); color: #1b2142; border: 0; border-radius: 8px; padding: 8px 14px; font-weight: 700; cursor: pointer; }
 </style>
 </head>
@@ -40,7 +43,26 @@
   </div>
   <h2>Both sides</h2>
   <fieldset id="options"><legend>How to count</legend></fieldset>
-  <p>Method and sources: <a href="https://github.com/s3lfish/3D-Sonic-3D-Blast-3D#how-the-chili-dog-meter-works">the bottom of the README</a>.
+  <h2>Why the starting choice is fair</h2>
+  <p>It counts the same kinds of thing on both sides.</p>
+  <ul class="why">
+    <li><b>Energy is counted as fuel at the source.</b> The food figures already count the diesel, gas, and electricity
+      used from farm to plate. The game's electricity is multiplied by 1.9, the EU's default for the primary energy each
+      delivered kWh takes.</li>
+    <li><b>Water is water drawn from rivers and aquifers and not returned:</b> cooling water at the data centre and the
+      power station, and irrigation water for the food. Rain on the fields and water to dilute farm run-off are left out,
+      because the data centre has nothing like them.</li>
+    <li><b>Both sides count making the thing, not just the last step.</b> The game includes a share of training the
+      model and of making its chips and servers. The chili dog includes raising the cattle, growing the wheat, and
+      processing, shipping, and cooking.</li>
+    <li><b>Claude's thinking is counted.</b> Every call's output includes the reasoning written before the answer, and
+      the meter counts all of it, along with everything re-read from earlier in the conversation.</li>
+  </ul>
+  <p>Training the model adds the most energy: two thirds on top of running it, from Google's split of its own machine
+    learning energy. The power station adds the most water: 7.6 L a kWh is a US average from 2003, so it is probably
+    high for today's grid. The roughest part is making the chips and servers, scaled from Mistral's study of its own
+    model, because nobody has published this for Claude.</p>
+  <p>Full method and sources: <a href="https://github.com/s3lfish/3D-Sonic-3D-Blast-3D#how-the-chili-dog-meter-works">the end of the README</a>.
     <span id="updated"></span></p>
 </main>
 <script src="data.js"></script>

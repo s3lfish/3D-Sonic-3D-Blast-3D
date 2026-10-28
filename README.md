@@ -172,6 +172,8 @@ cycle to count. `tools/footprint.py` updates it as the work goes on.
 - Both sides count making the thing, not just the last step. The game includes a share of training the model and of
   making its chips and servers. The chili dog includes raising the cattle, growing the wheat, and processing,
   shipping, and cooking.
+- Claude's thinking is counted: each call's output tokens include the reasoning written before the answer, and every
+  token re-read from earlier in the conversation counts as well.
 
 **Making the game with Claude**
 
