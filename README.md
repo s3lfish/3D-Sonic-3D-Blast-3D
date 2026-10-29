@@ -7,7 +7,7 @@ art and sprites from **your own copy** of the Mega Drive *Sonic 3D Blast* ROM, a
 scribbled art and a built-in level when you have no ROM. Shamlessly vibe coded with Claude because I have absolutely no skills to do any of this.  
 
 <!-- footprint -->
-[![Chili dog meter: making this game has cost about 26.9 chili dogs of energy and 1.5 of water](footprint/chilidogs.svg)](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/)
+[![Chili dog meter: making this game has cost about 27.0 chili dogs of energy and 1.5 of water](footprint/chilidogs.svg)](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/)
 
 Making this with Claude, counted in chili dogs; making the meter itself cost about 0.8 of the chili dogs of energy and 0.05 of water. [Pick which parts to count](https://s3lfish.github.io/3D-Sonic-3D-Blast-3D/footprint/), or read [how it works](#how-the-chili-dog-meter-works).
 <!-- /footprint -->

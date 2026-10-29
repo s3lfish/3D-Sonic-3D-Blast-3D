@@ -2,10 +2,18 @@
 # offline. Windows (portable zip), Linux (AppImage, x64 and arm64) and macOS (universal zip, ad-hoc signed).
 # Quiver and similar launchers install these from the release. No ROM data is in any build.
 name: Desktop builds
+# Start it from the Actions tab (Run workflow, with a version such as 0.1.0: makes the tag and the release), or by
+# publishing a release on GitHub, or by pushing a v* tag.
 on:
   push:
     tags: ['v*']
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version for the release, such as 0.1.0 (makes the tag v0.1.0)'
+        required: true
 permissions:
   contents: write
 jobs:
@@ -40,7 +48,7 @@ jobs:
           if-no-files-found: error
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -49,6 +57,9 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
           files: out/*
           body: |
             Desktop builds of 3D Sonic 3D Blast 3D: the same game as the web page, in its own window, and it runs offline.
