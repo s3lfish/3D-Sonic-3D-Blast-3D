@@ -1,0 +1,72 @@
+{
+  "name": "3d-sonic-3d-blast-3d",
+  "productName": "3D Sonic 3D Blast 3D",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A true 3D take on an isometric Mega Drive platformer, built from your own ROM.",
+  "author": "Bill Page",
+  "license": "GPL-3.0-only",
+  "homepage": "https://github.com/s3lfish/3D-Sonic-3D-Blast-3D",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/s3lfish/3D-Sonic-3D-Blast-3D.git"
+  },
+  "main": "main.js",
+  "scripts": {
+    "prepare-app": "node prepare.js",
+    "start": "node prepare.js && electron .",
+    "dist": "node prepare.js && electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.17.0",
+    "three": "0.128.0"
+  },
+  "build": {
+    "appId": "io.github.s3lfish.blastgrid",
+    "productName": "3D Sonic 3D Blast 3D",
+    "artifactName": "3D-Sonic-3D-Blast-3D-${version}-${os}-${arch}.${ext}",
+    "files": [
+      "main.js",
+      "app/**"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "Game"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "category": "public.app-category.games",
+      "identity": "-"
+    },
+    "publish": null
+  }
+}

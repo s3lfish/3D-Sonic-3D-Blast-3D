@@ -14,17 +14,17 @@
     ]
   },
   "measured": {
-    "until": "2026-10-28T04:15:39.773Z",
-    "calls": 179,
-    "inp": 356,
-    "cw": 1182974,
-    "cr": 58104095,
-    "out": 135905
+    "until": "2026-10-29T03:09:08.211Z",
+    "calls": 201,
+    "inp": 400,
+    "cw": 1701922,
+    "cr": 70734920,
+    "out": 150051
   },
   "meter": {
     "note": "Calls spent making the chili dog meter (from the first question about it). Counted while open is true.",
     "from": "2026-10-28T03:26:03Z",
-    "open": true,
+    "open": false,
     "until": "2026-10-28T04:15:39.773Z",
     "calls": 80,
     "inp": 158,

@@ -18,6 +18,11 @@ serves index.html from main.
 - `tests/render.test.js` — `npm run test:render`; Playwright Chromium with `--use-angle=swiftshader`. Serves three r128
   from node_modules. Screenshots phone + desktop. Fixture levels in `tests/levels/`.
 - `re/leakcheck.py` — run before every push: the page must carry no ROM bytes.
+- `desktop/` — Electron wrapper for launchers that install from GitHub Releases (Quiver): `prepare.js` copies
+  index.html into `app/` with three.js local and a UTF-8 meta; `main.js` serves it from `app://game/` (secure origin:
+  IndexedDB, AudioWorklet). `.github/workflows/desktop.yml` builds Windows zip, Linux AppImage (x64, arm64) and macOS
+  universal zip on a `v*` tag and attaches them to the release. Bump `desktop/package.json` version with each tag.
+  Headless check: xvfb-run electron with --use-angle=swiftshader --enable-unsafe-swiftshader.
 - Chili dog meter (README top, `footprint/`): `tools/footprint.py` (run before every push) adds model calls from the
   session transcripts after `tools/footprint.json`'s `measured.until`, writes `footprint/data.js`, draws
   `footprint/chilidogs.svg` with `footprint/model.js` (the shared model: parts of each life cycle, factors, chart) and

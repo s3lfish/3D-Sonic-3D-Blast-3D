@@ -1,0 +1,60 @@
+# Desktop builds for each tagged release (v*): the game page in an Electron window, three.js bundled so it runs
+# offline. Windows (portable zip), Linux (AppImage, x64 and arm64) and macOS (universal zip, ad-hoc signed).
+# Quiver and similar launchers install these from the release. No ROM data is in any build.
+name: Desktop builds
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            args: --linux AppImage --x64 --arm64
+          - os: windows-latest
+            args: --win zip --x64
+          - os: macos-latest
+            args: --mac zip --universal
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install --no-audit --no-fund
+      - run: npm run dist -- ${{ matrix.args }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: |
+            desktop/dist/*.zip
+            desktop/dist/*.AppImage
+          if-no-files-found: error
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          body: |
+            Desktop builds of 3D Sonic 3D Blast 3D: the same game as the web page, in its own window, and it runs offline.
+            You still need your own copy of the Mega Drive Sonic 3D Blast ROM to play the original's levels; without one
+            you get the built-in level and scribbled art. These builds contain no ROM data.
+
+            - Windows: unzip the `win` zip and run `3D Sonic 3D Blast 3D.exe`.
+            - Linux: make the `.AppImage` executable and run it (x86_64 or arm64).
+            - macOS: unzip and open the app. It is not notarised, so the first time right-click it and choose Open.
